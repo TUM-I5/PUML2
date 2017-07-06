@@ -1,0 +1,22 @@
+language: cpp
+comiler:
+ - gcc
+ - clang
+
+before_install:
+ - sudo apt-get update -qq
+
+install:
+ - sudo apt-get install -qq openmpi-bin openmpi-common openmpi-dev libhdf5-openmpi-1.8.4 hdf5-tools libhdf5-openmpi-dev
+
+before_script:
+ - export CC=mpicc
+ - export CXX=mpicxx
+
+script:
+ - cd test/
+ - git clone https://github.com/TUM-I5/XdmfWriter.git
+ - scons
+
+after_script:
+ - cat config.log
