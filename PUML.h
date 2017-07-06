@@ -408,7 +408,7 @@ public:
 			delete [] *it;
 			*it = newData;
 		}
-		
+
 		delete [] indices;
 
 		// Compute exchange info
@@ -457,7 +457,6 @@ public:
 		// Exchange cell data
 		for (std::vector<int*>::iterator it = m_cellData.begin();
 				it != m_cellData.end(); ++it) {
-			logInfo() << rank << "send data";
 			int* newData = new int[m_originalSize[0]];
 			MPI_Alltoallv(*it, sendCount, sDispls, MPI_INT,
 				newData, recvCount, rDispls, MPI_INT,
