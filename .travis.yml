@@ -7,7 +7,7 @@ before_install:
  - sudo apt-get update -qq
 
 install:
- - sudo apt-get install -qq openmpi-bin openmpi-common openmpi-dev libhdf5-openmpi-1.8.4 hdf5-tools libhdf5-openmpi-dev
+ - sudo apt-get install -qq openmpi-bin openmpi-common openmpi-dev libhdf5-openmpi-1.8.4 hdf5-tools libhdf5-openmpi-dev libparmetis-dev
 
 before_script:
  - export CC=mpicc
