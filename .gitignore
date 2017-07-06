@@ -3,10 +3,10 @@
 *.kdev4
 
 # Test
-tests/XdmfWriter
-tests/puml.o
-tests/config.log
-tests/.sconf_temp/
-tests/.sconsign.dblite
-tests/build/
+test/XdmfWriter
+test/puml.o
+test/config.log
+test/.sconf_temp/
+test/.sconsign.dblite
+test/build/
 

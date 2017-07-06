@@ -5,9 +5,14 @@ comiler:
 
 before_install:
  - sudo apt-get update -qq
+ - wget http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/metis-5.1.0.tar.gz
+ - wget http://glaros.dtc.umn.edu/gkhome/fetch/sw/parmetis/parmetis-4.0.3.tar.gz
 
 install:
- - sudo apt-get install -qq openmpi-bin openmpi-common openmpi-dev libhdf5-openmpi-1.8.4 hdf5-tools libhdf5-openmpi-dev libparmetis-dev
+ - sudo apt-get install -qq openmpi-bin openmpi-common openmpi-dev libhdf5-openmpi-1.8.4 hdf5-tools libhdf5-openmpi-dev
+ - tar -xaf metis-5.1.0.tar.gz
+ - cd metis-5.1.0 && make config prefix=/usr && make && make install && cd ..
+ - cd parmetis-4.0.3 && make config prefix=/usr && make && make install && cd ..
 
 before_script:
  - export CC=mpicc
