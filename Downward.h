@@ -13,6 +13,7 @@
 #ifndef PUML_DOWNWARD_H
 #define PUML_DOWNWARD_H
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 
@@ -42,10 +43,7 @@ public:
 	{
 		for (unsigned int i = 0; i < internal::Topology<Topo>::cellfaces(); i++) {
 			unsigned int v[internal::Topology<Topo>::facevertices()];
-
-			for (unsigned int j = 0; j < internal::Topology<Topo>::facevertices(); j++) {
-				v[j] = cell.m_vertices[internal::Numbering<Topo>::facevertices()[i][j]];
-			}
+			faceVertices(puml, cell, i, v);
 
 			int id = puml.faceByVertices(v);
 			assert(id >= 0);
@@ -79,6 +77,37 @@ public:
 		unsigned int lid[internal::Topology<Topo>::cellvertices()];
 		vertices(puml, cell, lid);
 		internal::Utils::l2g<Topo, PUML<Topo>::vertex_t, internal::Topology<Topo>::cellvertices()>(puml, lid, gid);
+	}
+
+	/**
+	 * @param faceId The local id of the face
+	 * @return The side of the cell this face is on or -1 of the face is on no side
+	 */
+	template<TopoType Topo>
+	static int faceSide(const PUML<Topo> &puml, const typename PUML<Topo>::cell_t &cell, unsigned int faceId)
+	{
+		unsigned int faceIds[internal::Topology<Topo>::cellfaces()];
+		faces(puml, cell, faceIds);
+
+		unsigned int* end = faceIds+internal::Topology<Topo>::cellfaces();
+
+		unsigned int* pFaceId = std::find(faceIds, end, faceId);
+		if (pFaceId == end)
+			return -1;
+
+		return pFaceId - faceIds;
+	}
+
+	/**
+	 * @param faceSide The side of the cell
+	 */
+	template<TopoType Topo>
+	static void faceVertices(const PUML<Topo> &puml, const typename PUML<Topo>::cell_t &cell, unsigned int faceSide, unsigned int* lid)
+	{
+		assert(faceSide < internal::Topology<Topo>::cellfaces());
+		for (unsigned int i = 0; i < internal::Topology<Topo>::facevertices(); i++) {
+			lid[i] = cell.m_vertices[internal::Numbering<Topo>::facevertices()[faceSide][i]];
+		}
 	}
 };
 

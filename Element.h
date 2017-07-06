@@ -29,17 +29,15 @@ class Utils;
 
 template<TopoType Topo>
 class PUML;
-
 class Downward;
+class Upward;
 
 template<typename utype>
 class Element
 {
 	template<TopoType Topo>
 	friend class PUML;
-
-	friend class Downward;
-
+	friend class Upward;
 	friend class internal::Utils;
 
 private:
@@ -74,11 +72,17 @@ public:
 	/**
 	 * @return <code>True</code> if the element is on a partition boundary
 	 */
-	bool isShared()
-	{ return m_sharedRanks.size() > 1; }
+	bool isShared() const
+	{ return m_sharedRanks.size() > 0; }
+
+	/**
+	 * @return A vector of ranks that also has this element
+	 */
+	const std::vector<int>& shared() const
+	{ return m_sharedRanks; }
 };
 
-class Vertex : public BoundaryElement<std::vector<unsigned int> >
+class Vertex : public BoundaryElement<std::vector<int> >
 {
 	template<TopoType Topo>
 	friend class PUML;
@@ -95,24 +99,25 @@ public:
 	{ return m_coordinate; }
 };
 
-class Edge : public BoundaryElement<std::vector<unsigned int> >
+class Edge : public BoundaryElement<std::vector<int> >
 {
 	template<TopoType Topo>
 	friend class PUML;
 };
 
-class Face : public BoundaryElement<unsigned int[2]>
+class Face : public BoundaryElement<int[2]>
 {
 	template<TopoType Topo>
 	friend class PUML;
 };
 
 template<TopoType Topo>
-class Cell : public Element<unsigned int[0]>
+class Cell : public Element<int[0]>
 {
 	friend class PUML<Topo>;
+	friend class Downward;
 
-public:
+private:
 	unsigned int m_vertices[internal::Topology<Topo>::cellvertices()];
 };
 

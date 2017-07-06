@@ -10,8 +10,8 @@
  * @author Sebastian Rettenberger <sebastian.rettenberger@tum.de>
  */
 
-#ifndef PUML_H
-#define PUML_H
+#ifndef PUML_PUML_H
+#define PUML_PUML_H
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -394,11 +394,22 @@ public:
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			memcpy(newCells[i], m_originalCells[indices[i]], sizeof(ocell_t));
 		}
-
-		// Forget about the unsorted data
-		delete [] indices;
 		delete [] m_originalCells;
 		m_originalCells = newCells;
+
+		// Sort other data
+		for (std::vector<int*>::iterator it = m_cellData.begin();
+				it != m_cellData.end(); ++it) {
+			int* newData = new int[m_originalSize[0]];
+			for (unsigned int i = 0; i < m_originalSize[0]; i++) {
+				newData[i] = (*it)[indices[i]];
+			}
+
+			delete [] *it;
+			*it = newData;
+		}
+		
+		delete [] indices;
 
 		// Compute exchange info
 		int* sendCount = new int[procs];
@@ -446,6 +457,7 @@ public:
 		// Exchange cell data
 		for (std::vector<int*>::iterator it = m_cellData.begin();
 				it != m_cellData.end(); ++it) {
+			logInfo() << rank << "send data";
 			int* newData = new int[m_originalSize[0]];
 			MPI_Alltoallv(*it, sendCount, sDispls, MPI_INT,
 				newData, recvCount, rDispls, MPI_INT,
@@ -932,6 +944,7 @@ private:
 	{
 		if (lid < m_faces.size()) {
 			// Update an old face
+			assert(m_faces[lid].m_upward[1] == -1);
 			m_faces[lid].m_upward[1] = plid;
 			if (m_faces[lid].m_upward[1] < m_faces[lid].m_upward[0])
 				std::swap(m_faces[lid].m_upward[0], m_faces[lid].m_upward[1]);
@@ -941,6 +954,7 @@ private:
 
 			face_t face;
 			face.m_upward[0] = plid;
+			face.m_upward[1] = -1;
 			m_faces.push_back(face);
 		}
 
@@ -967,7 +981,7 @@ private:
 
 		for (typename std::vector<D>::const_iterator it = down.begin();
 				it != down.end(); ++it) {
-			for (std::vector<unsigned int>::const_iterator it2 = it->m_upward.begin();
+			for (std::vector<int>::const_iterator it2 = it->m_upward.begin();
 					it2 != it->m_upward.end(); ++it2) {
 				assert(downPos[*it2] < N);
 				allShared[*it2 * N + downPos[*it2]] = &it->m_sharedRanks;
@@ -1269,4 +1283,4 @@ typedef PUML<TETRAHEDRON> TETPUML;
 
 }
 
-#endif // PUML_H
+#endif // PUML_PUML_H
