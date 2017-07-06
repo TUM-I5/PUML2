@@ -25,6 +25,7 @@ before_script:
 script:
  - cd test/
  - git clone https://github.com/TUM-I5/XdmfWriter.git
+ - cd XdmfWriter && git checkout dev && cd ..
  - scons
 
 after_script:
