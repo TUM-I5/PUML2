@@ -207,7 +207,7 @@ public:
 		// Read the cells
 		m_originalTotalSize[0] = dims[0];
 		m_originalSize[0] = (dims[0] + procs - 1) / procs;
-		unsigned long offset = m_originalSize[0] * rank;
+		unsigned long offset = static_cast<unsigned long>(m_originalSize[0]) * rank;
 		m_originalSize[0] = std::min(m_originalSize[0], static_cast<unsigned int>(dims[0] - offset));
 
 		hsize_t start[2] = {offset, 0};
@@ -255,7 +255,7 @@ public:
 		// Read the vertices
 		m_originalTotalSize[1] = dims[0];
 		m_originalSize[1] = (dims[0] + procs - 1) / procs;
-		offset = m_originalSize[1] * rank;
+		offset = static_cast<unsigned long>(m_originalSize[1]) * rank;
 		m_originalSize[1] = std::min(m_originalSize[1], static_cast<unsigned int>(dims[0] - offset));
 
 		start[0] = offset;
@@ -322,7 +322,7 @@ public:
 
 		// Read the cells
 		unsigned int maxLocalSize = (totalSize + procs - 1) / procs;
-		unsigned long offset = maxLocalSize * rank;
+		unsigned long offset = static_cast<unsigned long>(maxLocalSize) * rank;
 
 		hsize_t start = offset;
 		hsize_t count = localSize;
@@ -415,7 +415,7 @@ public:
 		int* sendCount = new int[procs];
 		memset(sendCount, 0, procs * sizeof(int));
 
-		for (int i = 0; i < m_originalSize[0]; i++) {
+		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			assert(partition[i] < procs);
 			sendCount[partition[i]]++;
 		}
