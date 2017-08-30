@@ -61,7 +61,7 @@ public:
 	 *  will contain the partition for each cells
 	 * @param imbalance The allowed imbalance
 	 */
-	void partition(int* partition, double imbalance = 1.05)
+	void partition(int* partition, int const* vertexWeights = nullptr, double imbalance = 1.05)
 	{
 		int rank, procs;
 		MPI_Comm_rank(m_comm, &rank);
@@ -89,8 +89,16 @@ public:
 			}
 		}
 		eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
+    
+    idx_t wgtflag = 0;
+    idx t* elmwgt = nullptr;
+    if (vertexWeights != nullptr) {
+      elmwgt = new idx_t[m_numCells];
+      for (unsigned int i = 0; i < m_numCells; i++) {
+        elmwgt[i] = static_cast<idx_t>(vertexWeights[i]);
+      }
+    }
 
-		idx_t wgtflag = 0;
 		idx_t numflag = 0;
 		idx_t ncon = 1;
 		idx_t ncommonnodes = 3; // TODO adapt for hex
@@ -106,7 +114,7 @@ public:
 
 		idx_t* part = new idx_t[m_numCells];
 
-		ParMETIS_V3_PartMeshKway(elemdist, eptr, eind, 0L, &wgtflag, &numflag,
+		ParMETIS_V3_PartMeshKway(elemdist, eptr, eind, elmwgt, &wgtflag, &numflag,
 			&ncon, &ncommonnodes, &nparts, tpwgts, &ubvec, options, &edgecut, part, &m_comm);
 
 		delete [] elemdist;
