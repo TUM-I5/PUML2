@@ -59,9 +59,11 @@ public:
 	/**
 	 * @param partition An array of size <code>numCells</code> which
 	 *  will contain the partition for each cells
+         * @param vertexWeights Weight for each vertex
+         * @param nWeightsPerVertex Number of weights per vertex
 	 * @param imbalance The allowed imbalance
 	 */
-	void partition(int* partition, int const* vertexWeights = nullptr, double imbalance = 1.05)
+	void partition(int* partition, int const* vertexWeights = nullptr, int nWeightsPerVertex = 1, double imbalance = 1.05)
 	{
 		int rank, procs;
 		MPI_Comm_rank(m_comm, &rank);
@@ -93,6 +95,7 @@ public:
     idx_t wgtflag = 0;
     idx_t* elmwgt = nullptr;
     if (vertexWeights != nullptr) {
+      wgtflag = 2;
       elmwgt = new idx_t[m_numCells];
       for (unsigned int i = 0; i < m_numCells; i++) {
         elmwgt[i] = static_cast<idx_t>(vertexWeights[i]);
@@ -100,27 +103,31 @@ public:
     }
 
 		idx_t numflag = 0;
-		idx_t ncon = 1;
+		idx_t ncon = nWeightsPerVertex;
 		idx_t ncommonnodes = 3; // TODO adapt for hex
 		idx_t nparts = procs;
 
-		real_t* tpwgts = new real_t[nparts];
-		for (int i = 0; i < nparts; i++)
+		real_t* tpwgts = new real_t[nparts * ncon];
+		for (int i = 0; i < nparts * ncon; i++)
 			tpwgts[i] = static_cast<real_t>(1.) / nparts;
 
-		real_t ubvec = imbalance;
+		real_t* ubvec = new real_t[ncon];
+		for (int i = 0; i < ncon; ++i) {
+			ubvec[i] = imbalance;
+		}
 		idx_t edgecut;
 		idx_t options[3] = {1, 0, METIS_RANDOM_SEED};
 
 		idx_t* part = new idx_t[m_numCells];
 
 		ParMETIS_V3_PartMeshKway(elemdist, eptr, eind, elmwgt, &wgtflag, &numflag,
-			&ncon, &ncommonnodes, &nparts, tpwgts, &ubvec, options, &edgecut, part, &m_comm);
+			&ncon, &ncommonnodes, &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
 
 		delete [] elemdist;
 		delete [] eptr;
 		delete [] eind;
 		delete [] tpwgts;
+		delete [] ubvec;
 
 		for (unsigned int i = 0; i < m_numCells; i++)
 			partition[i] = part[i];
