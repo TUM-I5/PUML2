@@ -91,7 +91,7 @@ public:
 		eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
     
     idx_t wgtflag = 0;
-    idx t* elmwgt = nullptr;
+    idx_t* elmwgt = nullptr;
     if (vertexWeights != nullptr) {
       elmwgt = new idx_t[m_numCells];
       for (unsigned int i = 0; i < m_numCells; i++) {
