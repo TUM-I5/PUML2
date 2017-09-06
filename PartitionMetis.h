@@ -61,9 +61,10 @@ public:
 	 *  will contain the partition for each cells
          * @param vertexWeights Weight for each vertex
          * @param nWeightsPerVertex Number of weights per vertex
+         * @param nodeWeights Weight for each node
 	 * @param imbalance The allowed imbalance
 	 */
-	void partition(int* partition, int const* vertexWeights = nullptr, int nWeightsPerVertex = 1, double imbalance = 1.05)
+	void partition(int* partition, int const* vertexWeights = nullptr, int nWeightsPerVertex = 1, double* nodeWeights = nullptr, double imbalance = 1.05)
 	{
 		int rank, procs;
 		MPI_Comm_rank(m_comm, &rank);
@@ -108,8 +109,17 @@ public:
 		idx_t nparts = procs;
 
 		real_t* tpwgts = new real_t[nparts * ncon];
-		for (int i = 0; i < nparts * ncon; i++)
-			tpwgts[i] = static_cast<real_t>(1.) / nparts;
+    if (nodeWeights != nullptr) {
+      for (int i = 0; i < nparts; i++) {
+        for (unsigned j = 0; j < ncon; ++j) {
+          tpwgts[i*ncon + j] = nodeWeights[i];
+        }
+      }
+    } else {
+      for (int i = 0; i < nparts * ncon; i++) {
+        tpwgts[i] = static_cast<real_t>(1.) / nparts;
+      }
+    }
 
 		real_t* ubvec = new real_t[ncon];
 		for (int i = 0; i < ncon; ++i) {
