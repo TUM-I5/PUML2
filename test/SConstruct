@@ -44,7 +44,8 @@ env['CXX'] = 'mpicxx'
 vars.SetCompiler(env)
 
 # Compiler flags
-env.Append(CXXFLAGS=['-std=c++11'])
+env.Append(CXXFLAGS=['-std=c++11', '-qopenmp', '-xMIC-AVX512'])
+env.Append(LINKFLAGS=['-qopenmp'])
 if env['buildType'] in ['release', 'relWithDebInfo']:
 	env.Append(CXXFLAGS=['-O3'])
 if env['buildType'] in ['debug', 'relWithDebInfo']:
@@ -64,4 +65,4 @@ env.Append(CPPPATH=['#/..', '#/../submodules'])
 
 buildDir = 'build'
 
-env.Program('#/build/pumltest', ['puml.cpp'])
+env.Program('#/build/pumltestParallelx64', ['puml.cpp'])
