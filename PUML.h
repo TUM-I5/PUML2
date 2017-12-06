@@ -12,13 +12,17 @@
 
 #ifndef PUML_PUML_H
 #define PUML_PUML_H
-#define TABSIZE 2000000
 #define CORES 64
+#define FACE_TABLE_SIZE 12000000
+#define EDGE_TABLE_SIZE 9000000
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
 
 #include <omp.h>
+
+#define CONTAINER_SIZE 10
+#define LOCK_SIZE 20
 
 #include <algorithm>
 #include <cassert>
@@ -40,7 +44,8 @@
 #include "DownElement.h"
 #include "Element.h"
 #include "Topology.h"
-#include "VertexElementMap.h"
+#include "FaceMap.h"
+#include "EdgeMap.h"
 
 namespace PUML
 {
@@ -729,27 +734,43 @@ public:
         cellOffset -= m_originalSize[0];
 
 
-        logInfo(rank) << "Begin section with " << CORES << " cores";
 
-        //std::vector<std::set<unsigned int> > edgeUpward;
-        std::set<unsigned int>* vertexUpward = new std::set<unsigned int>[m_vertices.size()];
-
-        omp_lock_t* lock = new omp_lock_t[TABSIZE];
-        std::map<Face, std::array<unsigned int, 3> >* face_table = new std::map<Face, std::array<unsigned int, 3> >[TABSIZE];
-
-        for (int i=0; i<TABSIZE; i++)
-            omp_init_lock_with_hint(&(lock[i]), omp_lock_hint_speculative);
-
+        Stopwatch totalTime = Stopwatch();
+        totalTime.start();
         omp_set_num_threads(CORES);
-
+        logInfo(rank) << "Begin section with " << CORES << " cores";
+        
         Stopwatch stopper = Stopwatch();
         stopper.start();
-        // current speedup: 6.6
-        #pragma omp parallel for schedule(guided)
+        std::set<unsigned int>* vertexUpward = new std::set<unsigned int>[m_vertices.size()];
+        stopper.pause();
+        stopper.printTime("Initializing vertexUpward (Sequential);");
+        stopper.stop();
+
+
+        stopper.start();
+        internal::FaceMap faceMap(FACE_TABLE_SIZE);
+        #pragma omp parallel for
+        for(unsigned int i = 0; i < FACE_TABLE_SIZE; i++)
+        {
+            faceMap.face_table[i].cells[0] = -1;
+        }
+        stopper.pause();
+        stopper.printTime("Initializing faceMap (Parallel);");
+        stopper.stop();
+
+        stopper.start();
+        for(unsigned int i = 0; i < FACE_TABLE_SIZE / LOCK_SIZE; i++)
+        {
+            omp_init_lock(&faceMap.lock[i]);
+        }
+        stopper.pause();
+        stopper.printTime("Initializing faceMap locks (Sequential);");
+        stopper.stop();
+
+        stopper.start();
+        #pragma omp parallel for schedule(dynamic, 5)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-            int tid = omp_get_thread_num();
-
-
             m_cells[i].m_gid = i + cellOffset;
 
             for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++)
@@ -762,112 +783,36 @@ public:
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[0];
             v[2] = m_cells[i].m_vertices[2];
-            Face f0(v);
-            h = hash_face(f0) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            auto x = face_table[h].find(f0);
-            if(x != face_table[h].end())
-            {
-                omp_unset_lock(&(lock[h]));
-                if(i < x->second[1])
-                {
-                    x->second[2] = x->second[1];
-                    x->second[1] = i;
-                }
-                x->second[2] = i;
-            }
-            else
-            {
-                face_table[h].insert({f0, {-1, i, -1}});
-                omp_unset_lock(&(lock[h]));
-            }
+            faceMap.add(v, i);
 
             v[0] = m_cells[i].m_vertices[0];
             v[1] = m_cells[i].m_vertices[1];
             v[2] = m_cells[i].m_vertices[3];
-            Face f1(v);
-            h = hash_face(f1) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            x = face_table[h].find(f1);
-            if(x != face_table[h].end())
-            {
-                omp_unset_lock(&(lock[h]));
-                if(i < x->second[1])
-                {
-                    x->second[2] = x->second[1];
-                    x->second[1] = i;
-                }
-                x->second[2] = i;
-            }
-            else
-            {
-                face_table[h].insert({f1, {-1, i, -1}});
-                omp_unset_lock(&(lock[h]));
-            }
-
+            faceMap.add(v, i);
 
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[2];
             v[2] = m_cells[i].m_vertices[3];
-            Face f2(v);
-            h = hash_face(f2) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            x = face_table[h].find(f2);
-            if(x != face_table[h].end())
-            {
-                omp_unset_lock(&(lock[h]));
-                if(i < x->second[1])
-                {
-                    x->second[2] = x->second[1];
-                    x->second[1] = i;
-                }
-                x->second[2] = i;
-            }
-            else
-            {
-                face_table[h].insert({f2, {-1, i, -1}});
-                omp_unset_lock(&(lock[h]));
-            }
-
+            faceMap.add(v, i);
 
             v[0] = m_cells[i].m_vertices[2];
             v[1] = m_cells[i].m_vertices[0];
             v[2] = m_cells[i].m_vertices[3];
-            Face f3(v);
-            h = hash_face(f3) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            x = face_table[h].find(f3);
-            if(x != face_table[h].end())
-            {
-                omp_unset_lock(&(lock[h]));
-                if(i < x->second[1])
-                {
-                    x->second[2] = x->second[1];
-                    x->second[1] = i;
-                }
-                x->second[2] = i;
-            }
-            else
-            {
-                face_table[h].insert({f3, {-1, i, -1}});
-                omp_unset_lock(&(lock[h]));
-            }
-
+            faceMap.add(v, i);
         }
         stopper.pause();
-        stopper.printTime("Inserting Faces: ");
+        stopper.printTime("Inserting Faces (Parallel);");
         stopper.stop();
-
         int distribution_faces[CORES] = {0};
 
         stopper.start();
-        #pragma omp parallel for
-        for(unsigned int i = 0; i < TABSIZE; i++)
+        #pragma omp parallel for schedule(static)
+        for(unsigned int i = 0; i < FACE_TABLE_SIZE; i++)
         {
-            distribution_faces[omp_get_thread_num()] += face_table[i].size();
+            distribution_faces[omp_get_thread_num()] += faceMap.face_table[i].cells[0] != -1;
         }
         stopper.pause();
-        stopper.printTime("Classifying faces: ");
+        stopper.printTime("Classifying faces (Parallel);");
         stopper.stop();
         if(CORES > 1)
         {
@@ -877,7 +822,12 @@ public:
             }
         }
 
+        stopper.start();
         m_faces.resize(distribution_faces[CORES-1]);
+        stopper.pause();
+        stopper.printTime("Resizing m_faces (Sequential);");
+        stopper.stop();
+
         stopper.start();
         #pragma omp parallel
         {
@@ -888,207 +838,122 @@ public:
                 counter = distribution_faces[omp_get_thread_num()-1];
 
             #pragma omp for
-            for(unsigned int i = 0; i < TABSIZE; ++i)
+            for(unsigned int i = 0; i < FACE_TABLE_SIZE; ++i)
             {
-               for (auto& x : face_table[i])
-                {
-                    x.second[0] = counter;
+                if(faceMap.face_table[i].cells[0] == -1)
+                    continue;
 
-                    face_t face;
-                    face.m_upward[0] = x.second[1];
-                    face.m_upward[1] = x.second[2];
-                    m_faces[counter]= face;
+                faceMap.face_table[i].id = counter;
 
-                    counter++;
-                }
+                face_t face;
+                face.m_upward[0] = faceMap.face_table[i].cells[0];
+                face.m_upward[1] = faceMap.face_table[i].cells[1];
+                m_faces[counter] = face;
+
+                counter++;
             }
         }
         stopper.pause();
-        stopper.printTime("Numbering faces and inserting them to target vector: ");
+        stopper.printTime("Numbering faces and inserting them to target vector (Parallel); ");
         stopper.stop();
-
-        std::map<Edge, std::pair<unsigned int, std::set<unsigned int> > >* edge_table = new std::map<Edge, std::pair<unsigned int, std::set<unsigned int> > >[TABSIZE];
         
         stopper.start();
-        #pragma omp parallel for schedule(guided)
+        internal::EdgeMap edgeMap(EDGE_TABLE_SIZE);
+        #pragma omp parallel for
+        for(unsigned int i = 0; i < EDGE_TABLE_SIZE; i++)
+        {
+            edgeMap.edge_table[i].id= -1;
+            edgeMap.edge_table[i].size = 0;
+        }
+        stopper.pause();
+        stopper.printTime("Initializing EdgeMap (Parallel);");
+        stopper.stop();
+
+        stopper.start();
+        for(unsigned int i = 0; i < EDGE_TABLE_SIZE / LOCK_SIZE; i++)
+        {
+            omp_init_lock(&edgeMap.lock[i]);
+        }
+        stopper.pause();
+        stopper.printTime("Initializing EdgeMap locks (Sequential);");
+        stopper.stop();
+
+        stopper.start();
+        #pragma omp parallel for schedule(dynamic, 5)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
             // TODO adapt for hex
 
-            // Faces
+            // Find Faces
             unsigned int v[internal::Topology<Topo>::facevertices()];
             unsigned int faces[internal::Topology<Topo>::cellfaces()];
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[0];
             v[2] = m_cells[i].m_vertices[2];
-            Face f0(v);
-            unsigned int h = hash_face(f0) % TABSIZE;
-            auto x = face_table[h].find(f0);
-            assert(x != face_table[h].end());
-            faces[0] = x->second[0];
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            faces[0] = faceMap.find(v);
 
             v[0] = m_cells[i].m_vertices[0];
             v[1] = m_cells[i].m_vertices[1];
             v[2] = m_cells[i].m_vertices[3];
-            Face f1(v);
-            h = hash_face(f1) % TABSIZE;
-            x = face_table[h].find(f1);
-            //assert(x != face_table[h].end());
-            faces[1] = x->second[0];
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            faces[1] = faceMap.find(v);
 
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[2];
             v[2] = m_cells[i].m_vertices[3];
-            Face f2(v);
-            h = hash_face(f2) % TABSIZE;
-            x = face_table[h].find(f2);
-            //assert(x != face_table[h].end());
-            faces[2] = x->second[0];
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            faces[2] = faceMap.find(v);
 
             v[0] = m_cells[i].m_vertices[2];
             v[1] = m_cells[i].m_vertices[0];
             v[2] = m_cells[i].m_vertices[3];
-            Face f3(v);
-            h = hash_face(f3) % TABSIZE;
-            x = face_table[h].find(f3);
-            //assert(x != face_table[h].end());
-            faces[3] = x->second[0];
-
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            faces[3] = faceMap.find(v);
             
-            // Edges
+            // add Edges to HashMap
             unsigned int edges[internal::Topology<Topo>::celledges()];
             v[0] = m_cells[i].m_vertices[0];
             v[1] = m_cells[i].m_vertices[1];
-            Edge e0(v);
-            h = hash_edge(e0) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            auto y = edge_table[h].find(e0);
-            if(y != edge_table[h].end())
-            {
-                y->second.second.insert(faces[0]);
-                y->second.second.insert(faces[1]);
-            }
-            else
-                edge_table[h].insert({e0, {-1, {faces[0], faces[1]}}});
-            omp_unset_lock(&(lock[h]));
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            edgeMap.add(v, faces[0], faces[1]);
 
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[2];
-            Edge e1(v);
-            h = hash_edge(e1) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            y = edge_table[h].find(e1);
-            if(y != edge_table[h].end())
-            {
-                y->second.second.insert(faces[0]);
-                y->second.second.insert(faces[2]);
-            }
-            else
-                edge_table[h].insert({e1, {-1, {faces[0], faces[2]}}});
-            omp_unset_lock(&(lock[h]));
-            
-            ////////////////////////////////////////////////////////////////////////////////////
+            edgeMap.add(v, faces[0], faces[2]);
 
             v[0] = m_cells[i].m_vertices[2];
             v[1] = m_cells[i].m_vertices[0];
-            Edge e2(v);
-            h = hash_edge(e2) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            y = edge_table[h].find(e2);
-            if(y != edge_table[h].end())
-            {
-                y->second.second.insert(faces[0]);
-                y->second.second.insert(faces[3]);
-            }
-            else
-                edge_table[h].insert({e2, {-1, {faces[0], faces[3]}}});
-            omp_unset_lock(&(lock[h]));            
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            edgeMap.add(v, faces[0], faces[3]);   
 
             v[0] = m_cells[i].m_vertices[0];
             v[1] = m_cells[i].m_vertices[3];
-            Edge e3(v);
-            h = hash_edge(e3) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            y = edge_table[h].find(e3);
-            if(y != edge_table[h].end())
-            {
-                y->second.second.insert(faces[1]);
-                y->second.second.insert(faces[3]);
-            }
-            else
-                edge_table[h].insert({e3, {-1, {faces[1], faces[3]}}});
-            omp_unset_lock(&(lock[h]));
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            edgeMap.add(v, faces[1], faces[3]);
 
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[3];
-            Edge e4(v);
-            h = hash_edge(e4) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            y = edge_table[h].find(e4);
-            if(y != edge_table[h].end())
-            {
-                y->second.second.insert(faces[1]);
-                y->second.second.insert(faces[2]);
-            }
-            else
-                edge_table[h].insert({e4, {-1, {faces[1], faces[2]}}});
-            omp_unset_lock(&(lock[h]));
-
-            ////////////////////////////////////////////////////////////////////////////////////
+            edgeMap.add(v, faces[1], faces[2]);
 
             v[0] = m_cells[i].m_vertices[2];
             v[1] = m_cells[i].m_vertices[3];
-            Edge e5(v);
-            h = hash_edge(e5) % TABSIZE;
-            omp_set_lock(&(lock[h]));
-            y = edge_table[h].find(e5);
-            if(y != edge_table[h].end())
-            {
-                y->second.second.insert(faces[2]);
-                y->second.second.insert(faces[3]);
-            }
-            else
-                edge_table[h].insert({e5, {-1, {faces[2], faces[3]}}});
-            omp_unset_lock(&(lock[h]));
-
+            edgeMap.add(v, faces[2], faces[3]);
         }
         stopper.pause();
-        stopper.printTime("finding faces and inserting edges ");
+        stopper.printTime("Finding faces and inserting edges (Parallel);");
         stopper.stop();
 
-        delete[] face_table;
-
-        for (int i=0; i<TABSIZE; i++)
-            omp_destroy_lock(&(lock[i]));
-
-        delete [] lock;
-
-            ////////////////////////////////////////////////////////////////////////////////////
+        stopper.start();
+        faceMap.clear();
+        stopper.pause();
+        stopper.printTime("Clearing faceMap (Sequential);");
+        stopper.stop();
 
         int distribution_edges[CORES] = {0};
 
         stopper.start();
         #pragma omp parallel for
-        for(unsigned int i = 0; i < TABSIZE; i++)
+        for(unsigned int i = 0; i < EDGE_TABLE_SIZE; i++)
         {
-            distribution_edges[omp_get_thread_num()] += edge_table[i].size();
+            distribution_edges[omp_get_thread_num()] += edgeMap.edge_table[i].id != -1;
         }
         stopper.pause();
-        stopper.printTime("Classifying edges: ");
+        stopper.printTime("Classifying edges (Parallel);");
         stopper.stop();
+
         if(CORES > 1)
         {
             for(unsigned int i = 1; i < CORES; i++)
@@ -1097,8 +962,12 @@ public:
             }
         }
 
+        stopper.start();
         m_edges.clear();
-        m_edges.resize(distribution_edges[CORES-1]);
+        m_edges.resize(distribution_edges[CORES-1]);        
+        stopper.pause();
+        stopper.printTime("Resizing m_edges (Sequential);");
+        stopper.stop();
 
         stopper.start();
         #pragma omp parallel
@@ -1110,30 +979,43 @@ public:
                 counter = distribution_edges[omp_get_thread_num()-1];
 
             #pragma omp for
-            for(unsigned int i = 0; i < TABSIZE; ++i)
+            for(unsigned int i = 0; i < EDGE_TABLE_SIZE; ++i)
             {
-               for (auto& x : edge_table[i])
+                if(edgeMap.edge_table[i].id == -1)
+                    continue;
+                edgeMap.edge_table[i].id = counter;
+                m_edges[counter].m_upward.resize(edgeMap.edge_table[i].size);
+                unsigned int j = 0;
+                for(j = 0; j < edgeMap.edge_table[i].size && j < CONTAINER_SIZE; j++)
                 {
-                    x.second.first = counter;
-                    m_edges[counter].m_upward.resize(x.second.second.size());
-                    unsigned int j = 0;
-                    for (std::set<unsigned int>::const_iterator it = x.second.second.begin();
-                            it != x.second.second.end(); ++it, j++) {
+                    m_edges[counter].m_upward[j] = edgeMap.edge_table[i].faces[j];
+                    //printf("%i: %i\n", j, edgeMap.edge_table[i].faces[j]);
+                }
+                if(j >= CONTAINER_SIZE)
+                {
+                    for (std::set<unsigned int>::const_iterator it = edgeMap.edge_table[i].additionalFaces.begin();
+                        it != edgeMap.edge_table[i].additionalFaces.end(); ++it, j++) {
+                        //printf("########################### %i: %i\n", j, *it);
                         m_edges[counter].m_upward[j] = *it;
                     }
-                    counter++;
                 }
+                counter++;
             }
         }
         stopper.pause();
-        stopper.printTime("numbering and inserting faces to target edges: ");
+        stopper.printTime("Numbering and inserting faces to target edges (Parallel);");
         stopper.stop();
 
+
+        stopper.start();
         omp_lock_t* lock_vertices = new omp_lock_t[m_vertices.size()];
 
         for(unsigned int i = 0; i < m_vertices.size(); i++)
             omp_init_lock(&(lock_vertices[i]));
 
+        stopper.pause();
+        stopper.printTime("Initializing lock_vertices (Sequential);");
+        stopper.stop();
 
         stopper.start();
         #pragma omp parallel for
@@ -1143,47 +1025,27 @@ public:
 
             v[0] = m_cells[i].m_vertices[0];
             v[1] = m_cells[i].m_vertices[1];
-            const Edge e0(v);
-            unsigned int h = hash_edge(e0) % TABSIZE;
-            auto x = edge_table[h].find(e0);
-            edges[0] = x->second.first;
-
+            edges[0] = edgeMap.find(v);
 
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[2];
-            const Edge e1(v);
-            h = hash_edge(e1) % TABSIZE;
-            x = edge_table[h].find(e1);
-            edges[1] = x->second.first;
+            edges[1] = edgeMap.find(v);
 
             v[0] = m_cells[i].m_vertices[2];
             v[1] = m_cells[i].m_vertices[0];
-            const Edge e2(v);
-            h = hash_edge(e2) % TABSIZE;
-            x = edge_table[h].find(e2);
-            edges[2] = x->second.first;
+            edges[2] = edgeMap.find(v);
 
             v[0] = m_cells[i].m_vertices[0];
             v[1] = m_cells[i].m_vertices[3];
-            const Edge e3(v);
-            h = hash_edge(e3) % TABSIZE;
-            x = edge_table[h].find(e3);
-            edges[3] = x->second.first;
+            edges[3] = edgeMap.find(v);
 
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[3];
-            const Edge e4(v);
-            h = hash_edge(e4) % TABSIZE;
-            x = edge_table[h].find(e4);
-            edges[4] = x->second.first;
+            edges[4] = edgeMap.find(v);
            
             v[0] = m_cells[i].m_vertices[2];
             v[1] = m_cells[i].m_vertices[3];
-            const Edge e5(v);
-            h = hash_edge(e5) % TABSIZE;
-            x = edge_table[h].find(e5);
-            edges[5] = x->second.first;
-
+            edges[5] = edgeMap.find(v);
 
             // Vertices (upward information)
 
@@ -1209,16 +1071,24 @@ public:
             omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3]]));
         }
         stopper.pause();
-        stopper.printTime("inserting edges to vertex location: ");
+        stopper.printTime("Inserting edges to vertex location (Parallel);");
+        stopper.stop();
+
+        stopper.start();
+        edgeMap.clear();
+        stopper.pause();
+        stopper.printTime("Clearing edgeMap (Sequential);");
         stopper.stop();
 
 
-        delete [] edge_table;
-
+        stopper.start();
         for(unsigned int i = 0; i < m_vertices.size(); i++)
             omp_destroy_lock(&(lock_vertices[i]));
 
-        delete [] lock_vertices;
+        delete [] lock_vertices;        
+        stopper.pause();
+        stopper.printTime("Destroying lock_vertices (Sequential);");
+        stopper.stop();
 
         // Set vertex upward information
         stopper.start();
@@ -1233,12 +1103,22 @@ public:
             }
         }
         stopper.pause();
-        stopper.printTime("inserting edges to vertices: ");
+        stopper.printTime("inserting edges to vertices (Parallel);");
         stopper.stop();
-        delete [] vertexUpward;
 
+        stopper.start();
+        #pragma omp parallel for
+        for(unsigned int i = 0; i < m_vertices.size(); i++)
+        {
+            vertexUpward[i].~set();
+        }
+        stopper.pause();
+        stopper.printTime("Destroying vertexUpward (Parallel);");
+        stopper.stop();
 
-        logInfo(rank) << "end part";
+        totalTime.pause();
+        totalTime.printTime("Total Time;");
+        totalTime.stop();
 
         // Generate shared information and global ids for edges
         generatedSharedAndGID<edge_t, vertex_t, 2>(m_edges, m_vertices);
@@ -1247,66 +1127,6 @@ public:
         generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces, m_edges);
     }
 
-    struct Edge
-    {
-        /** The vertices that define this element */
-        unsigned int vertices[2];
-
-        Edge(const unsigned int vertices[2])
-        {
-            memcpy(this->vertices, vertices, 2*sizeof(unsigned int));
-            std::sort(this->vertices, this->vertices+2);
-        }
-
-        bool operator<(const Edge &other) const
-        {
-            return memcmp(vertices, other.vertices, 2*sizeof(unsigned int)) < 0;
-        }
-
-        bool operator==(const Edge &other) const
-        {
-            return memcmp(vertices, other.vertices, 2*sizeof(unsigned int)) == 0;
-        }
-    };
-
-    struct Face
-    {
-        /** The vertices that define this element */
-        unsigned int vertices[3];
-
-        Face(const unsigned int vertices[3])
-        {
-            memcpy(this->vertices, vertices, 3*sizeof(unsigned int));
-            std::sort(this->vertices, this->vertices+3);
-        }
-
-        bool operator<(const Face &other) const
-        {
-            return memcmp(vertices, other.vertices, 3*sizeof(unsigned int)) < 0;
-        }
-
-        bool operator==(const Face &other) const
-        {
-            return memcmp(vertices, other.vertices, 3*sizeof(unsigned int)) == 0;
-        }
-    };
-
-
-    std::size_t hash_edge(const Edge e)
-    {
-        std::size_t h = std::hash<unsigned int>{}(e.vertices[0]);
-        for (unsigned int i = 1; i < 2; i++)
-            hash_combine(h, e.vertices[i]);
-        return h;
-    }
-
-    std::size_t hash_face(const Face f)
-    {
-        std::size_t h = std::hash<unsigned int>{}(f.vertices[0]);
-        for (unsigned int i = 1; i < 3; i++)
-            hash_combine(h, f.vertices[i]);
-        return h;
-    }
 
     /**
      * @return The number of original cells on this rank
@@ -1419,34 +1239,6 @@ public:
     }
 
 private:
-    /**
-     * Add a face but only if it does not exist yet
-     *
-     * @param lid The local id of the face
-     * @param plid The local id of the parent
-     * @return The local id of the face
-     */
-    unsigned int addFace(unsigned int lid, unsigned int plid)
-    {/*
-        if (lid < m_faces.size()) {
-            // Update an old face
-            assert(m_faces[lid].m_upward[1] == -1);
-            m_faces[lid].m_upward[1] = plid;
-            if (m_faces[lid].m_upward[1] < m_faces[lid].m_upward[0])
-                std::swap(m_faces[lid].m_upward[0], m_faces[lid].m_upward[1]);
-        } else {
-            // New face
-            assert(lid == m_faces.size());
-
-            face_t face;
-            face.m_upward[0] = plid;
-            face.m_upward[1] = -1;
-            m_faces.push_back(face);
-        }
-*/
-        return lid;
-    }
-
     /**
      * Generates the shared information and global ids from the downward elements
      *
@@ -1716,28 +1508,6 @@ private:
 
 private:
     /**
-     * Add an edge if it does not exist yet
-     *
-     * @param edgeUpward The storage for upward information
-     * @param lid The local id of the edge
-     * @param plid1 The first parent
-     * @param plid2 The second parent
-     * @return The local id of the edge
-     */
-    static unsigned int addEdge(std::vector<std::set<unsigned int> > &edgeUpward,
-        unsigned int lid, unsigned int plid1, unsigned int plid2)
-    {
-        if (lid >= edgeUpward.size()) {
-            assert(lid == edgeUpward.size());
-            edgeUpward.push_back(std::set<unsigned int>());
-        }
-        edgeUpward[lid].insert(plid1);
-        edgeUpward[lid].insert(plid2);
-
-        return lid;
-    }
-
-    /**
      * Constructs the global -> local map for an element array
      */
     template<typename TT>
@@ -1759,13 +1529,6 @@ private:
         if (status < 0)
             logError() << utils::nospace << "An HDF5 error occurred in PUML ("
                 << file << ": " << line << ")";
-    }   
-
-    template<typename T>
-    static void hash_combine(std::size_t& seed, const T& v)
-    {
-        std::hash<T> hasher;
-        seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
     }
 };
 
