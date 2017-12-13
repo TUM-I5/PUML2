@@ -64,7 +64,7 @@ public:
 	{ 
 		capacity = c;
 		edge_table = new HashItem[capacity];
-		lock = new omp_lock_t[capacity / LOCK_SIZE];
+		lock = new omp_lock_t[(capacity / LOCK_SIZE) + 1];
 	}
 
 	void add(const unsigned int vertices[2], unsigned int face1, unsigned int face2)

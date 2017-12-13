@@ -13,16 +13,15 @@
 #ifndef PUML_PUML_H
 #define PUML_PUML_H
 #define CORES 64
-#define FACE_TABLE_SIZE 12000000
-#define EDGE_TABLE_SIZE 9000000
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
 
+#include <sched.h>
 #include <omp.h>
 
 #define CONTAINER_SIZE 10
-#define LOCK_SIZE 20
+#define LOCK_SIZE 50
 
 #include <algorithm>
 #include <cassert>
@@ -739,6 +738,10 @@ public:
         totalTime.start();
         omp_set_num_threads(CORES);
         logInfo(rank) << "Begin section with " << CORES << " cores";
+        unsigned int face_table_size = m_originalSize[0] * 4;
+        logInfo(rank) << "Face Table Size: " << face_table_size;
+        unsigned int edge_table_size = m_originalSize[0] * 3;
+        logInfo(rank) << "Edge Table SIze: " << edge_table_size;
         
         Stopwatch stopper = Stopwatch();
         stopper.start();
@@ -749,9 +752,9 @@ public:
 
 
         stopper.start();
-        internal::FaceMap faceMap(FACE_TABLE_SIZE);
+        internal::FaceMap faceMap(face_table_size);
         #pragma omp parallel for
-        for(unsigned int i = 0; i < FACE_TABLE_SIZE; i++)
+        for(unsigned int i = 0; i < face_table_size; i++)
         {
             faceMap.face_table[i].cells[0] = -1;
         }
@@ -760,7 +763,7 @@ public:
         stopper.stop();
 
         stopper.start();
-        for(unsigned int i = 0; i < FACE_TABLE_SIZE / LOCK_SIZE; i++)
+        for(unsigned int i = 0; i < (face_table_size / LOCK_SIZE) + 1; i++)
         {
             omp_init_lock(&faceMap.lock[i]);
         }
@@ -769,7 +772,7 @@ public:
         stopper.stop();
 
         stopper.start();
-        #pragma omp parallel for schedule(dynamic, 5)
+        #pragma omp parallel for schedule(dynamic, 100)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
             m_cells[i].m_gid = i + cellOffset;
 
@@ -806,8 +809,8 @@ public:
         int distribution_faces[CORES] = {0};
 
         stopper.start();
-        #pragma omp parallel for schedule(static)
-        for(unsigned int i = 0; i < FACE_TABLE_SIZE; i++)
+        #pragma omp parallel for
+        for(unsigned int i = 0; i < face_table_size; i++)
         {
             distribution_faces[omp_get_thread_num()] += faceMap.face_table[i].cells[0] != -1;
         }
@@ -838,7 +841,7 @@ public:
                 counter = distribution_faces[omp_get_thread_num()-1];
 
             #pragma omp for
-            for(unsigned int i = 0; i < FACE_TABLE_SIZE; ++i)
+            for(unsigned int i = 0; i < face_table_size; ++i)
             {
                 if(faceMap.face_table[i].cells[0] == -1)
                     continue;
@@ -858,9 +861,9 @@ public:
         stopper.stop();
         
         stopper.start();
-        internal::EdgeMap edgeMap(EDGE_TABLE_SIZE);
+        internal::EdgeMap edgeMap(edge_table_size);
         #pragma omp parallel for
-        for(unsigned int i = 0; i < EDGE_TABLE_SIZE; i++)
+        for(unsigned int i = 0; i < edge_table_size; i++)
         {
             edgeMap.edge_table[i].id= -1;
             edgeMap.edge_table[i].size = 0;
@@ -870,7 +873,7 @@ public:
         stopper.stop();
 
         stopper.start();
-        for(unsigned int i = 0; i < EDGE_TABLE_SIZE / LOCK_SIZE; i++)
+        for(unsigned int i = 0; i < (edge_table_size / LOCK_SIZE) + 1; i++)
         {
             omp_init_lock(&edgeMap.lock[i]);
         }
@@ -879,7 +882,7 @@ public:
         stopper.stop();
 
         stopper.start();
-        #pragma omp parallel for schedule(dynamic, 5)
+        #pragma omp parallel for schedule(dynamic, 100)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
             // TODO adapt for hex
 
@@ -946,7 +949,7 @@ public:
 
         stopper.start();
         #pragma omp parallel for
-        for(unsigned int i = 0; i < EDGE_TABLE_SIZE; i++)
+        for(unsigned int i = 0; i < edge_table_size; i++)
         {
             distribution_edges[omp_get_thread_num()] += edgeMap.edge_table[i].id != -1;
         }
@@ -979,7 +982,7 @@ public:
                 counter = distribution_edges[omp_get_thread_num()-1];
 
             #pragma omp for
-            for(unsigned int i = 0; i < EDGE_TABLE_SIZE; ++i)
+            for(unsigned int i = 0; i < edge_table_size; ++i)
             {
                 if(edgeMap.edge_table[i].id == -1)
                     continue;
@@ -989,13 +992,11 @@ public:
                 for(j = 0; j < edgeMap.edge_table[i].size && j < CONTAINER_SIZE; j++)
                 {
                     m_edges[counter].m_upward[j] = edgeMap.edge_table[i].faces[j];
-                    //printf("%i: %i\n", j, edgeMap.edge_table[i].faces[j]);
                 }
                 if(j >= CONTAINER_SIZE)
                 {
                     for (std::set<unsigned int>::const_iterator it = edgeMap.edge_table[i].additionalFaces.begin();
                         it != edgeMap.edge_table[i].additionalFaces.end(); ++it, j++) {
-                        //printf("########################### %i: %i\n", j, *it);
                         m_edges[counter].m_upward[j] = *it;
                     }
                 }
@@ -1018,7 +1019,7 @@ public:
         stopper.stop();
 
         stopper.start();
-        #pragma omp parallel for
+        #pragma omp parallel for schedule(dynamic, 100)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
             unsigned int v[internal::Topology<Topo>::facevertices()];
             unsigned int edges[internal::Topology<Topo>::celledges()];
