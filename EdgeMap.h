@@ -67,16 +67,15 @@ public:
 		lock = new omp_lock_t[(capacity / LOCK_SIZE) + 1];
 	}
 
-	void add(const unsigned int vertices[2], unsigned int face1, unsigned int face2)
+	unsigned int add(const unsigned int vertices[2], unsigned int face1, unsigned int face2)
 	{
 		const Edge e(vertices);
 		unsigned int h = hash(e) % capacity;
-
 		while(true)
 		{
 			omp_set_lock(&lock[h / LOCK_SIZE]);
 
-			if(edge_table[h].id == -1 || edge_table[h].edge == e)
+			if(edge_table[h].size == 0 || edge_table[h].edge == e)
 			{
 				break;
 			}
@@ -87,10 +86,11 @@ public:
 				h %= capacity;
 			}
 		}
-		if(edge_table[h].id == -1)
+		unsigned int x = -1;
+		if(edge_table[h].size == 0)
 		{
 			edge_table[h].edge = e;
-			edge_table[h].id = -2;
+			x = h;
 		}
 		bool insert1 = true;
 		bool insert2 = true;
@@ -128,6 +128,8 @@ public:
 		}
 		
 		omp_unset_lock(&lock[h / LOCK_SIZE]);
+
+		return x;
 	}
 
 	unsigned int find(unsigned int vertices[2]) const
@@ -135,7 +137,7 @@ public:
 		const Edge e(vertices);
 		unsigned int h = hash(e) % capacity;
 
-		while(edge_table[h].id != -1)
+		while(edge_table[h].size != 0)
 		{
 			if(edge_table[h].edge == e)
 				return edge_table[h].id;

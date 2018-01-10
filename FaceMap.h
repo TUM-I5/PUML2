@@ -65,7 +65,7 @@ public:
 		lock = new omp_lock_t[(capacity / LOCK_SIZE) + 1];
 	}
 
-	void add(const unsigned int vertices[3], unsigned int cell)
+	bool add(const unsigned int vertices[3], unsigned int cell)
 	{
 		const Face f(vertices);
 		unsigned int h = hash(f) % capacity;
@@ -89,6 +89,7 @@ public:
 			face_table[h].face = f;
 			face_table[h].cells[0] = cell;
 			omp_unset_lock(&lock[h / LOCK_SIZE]);
+			return true;
 		}
 		else
 		{
@@ -100,6 +101,7 @@ public:
 			}
 			else
 				face_table[h].cells[1] = cell;
+			return false;
 		}
 	}
 
