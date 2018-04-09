@@ -53,7 +53,7 @@ public:
 		unsigned int id;
 		unsigned int faces[CONTAINER_SIZE];
 		int size;
-		std::set<unsigned int> additionalFaces;
+		std::set<unsigned int> *additionalFaces;
 	};
 
 	unsigned int capacity;
@@ -115,15 +115,20 @@ public:
 			edge_table[h].size++;
 		}
 
+		if(edge_table[h].size == CONTAINER_SIZE && (insert1 || insert2))
+		{
+			edge_table[h].additionalFaces = new std::set<unsigned int>();
+		}
+
 		if(edge_table[h].size >= CONTAINER_SIZE && insert1)
 		{
-			if(edge_table[h].additionalFaces.insert(face1).second)
+			if((*edge_table[h].additionalFaces).insert(face1).second)
 				edge_table[h].size++;
 		}
 
 		if(edge_table[h].size >= CONTAINER_SIZE && insert2)
 		{
-			if(edge_table[h].additionalFaces.insert(face2).second)
+			if((*edge_table[h].additionalFaces).insert(face2).second)
 				edge_table[h].size++;
 		}
 		
@@ -149,6 +154,9 @@ public:
 
 	void clear()
 	{
+        for(unsigned int i = 0; i < (capacity / LOCK_SIZE) + 1; i++)
+            omp_destroy_lock(&lock[i]);
+        delete [] lock;
 		delete [] edge_table;
 	}
 
@@ -163,11 +171,11 @@ private:
 		seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
 	}
 
-	std::size_t hash(const Edge &face) const
+	std::size_t hash(const Edge &edge) const
 	{
-		std::size_t h = std::hash<unsigned int>{}(face.vertices[0]);
+		std::size_t h = std::hash<unsigned int>{}(edge.vertices[0]);
 		for (unsigned int i = 1; i < 2; i++)
-			hash_combine(h, face.vertices[i]);
+			hash_combine(h, edge.vertices[i]);
 			return h;
 	}
 };

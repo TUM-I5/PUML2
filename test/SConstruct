@@ -65,4 +65,4 @@ env.Append(CPPPATH=['#/..', '#/../submodules'])
 
 buildDir = 'build'
 
-env.Program('#/build/pumltestParallelx64', ['puml.cpp'])
+env.Program('#/build/pumltest', ['puml.cpp'])

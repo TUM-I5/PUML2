@@ -12,16 +12,11 @@
 
 #ifndef PUML_PUML_H
 #define PUML_PUML_H
-#define CORES 128
-#define LESSCORES 32
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
 
 #include <omp.h>
-
-#define CONTAINER_SIZE 10
-#define LOCK_SIZE 100
 
 #include <algorithm>
 #include <cassert>
@@ -40,13 +35,13 @@
 
 #include "utils/logger.h"
 #include "utils/stringutils.h"
-#include "utils/Stopwatch.h"
 
 #include "DownElement.h"
 #include "Element.h"
 #include "Topology.h"
 #include "FaceMap.h"
 #include "EdgeMap.h"
+#include "VertexSet.h"
 
 namespace PUML
 {
@@ -83,6 +78,11 @@ public:
 
     /** Internal vertex type */
     typedef Vertex vertex_t;
+
+    double times[9];
+
+
+    //Stopwatch mpitime;
 private:
 #ifdef USE_MPI
     MPI_Comm m_comm;
@@ -137,6 +137,7 @@ private:
 
     /** Original user vertex data */
     std::vector<int*> m_originalVertexData;
+
 public:
     PUML() :
 #ifdef USE_MPI
@@ -458,6 +459,36 @@ public:
         MPI_Type_commit(&cellType);
 
         newCells = new ocell_t[m_originalSize[0]];
+
+/*
+        int zeroes = 0;
+        double nonzeroes = 0;
+        double AVGmessageSize = 0;
+        int typeSize;
+        MPI_Type_size(cellType, &typeSize);
+        for(int i = 0; i < procs;i++)
+        {
+            if(sendCount[i] > 0)
+            {
+                nonzeroes++;
+                AVGmessageSize += sendCount[i] * typeSize;
+            }
+            else
+                zeroes++;
+        }
+        AVGmessageSize = AVGmessageSize / nonzeroes;
+        double totalAVGsizes = 0;
+        double totalAVGnonzeroes = 0;
+        MPI_Reduce(&AVGmessageSize, &totalAVGsizes, 1, MPI_DOUBLE, MPI_SUM, 0,
+                   m_comm);
+        MPI_Reduce(&nonzeroes, &totalAVGnonzeroes, 1, MPI_DOUBLE, MPI_SUM, 0,
+                   m_comm);
+        totalAVGsizes = totalAVGsizes / procs;
+        totalAVGnonzeroes = totalAVGnonzeroes / procs;
+        if(rank == 0)
+            printf("AVG: Processes send on avg messages of size %f to %f different processes\n", totalAVGsizes, totalAVGnonzeroes);
+
+*/
         MPI_Alltoallv(m_originalCells, sendCount, sDispls, cellType,
             newCells, recvCount, rDispls, cellType,
             m_comm);
@@ -471,6 +502,7 @@ public:
         for (std::vector<int*>::iterator it = m_cellData.begin();
                 it != m_cellData.end(); ++it) {
             int* newData = new int[m_originalSize[0]];
+
             MPI_Alltoallv(*it, sendCount, sDispls, MPI_INT,
                 newData, recvCount, rDispls, MPI_INT,
                 m_comm);
@@ -493,46 +525,106 @@ public:
 #ifdef USE_MPI
         MPI_Comm_rank(m_comm, &rank);
         MPI_Comm_size(m_comm, &procs);
-#endif // USE_MPI
+#endif // USE_MPI 
+
+        int threads = 64;
+        int maxThreads = 128;
+        int lessThreads = 32;
+
+        if(omp_get_max_threads() < threads)
+            threads = omp_get_max_threads();
+
+        if(omp_get_max_threads() > maxThreads)
+            omp_set_num_threads(maxThreads);
+        else
+            maxThreads = omp_get_max_threads();
+
+        if(omp_get_max_threads() < lessThreads)
+            lessThreads = omp_get_max_threads();
+
+        logInfo(rank) << "Starting PUML's steps 3 to 5 with" << omp_get_max_threads() << "cores";
+        //logInfo(rank) << "Begin section with " << omp_get_max_threads() << "( " << lessThreads << "/" << threads << "/" << maxThreads << ")" << " cores";
+        //Stopwatch totalTime = Stopwatch();
+        //totalTime.start();
+        //Stopwatch topTime = Stopwatch();
+        //topTime.start();
+        //Stopwatch stopper = Stopwatch();
+
+
 
         // Generate a list of vertices we need from other processors
         unsigned int maxVertices = (m_originalTotalSize[1] + procs - 1) / procs;
 
-        std::unordered_set<unsigned long>* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
+        std::vector<internal::VertexSet> vertexSets;
+        for(int i = 0; i < procs; i++)
+        {
+            internal::VertexSet vs(m_originalSize[0]);
+            vertexSets.push_back(vs);
+        }
+        for(int j = 0; j < procs; j++)
+        {
+            for(unsigned int i = 0; i < (m_originalSize[0] / LOCK_SIZE) + 1; i++)
+            {
+                omp_init_lock(&vertexSets[j].lock[i]);
+            }
+        }
+
+        int* added = new int[maxThreads];
+        for(int i = 0; i < maxThreads; i++)
+            added[i] = 0;
+
+        #pragma omp parallel for num_threads(maxThreads)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
             for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
                 int proc = m_originalCells[i][j] / maxVertices;
                 assert(proc < procs);
-
-                requiredVertexSets[proc].insert(m_originalCells[i][j]); // Convert to local vid
+                if(vertexSets[proc].add(m_originalCells[i][j]))
+                {
+                    added[omp_get_thread_num()]++; // Convert to local vid
+                }
             }
         }
 
+        unsigned int totalVertices = 0;
+        for(int i = 0; i < omp_get_max_threads(); i++)
+            totalVertices += added[i];
+
+        delete [] added;
+
         // Generate information for requesting vertices
-        unsigned int totalVertices = requiredVertexSets[0].size();
-        for (int i = 1; i < procs; i++)
-            totalVertices += requiredVertexSets[i].size();
 
         int* sendCount = new int[procs];
 
         unsigned long* requiredVertices = new unsigned long[totalVertices];
         unsigned int k = 0;
-        for (int i = 0; i < procs; i++) {
-            sendCount[i] = requiredVertexSets[i].size();
 
-            for (std::unordered_set<unsigned long>::const_iterator it = requiredVertexSets[i].begin();
-                    it != requiredVertexSets[i].end(); ++it) {
-                assert(k < totalVertices);
-                requiredVertices[k++] = *it;
+        for (int i = 0; i < procs; i++) {
+            int size = 0;
+            for (int j = 0; j < m_originalSize[0]; j++) {
+                assert(k < totalVertices+1);
+                if(vertexSets[i].vertex_table[j] != -1)
+                {
+                    requiredVertices[k++] = vertexSets[i].vertex_table[j];
+                    size++;
+                }
             }
+            sendCount[i] = size;
         }
 
-        delete [] requiredVertexSets;
+        for(int i = 0; i < procs; i++)
+        {
+            vertexSets[i].clear();
+        }
+        vertexSets.clear();
+
 
         // Exchange required vertex information
         int* recvCount = new int[procs];
 #ifdef USE_MPI
+        //mpitime = Stopwatch();;
+        //mpitime.start();
         MPI_Alltoall(sendCount, 1, MPI_INT, recvCount, 1, MPI_INT, m_comm);
+        //mpitime.pause();
 #else // USE_MPI
         recvCount[0] = sendCount[0];
 #endif // USE_MPI
@@ -550,19 +642,25 @@ public:
 
         unsigned long* distribVertexIds = new unsigned long[totalRecv];
 #ifdef USE_MPI
+        
+        //mpitime.start();
         MPI_Alltoallv(requiredVertices, sendCount, sDispls, MPI_UNSIGNED_LONG,
             distribVertexIds, recvCount, rDispls, MPI_UNSIGNED_LONG,
             m_comm);
+        //mpitime.pause();
 #endif // USE_MPI
 
         // Send back vertex coordinates (an other data)
         overtex_t* distribVertices = new overtex_t[totalRecv];
         std::vector<int*> distribData;
         distribData.resize(m_originalVertexData.size());
+
         for (unsigned int i = 0; i < m_originalVertexData.size(); i++)
             distribData[i] = new int[totalRecv];
+
         std::vector<int>* sharedRanks = new std::vector<int>[m_originalSize[1]];
         k = 0;
+
         for (int i = 0; i < procs; i++) {
             for (unsigned int j = 0; j < recvCount[i]; j++) {
                 assert(k < totalRecv);
@@ -587,16 +685,20 @@ public:
                 it != m_vertexData.end(); ++it) {
             delete [] *it;
         }
+
         m_vertexData.resize(m_originalVertexData.size());
+
         for (std::vector<int*>::iterator it = m_vertexData.begin();
                 it != m_vertexData.end(); ++it) {
             *it = new int[totalVertices];
         }
+
 #ifdef USE_MPI
         MPI_Datatype vertexType;
         MPI_Type_contiguous(3, MPI_DOUBLE, &vertexType);
         MPI_Type_commit(&vertexType);
 
+        //mpitime.start();
         MPI_Alltoallv(distribVertices, recvCount, rDispls, vertexType,
             recvVertices, sendCount, sDispls, vertexType,
             m_comm);
@@ -604,10 +706,12 @@ public:
         MPI_Type_free(&vertexType);
 
         for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
+
             MPI_Alltoallv(distribData[i], recvCount, rDispls, MPI_INT,
                 m_vertexData[i], sendCount, sDispls, MPI_INT,
                 m_comm);
         }
+        //mpitime.pause();
 #endif // USE_MPI
 
         delete [] distribVertices;
@@ -620,6 +724,7 @@ public:
         // Send back the number of shared ranks for each vertex
         unsigned int* distNsharedRanks = new unsigned int[totalRecv];
         unsigned int distTotalSharedRanks = 0;
+
         for (unsigned int i = 0; i < totalRecv; i++) {
             assert(distribVertexIds[i] < m_originalSize[1]);
             distNsharedRanks[i] = sharedRanks[distribVertexIds[i]].size();
@@ -628,9 +733,12 @@ public:
 
         unsigned int* recvNsharedRanks = new unsigned int[totalVertices];
 #ifdef USE_MPI
+
+        //mpitime.start();
         MPI_Alltoallv(distNsharedRanks, recvCount, rDispls, MPI_UNSIGNED,
             recvNsharedRanks, sendCount, sDispls, MPI_UNSIGNED,
             m_comm);
+        //mpitime.pause();
 #endif // USE_MPI
 
         delete [] distNsharedRanks;
@@ -642,6 +750,7 @@ public:
         int* distSharedRanks = new int[distTotalSharedRanks];
         k = 0;
         unsigned int l = 0;
+
         for (int i = 0; i < procs; i++) {
             for (unsigned int j = 0; j < recvCount[i]; j++) {
                 assert(k < totalRecv);
@@ -664,6 +773,7 @@ public:
 
         unsigned int recvTotalSharedRanks = 0;
         k = 0;
+
         for (int i = 0; i < procs; i++) {
             for (unsigned int j = 0; j < sendCount[i]; j++) {
                 assert(k < totalVertices);
@@ -686,9 +796,12 @@ public:
         }
 
 #ifdef USE_MPI
+
+        //mpitime.start();
         MPI_Alltoallv(distSharedRanks, sharedSendCount, sDispls, MPI_INT,
             recvSharedRanks, sharedRecvCount, rDispls, MPI_INT,
             m_comm);
+        //mpitime.pause();
 #endif // USE_MPI
 
         delete [] distSharedRanks;
@@ -701,6 +814,7 @@ public:
         m_vertices.resize(totalVertices);
 
         k = 0;
+
         for (unsigned int i = 0; i < totalVertices; i++) {
             m_vertices[i].m_gid = requiredVertices[i];
             memcpy(m_vertices[i].m_coordinate, recvVertices[i], sizeof(overtex_t));
@@ -730,47 +844,45 @@ public:
 
         unsigned long cellOffset = m_originalSize[0];
 #ifdef USE_MPI
+        //mpitime.start();
         MPI_Scan(MPI_IN_PLACE, &cellOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
+        //mpitime.pause();
 #endif // USE_MPI
         cellOffset -= m_originalSize[0];
 
+        logInfo(rank) << "Step 3 successful";
 
 
-        Stopwatch totalTime = Stopwatch();
-        totalTime.start();
-        omp_set_num_threads(CORES);
-        logInfo(rank) << "Begin section with " << CORES << " cores";
+
+        //times[0] = topTime.pause();
+        //topTime.stop();
+
+        //Stopwatch center_time = Stopwatch();
+        //center_time.start();
+
         unsigned int face_table_size = m_originalSize[0] * 4;
-        logInfo(rank) << "Face Table Size: " << face_table_size;
-        unsigned int edge_table_size = m_originalSize[0] * 6;
-        logInfo(rank) << "Edge Table SIze: " << edge_table_size;
-        
-        Stopwatch stopper = Stopwatch();
+        unsigned int edge_table_size = m_originalSize[0] * 6;        
 
-        stopper.start();
         internal::FaceMap faceMap(face_table_size);
-        #pragma omp parallel for num_threads(LESSCORES)
+        #pragma omp parallel for num_threads(threads)
         for(unsigned int i = 0; i < face_table_size; i++)
         {
             faceMap.face_table[i].cells[0] = -1;
+            faceMap.face_table[i].cells[1] = -1;
         }
-        stopper.pause();
-        stopper.printTime("Initializing faceMap (Parallel);");
-        stopper.stop();
 
-        stopper.start();
         for(unsigned int i = 0; i < (face_table_size / LOCK_SIZE) + 1; i++)
         {
             omp_init_lock(&faceMap.lock[i]);
         }
-        stopper.pause();
-        stopper.printTime("Initializing faceMap locks (Sequential);");
-        stopper.stop();
 
-        stopper.start();
+        //stopper.start();
 
-        int double_subtract[CORES] = {0};
-        #pragma omp parallel for schedule(dynamic, 100)
+        int* double_subtract = new int[maxThreads];
+        for(int i = 0; i < maxThreads; i++)
+            double_subtract[i] = 0;
+
+        #pragma omp parallel for schedule(guided) num_threads(maxThreads)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 
             m_cells[i].m_gid = i + cellOffset;
@@ -783,7 +895,7 @@ public:
 
             unsigned int v[internal::Topology<Topo>::facevertices()];
             unsigned int faces[internal::Topology<Topo>::cellfaces()];
-            unsigned int h;
+
             int sub = 0;
             v[0] = m_cells[i].m_vertices[1];
             v[1] = m_cells[i].m_vertices[0];
@@ -813,45 +925,49 @@ public:
                 double_subtract[omp_get_thread_num()] += 6;
             else
                 double_subtract[omp_get_thread_num()] += sub*3;
-
         }
 
-        for(int i = 0; i < CORES; i++)
+        for(int i = 0; i < maxThreads; i++)
         {
             edge_table_size = edge_table_size - double_subtract[i];
         }
-        logInfo(rank) << "Updated Edge Table Size: " << edge_table_size;
 
-        stopper.pause();
-        stopper.printTime("Inserting Faces (Parallel);");
-        stopper.stop();
-        int distribution_faces[CORES] = {0};
+        edge_table_size = 6 * edge_table_size;
 
-        stopper.start();
-        #pragma omp parallel for
+
+        //Stopwatch findprime = Stopwatch();
+        //findprime.start();
+        edge_table_size = NextPrime(edge_table_size);
+
+        //double primetime = findprime.pause();
+        //findprime.stop();
+        
+        //times[1] = stopper.pause();
+        //stopper.stop();
+
+        int* distribution_faces = new int[threads];
+        for(int i = 0; i < threads; i++)
+            distribution_faces[i] = 0;
+
+        #pragma omp parallel for num_threads(threads)
         for(unsigned int i = 0; i < face_table_size; i++)
         {
             distribution_faces[omp_get_thread_num()] += faceMap.face_table[i].cells[0] != -1;
         }
-        stopper.pause();
-        stopper.printTime("Classifying faces (Parallel);");
-        stopper.stop();
-        if(CORES > 1)
+
+        if(threads > 1)
         {
-            for(unsigned int i = 1; i < CORES; i++)
+            for(unsigned int i = 1; i < threads; i++)
             {
                 distribution_faces[i] = distribution_faces[i] + distribution_faces[i-1];
             }
         }
 
-        stopper.start();
-        m_faces.resize(distribution_faces[CORES-1]);
-        stopper.pause();
-        stopper.printTime("Resizing m_faces (Sequential);");
-        stopper.stop();
+        m_faces.clear();
+        m_faces.resize(distribution_faces[threads-1]);
 
-        stopper.start();
-        #pragma omp parallel
+        //stopper.start();
+        #pragma omp parallel num_threads(threads)
         {
             unsigned int counter;
             if(omp_get_thread_num() == 0)
@@ -875,42 +991,34 @@ public:
                 counter++;
             }
         }
-        stopper.pause();
-        stopper.printTime("Numbering faces and inserting them to target vector (Parallel); ");
-        stopper.stop();
-        
-        stopper.start();
+
+        delete [] distribution_faces;
+
+        //times[2] = stopper.pause();
+        //stopper.stop();
+        //stopper.pause();
+        //stopper.printTime("Numbering faces and inserting them to target vector (Parallel); ");
+        //stopper.stop();
+    
         internal::EdgeMap edgeMap(edge_table_size);
-        #pragma omp parallel for num_threads(LESSCORES)
+        #pragma omp parallel for schedule(guided) num_threads(threads)
         for(unsigned int i = 0; i < edge_table_size; i++)
         {
             edgeMap.edge_table[i].size = 0;
         }
-        stopper.pause();
-        stopper.printTime("Initializing EdgeMap (Parallel);");
-        stopper.stop();
 
-        stopper.start();
         for(unsigned int i = 0; i < (edge_table_size / LOCK_SIZE) + 1; i++)
         {
             omp_init_lock(&edgeMap.lock[i]);
         }
-        stopper.pause();
-        stopper.printTime("Initializing EdgeMap locks (Sequential);");
-        stopper.stop();
 
-        stopper.start();
-        omp_lock_t* lock_vertices = new omp_lock_t[m_vertices.size()];
+        omp_lock_t* lock_vertices = new omp_lock_t[(m_vertices.size() / LOCK_SIZE) + 1];
 
-        for(unsigned int i = 0; i < m_vertices.size(); i++)
+        for(unsigned int i = 0; i < (m_vertices.size() / LOCK_SIZE) + 1; i++)
             omp_init_lock(&(lock_vertices[i]));
 
-        stopper.pause();
-        stopper.printTime("Initializing lock_vertices (Sequential);");
-        stopper.stop();
-
-        stopper.start();
-        #pragma omp parallel for schedule(dynamic, 100)
+        //stopper.start();
+        #pragma omp parallel for schedule(guided) num_threads(maxThreads)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
             // TODO adapt for hex
 
@@ -946,12 +1054,12 @@ public:
 
             if(h != -1)
             {
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[0]]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[0] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[0]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[0]]));
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[1]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[0] / LOCK_SIZE]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[1] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[1]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[1]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[1] / LOCK_SIZE]));
             }
 
             v[0] = m_cells[i].m_vertices[1];
@@ -960,12 +1068,12 @@ public:
 
             if(h != -1)
             {
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[1]]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[1] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[1]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[1]]));
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[2]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[1] / LOCK_SIZE]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[2] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[2]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[2]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[2] / LOCK_SIZE]));
             }
 
             v[0] = m_cells[i].m_vertices[2];
@@ -974,12 +1082,12 @@ public:
 
             if(h != -1)
             {
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[2]]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[2] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[2]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[2]]));
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[0]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[2] / LOCK_SIZE]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[0] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[0]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[0]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[0] / LOCK_SIZE]));
             }
 
             v[0] = m_cells[i].m_vertices[0];
@@ -988,12 +1096,12 @@ public:
 
             if(h != -1)
             {
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[0]]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[0] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[0]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[0]]));
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[3]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[0] / LOCK_SIZE]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[3] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[3]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3] / LOCK_SIZE]));
             }
 
             v[0] = m_cells[i].m_vertices[1];
@@ -1002,12 +1110,12 @@ public:
 
             if(h != -1)
             {
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[1]]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[1] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[1]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[1]]));
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[3]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[1] / LOCK_SIZE]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[3] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[3]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3] / LOCK_SIZE]));
             }
 
             v[0] = m_cells[i].m_vertices[2];
@@ -1016,53 +1124,50 @@ public:
 
             if(h != -1)
             {
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[2]]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[2] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[2]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[2]]));
-                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[3]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[2] / LOCK_SIZE]));
+                omp_set_lock(&(lock_vertices[m_cells[i].m_vertices[3] / LOCK_SIZE]));
                 m_vertices[m_cells[i].m_vertices[3]].m_upward.push_back(h);
-                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3]]));
+                omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3] / LOCK_SIZE]));
             }
         }
-        stopper.pause();
-        stopper.printTime("Finding faces and inserting edges (Parallel);");
-        stopper.stop();
+        //times[3] = stopper.pause();
+        //stopper.stop();
 
-        stopper.start();
+        for(unsigned int i = 0; i < (m_vertices.size() / LOCK_SIZE) + 1; i++)
+            omp_destroy_lock(&(lock_vertices[i]));
+
+        delete [] lock_vertices;
+
+
         faceMap.clear();
-        stopper.pause();
-        stopper.printTime("Clearing faceMap (Sequential);");
-        stopper.stop();
 
-        int distribution_edges[LESSCORES] = {0};
+        int* distribution_edges = new int[lessThreads];
+        for(int i = 0; i < lessThreads; i++)
+            distribution_edges[i] = 0;
 
-        stopper.start();
-        #pragma omp parallel for num_threads(LESSCORES)
+        #pragma omp parallel for num_threads(lessThreads)
         for(unsigned int i = 0; i < edge_table_size; i++)
         {
             distribution_edges[omp_get_thread_num()] += edgeMap.edge_table[i].size > 0;
         }
-        stopper.pause();
-        stopper.printTime("Classifying edges (Parallel);");
-        stopper.stop();
 
-        if(CORES > 1)
+        if(lessThreads > 1)
         {
-            for(unsigned int i = 1; i < LESSCORES; i++)
+            for(unsigned int i = 1; i < lessThreads; i++)
             {
                 distribution_edges[i] = distribution_edges[i] + distribution_edges[i-1];
             }
         }
 
-        stopper.start();
-        m_edges.clear();
-        m_edges.resize(distribution_edges[LESSCORES-1]);        
-        stopper.pause();
-        stopper.printTime("Resizing m_edges (Sequential);");
-        stopper.stop();
+        //printf("Rank %i, edge_table_size = %i, edges in table = %i\n", rank, edge_table_size, distribution_edges[lessThreads-1]);
 
-        stopper.start();
-        #pragma omp parallel num_threads(LESSCORES)
+        m_edges.clear();
+        m_edges.resize(distribution_edges[lessThreads-1]);     
+
+        //stopper.start();
+        #pragma omp parallel num_threads(lessThreads)
         {
             unsigned int counter;
             if(omp_get_thread_num() == 0)
@@ -1082,157 +1187,236 @@ public:
                 {
                     m_edges[counter].m_upward[j] = edgeMap.edge_table[i].faces[j];
                 }
-                if(j >= CONTAINER_SIZE)
+                if(edgeMap.edge_table[i].size > CONTAINER_SIZE)
                 {
-                    for (std::set<unsigned int>::const_iterator it = edgeMap.edge_table[i].additionalFaces.begin();
-                        it != edgeMap.edge_table[i].additionalFaces.end(); ++it, j++) {
+                    for (std::set<unsigned int>::const_iterator it = edgeMap.edge_table[i].additionalFaces[0].begin();
+                        it != edgeMap.edge_table[i].additionalFaces[0].end(); ++it, j++) {
                         m_edges[counter].m_upward[j] = *it;
                     }
                 }
                 counter++;
             }
         }
-        stopper.pause();
-        stopper.printTime("Numbering and inserting faces to target edges (Parallel);");
-        stopper.stop();
+        //times[4] = stopper.pause();
+        //stopper.stop();
 
-        stopper.start();
-        #pragma omp parallel for
-        for(unsigned int i = 0; i < totalVertices; i++)
+        delete [] distribution_edges;
+
+        //stopper.start();
+        #pragma omp parallel for num_threads(maxThreads)
+        for(unsigned int i = 0; i < m_vertices.size(); i++)
         {
             for(unsigned int j = 0; j < m_vertices[i].m_upward.size(); j++)
             {
                 m_vertices[i].m_upward[j] = edgeMap.edge_table[m_vertices[i].m_upward[j]].id;
             }
         }
-        stopper.pause();
-        stopper.printTime("Updating edge ids in vertices (Parallel);");
-        stopper.stop();
+        //times[5] = stopper.pause();
+        //stopper.stop();
 
-
-        stopper.start();
-        #pragma omp parallel for num_threads(LESSCORES)
-        for(unsigned int i = 0; i < edge_table_size; i++)
-        {
-            edgeMap.edge_table[i].additionalFaces.clear();
-        }
         edgeMap.clear();
-        stopper.pause();
-        stopper.printTime("Clearing edgeMap (Sequential);");
-        stopper.stop();
+ 
+        //times[6] = center_time.pause();
+        //center_time.stop();
 
+        // VERIFICATION 
+        
+        /*
+        
+        std::vector<std::vector<unsigned int>> e_down(m_edges.size(), std::vector<unsigned int>());
 
-        stopper.start();
         for(unsigned int i = 0; i < m_vertices.size(); i++)
-            omp_destroy_lock(&(lock_vertices[i]));
+        {
+            for(unsigned int j = 0; j < m_vertices[i].m_upward.size(); j++)
+            {
+                e_down[m_vertices[i].m_upward[j]].push_back(i);
+            }
+        }
 
-        delete [] lock_vertices;        
-        stopper.pause();
-        stopper.printTime("Destroying lock_vertices (Sequential);");
-        stopper.stop();
+        std::vector<std::vector<unsigned int>> f_down(m_faces.size(), std::vector<unsigned int>());
 
-        totalTime.pause();
-        totalTime.printTime("Total Time;");
-        totalTime.stop();
+        std::vector<std::vector<unsigned int>> f_down_down(m_faces.size(), std::vector<unsigned int>());
 
-/*
+        for(unsigned int i = 0; i < m_edges.size(); i++)
+        {
+            for(unsigned int j = 0; j < m_edges[i].m_upward.size(); j++)
+            {
+                f_down[m_edges[i].m_upward[j]].push_back(i);
+            }
+        }
+
+        for(unsigned int i = 0; i < f_down.size(); i++)
+        {
+            f_down_down[i].push_back(e_down[f_down[i][0]][0]);
+            f_down_down[i].push_back(e_down[f_down[i][0]][1]);
+            if(e_down[f_down[i][1]][0] != f_down_down[i][0] && e_down[f_down[i][1]][0] != f_down_down[i][1])
+                f_down_down[i].push_back(e_down[f_down[i][1]][0]);
+            else
+                f_down_down[i].push_back(e_down[f_down[i][1]][1]);
+
+            f_down_down[i][0] = m_vertices[f_down_down[i][0]].gid();
+            f_down_down[i][1] = m_vertices[f_down_down[i][1]].gid();
+            f_down_down[i][2] = m_vertices[f_down_down[i][2]].gid();
+        }
+
+        std::vector<bool> vertexVisited(m_vertices.size(), true);
         std::vector<bool> double_edges(m_edges.size(), false);
         std::vector<unsigned int> edges_vertices;
-        std::ofstream edge_validation ("edge_validation.txt");
+        std::string filename = "edge_validation";
+        filename += std::to_string(rank);
+        std::ofstream edge_validation (filename);
         if(edge_validation.is_open())
         {
-            for(unsigned int i = 0; i < totalVertices; i++)
+            for (unsigned int i = 0; i < m_originalSize[0]; i++)
             {
-                edges_vertices.clear();
-                for(unsigned int j = 0; j < m_vertices[i].m_upward.size(); j++)
-                {                    
-                    unsigned int e = m_vertices[i].m_upward[j];
-                    if(double_edges[e])
-                        continue;
-                    else
-                        double_edges[e] = true;
-                    for(unsigned int k = 0; k < 4; k++)
-                    {
-                        for(unsigned int l = 0; l < m_vertices[m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[0]].m_upward[0]].m_upward[k]].m_upward.size(); l++)
-                        {
-                            if (m_vertices[m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[0]].m_upward[0]].m_upward[k]].m_upward[l] == e && m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[0]].m_upward[0]].m_upward[k] != i)
-                            {
-                                edges_vertices.push_back(m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[0]].m_upward[0]].m_upward[k]);
-                            }
-                        }
-                    }
-                }
-                std::sort(edges_vertices.begin(), edges_vertices.end());
-                for(unsigned int j = 0; j < edges_vertices.size(); j++)
+                unsigned int v = -1;
+                for(unsigned int j = 0; j < 4; j++)
                 {
-                    edge_validation << i << " and " << edges_vertices[j] << "\n";
+                    if(vertexVisited[m_cells[i].m_vertices[j]])
+                        vertexVisited[m_cells[i].m_vertices[j]] = false;
+                    else
+                        continue;
+                    edges_vertices.clear();
+                    
+                    for(unsigned int k = 0; k < m_vertices[m_cells[i].m_vertices[j]].m_upward.size(); k++)
+                    {
+                        unsigned int edge_id = m_vertices[m_cells[i].m_vertices[j]].m_upward[k];
+                        if(m_cells[i].m_vertices[j] == e_down[edge_id][0])
+                            v = e_down[edge_id][1];
+                        else
+                            v = e_down[edge_id][0];
+
+                        v = m_vertices[v].gid();
+
+                        edges_vertices.push_back(v);
+                    }
+
+                    std::sort(edges_vertices.begin(), edges_vertices.end());
+                    for(unsigned int k = 0; k < edges_vertices.size(); k++)
+                    {
+                        edge_validation << m_vertices[m_cells[i].m_vertices[j]].gid() << " and " << edges_vertices[k] << "\n";
+                    }
                 }
             }
             edge_validation.close();
         }
-
-        std::vector<std::pair<unsigned int, unsigned int>> faces_vertices;
+        std::vector<bool> vertexVisited2(m_vertices.size(), true);
+        std::vector<std::pair<std::pair<unsigned int, unsigned int>, std::pair<unsigned int, unsigned int>>> faces_vertices;
         std::vector<bool> double_faces(m_faces.size(), false);
-        std::ofstream face_validation ("face_validation.txt");
+        filename = "face_validation";
+        filename += std::to_string(rank);
+        std::ofstream face_validation (filename);
         if(face_validation.is_open())
         {
-            for(unsigned int i = 0; i < totalVertices; i++)
+            for (unsigned int i = 0; i < m_originalSize[0]; i++)
             {
-                faces_vertices.clear();
-
-                for(unsigned int j = 0; j < m_vertices[i].m_upward.size(); j++)
-                {            
-                    for(unsigned int k = 0; k < m_edges[m_vertices[i].m_upward[j]].m_upward.size(); k++)
-                    {      
-                        unsigned f = m_edges[m_vertices[i].m_upward[j]].m_upward[k];
-                        if(double_faces[f])
-                            continue;
-                        else
-                            double_faces[f] = true;
-
-                        unsigned int v1 = -1;
-                        unsigned int v2 = -1;
-
-                        for(unsigned int l = 0; l < 4; l++)
+                for(unsigned int j = 0; j < 4; j++)
+                {
+                    if(vertexVisited2[m_cells[i].m_vertices[j]])
+                        vertexVisited2[m_cells[i].m_vertices[j]] = false;
+                    else
+                        continue;
+                    faces_vertices.clear();
+                    
+                    for(unsigned int k = 0; k < m_vertices[m_cells[i].m_vertices[j]].m_upward.size(); k++)
+                    {
+                        unsigned int edge_id = m_vertices[m_cells[i].m_vertices[j]].m_upward[k];
+                        for(unsigned int l = 0; l < m_edges[edge_id].m_upward.size(); l++)
                         {
-                            for(unsigned int m = 0; m < m_vertices[m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l]].m_upward.size(); m++)
+                            unsigned int face_id = m_edges[edge_id].m_upward[l];
+                            if(f_down_down[face_id][0] == m_vertices[m_cells[i].m_vertices[j]].gid())
                             {
-                                for(unsigned int n = 0; n < m_edges[m_vertices[m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l]].m_upward[m]].m_upward.size(); n++)
-                                {
-                                    if (m_edges[m_vertices[m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l]].m_upward[m]].m_upward[n] == f && m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l] != i && m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l] != v1 && m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l] != v2)
-                                    {
-                                        if(v1 != -1)
-                                        {
-                                            v2 = m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l];
-                                            faces_vertices.back().second = v2;
-                                        }
-                                        else
-                                        {
-                                            v1 = m_cells[m_faces[m_edges[m_vertices[i].m_upward[j]].m_upward[k]].m_upward[0]].m_upward[l];
-                                            faces_vertices.push_back({v1, -1});
-                                        }
-                                    }
-                                }
+                                if(f_down_down[face_id][1] > f_down_down[face_id][2])
+                                    faces_vertices.push_back({{f_down_down[face_id][2], f_down_down[face_id][1]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
+                                else
+                                    faces_vertices.push_back({{f_down_down[face_id][1], f_down_down[face_id][2]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
+                            }
+                            else if(f_down_down[face_id][1] == m_vertices[m_cells[i].m_vertices[j]].gid())
+                            {
+                                if(f_down_down[face_id][0] > f_down_down[face_id][2])
+                                    faces_vertices.push_back({{f_down_down[face_id][2], f_down_down[face_id][0]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
+                                else
+                                    faces_vertices.push_back({{f_down_down[face_id][0], f_down_down[face_id][2]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
+                            }
+                            else if(f_down_down[face_id][2] == m_vertices[m_cells[i].m_vertices[j]].gid())
+                            {
+                                if(f_down_down[face_id][1] > f_down_down[face_id][0])
+                                    faces_vertices.push_back({{f_down_down[face_id][0], f_down_down[face_id][1]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
+                                else
+                                    faces_vertices.push_back({{f_down_down[face_id][1], f_down_down[face_id][0]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
                             }
                         }
+                        
                     }
-                }
-                std::sort(faces_vertices.begin(), faces_vertices.end());
-                for(unsigned int j = 0; j < faces_vertices.size(); j++)
-                {
-                    face_validation << i << " and " << faces_vertices[j].first << " and " << faces_vertices[j].second << "\n";
+
+                    std::sort(faces_vertices.begin(), faces_vertices.end());
+                    for(unsigned int k = 0; k < faces_vertices.size(); k = k + 2)
+                    {
+                        face_validation << m_vertices[m_cells[i].m_vertices[j]].gid() << " and " << faces_vertices[k].first.first << " and " << faces_vertices[k].first.second << "  ->  "  << faces_vertices[k].second.first << " and " << faces_vertices[k].second.second << "\n";
+                    }
                 }
             }
             face_validation.close();
         }
-*/
+        */
+       
+        logInfo(rank) << "Step 4 successful";
+
+        //Stopwatch bottomTime = Stopwatch();
+        //bottomTime.start();
 
         // Generate shared information and global ids for edges
-        generatedSharedAndGID<edge_t, vertex_t, 2>(m_edges, m_vertices);
+        generatedSharedAndGID<edge_t, vertex_t, 2>(m_edges, m_vertices, maxThreads);
 
         // Generate shared information and global ids for faces
-        generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces, m_edges);
+        generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces, m_edges, maxThreads);
+
+        logInfo(rank) << "Step 5 successful";
+        //times[7] = bottomTime.pause();
+        //bottomTime.stop();
+
+        //times[8] = totalTime.pause();
+        //totalTime.stop();
     }
+
+    // from https://stackoverflow.com/questions/30052316/find-next-prime-number-algorithm
+    static bool IsPrime(int number)
+    {
+
+        if (number == 2 || number == 3)
+            return true;
+
+        if (number % 2 == 0 || number % 3 == 0)
+            return false;
+
+        int divisor = 6;
+        while (divisor * divisor - 2 * divisor + 1 <= number)
+        {
+
+            if (number % (divisor - 1) == 0)
+                return false;
+
+            if (number % (divisor + 1) == 0)
+                return false;
+
+            divisor += 6;
+
+        }
+
+        return true;
+
+    }
+    // from https://stackoverflow.com/questions/30052316/find-next-prime-number-algorithm
+    static int NextPrime(int a)
+    {
+
+        while (!IsPrime(++a)) 
+        { }
+        return a;
+
+    }
+
+
 
 
     /**
@@ -1354,7 +1538,7 @@ private:
      * @tparam N The number of downward elements
      */
     template<typename E, typename D, unsigned int N>
-    void generatedSharedAndGID(std::vector<E> &elements, const std::vector<D> &down)
+    void generatedSharedAndGID(std::vector<E> &elements, const std::vector<D> &down, int maxThreads)
     {
 #ifdef USE_MPI
         // Collect all shared ranks for each element and downward gids
@@ -1364,21 +1548,40 @@ private:
         unsigned int* downPos = new unsigned int[elements.size()];
         memset(downPos, 0, elements.size() * sizeof(unsigned int));
 
+        omp_lock_t* lock_elements = new omp_lock_t[(elements.size() / LOCK_SIZE) + 1];
+
+        for(unsigned int i = 0; i < (elements.size() / LOCK_SIZE) + 1; i++)
+            omp_init_lock(&(lock_elements[i]));
+        
+        #pragma omp parallel for schedule(guided) num_threads(maxThreads)
         for (typename std::vector<D>::const_iterator it = down.begin();
                 it != down.end(); ++it) {
             for (std::vector<int>::const_iterator it2 = it->m_upward.begin();
                     it2 != it->m_upward.end(); ++it2) {
+
+                omp_set_lock(&(lock_elements[*it2 / LOCK_SIZE]));
+
                 assert(downPos[*it2] < N);
                 allShared[*it2 * N + downPos[*it2]] = &it->m_sharedRanks;
                 downward[*it2 * N + downPos[*it2]] = it->m_gid;
                 downPos[*it2]++;
+                omp_unset_lock(&(lock_elements[*it2 / LOCK_SIZE]));
             }
         }
 
+
+        for(unsigned int i = 0; i < (elements.size() / LOCK_SIZE) + 1; i++)
+            omp_destroy_lock(&(lock_elements[i]));
+
+        delete [] lock_elements;
+
         delete [] downPos;
+
 
         // Create the intersection of the shared ranks and update the elements
         assert(N >= 2);
+
+        #pragma omp parallel for num_threads(maxThreads)
         for (unsigned int i = 0; i < elements.size(); i++) {
             assert(allShared[i*N]);
             assert(allShared[i*N+1]);
@@ -1400,6 +1603,7 @@ private:
             }
         }
 
+
         delete [] allShared;
 
         // Eliminate false positves
@@ -1409,16 +1613,28 @@ private:
 
         int* nShared = new int[procs];
         memset(nShared, 0, procs * sizeof(int));
+
+        std::vector<std::vector<int>> nSharedThread(maxThreads, std::vector<int>(procs));
+
+        #pragma omp parallel for schedule(guided) num_threads(maxThreads)
         for (typename std::vector<E>::const_iterator it = elements.begin();
                 it != elements.end(); ++it) {
             for (std::vector<int>::const_iterator it2 = it->m_sharedRanks.begin();
                     it2 != it->m_sharedRanks.end(); ++it2) {
-                nShared[*it2]++;
+                nSharedThread[omp_get_thread_num()][*it2]++;
             }
         }
 
+        for(int i = 0; i < maxThreads; i++)
+            for(int j = 0; j < procs; j++)
+                nShared[j] += nSharedThread[i][j];
+
         int *nRecvShared = new int[procs];
+
+        //mpitime.start();
         MPI_Alltoall(nShared, 1, MPI_INT, nRecvShared, 1, MPI_INT, m_comm);
+
+        //mpitime.pause();
 
         int *sDispls = new int[procs];
         int *rDispls = new int[procs];
@@ -1456,9 +1672,11 @@ private:
         MPI_Type_contiguous(N, MPI_UNSIGNED_LONG, &type);
         MPI_Type_commit(&type);
 
+        //mpitime.start();
         MPI_Alltoallv(sendShared, nShared, sDispls, type,
             recvShared, nRecvShared, rDispls, type,
             m_comm);
+        //mpitime.pause();
 
         delete [] nShared;
         delete [] sendShared;
@@ -1477,10 +1695,12 @@ private:
             }
         }
 
+
         delete [] nRecvShared;
         delete [] recvShared;
 
         unsigned int e = 0;
+        #pragma omp parallel for schedule(guided) num_threads(maxThreads)
         for (unsigned int i = 0; i < elements.size(); i++) {
             internal::DownElement<N> delem(&downward[i * N]);
 
@@ -1498,6 +1718,8 @@ private:
 
         delete [] hashedElements;
 
+
+
         // Count owned elements
         unsigned int owned = 0;
         for (typename std::vector<E>::const_iterator it = elements.begin();
@@ -1508,7 +1730,9 @@ private:
 
         // Get global id offset
         unsigned long gidOffset = owned;
+        //mpitime.start();
         MPI_Scan(MPI_IN_PLACE, &gidOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
+        //mpitime.pause();
         gidOffset -= owned;
 
         // Set global ids for owned elements and count the number of elements we need to forward
@@ -1516,6 +1740,7 @@ private:
         memset(nSendGid, 0, procs * sizeof(int));
         int* nRecvGid = new int[procs];
         memset(nRecvGid, 0, procs * sizeof(int));
+
         for (typename std::vector<E>::iterator it = elements.begin();
                 it != elements.end(); ++it) {
             if (it->m_sharedRanks.empty() || it->m_sharedRanks[0] > rank) {
@@ -1550,6 +1775,7 @@ private:
 
         unsigned long* sendGid = new unsigned long[totalSendGid];
         unsigned long* sendDGid = new unsigned long[totalSendGid * N];
+
         for (unsigned int i = 0; i < elements.size(); i++) {
             if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
                 for (std::vector<int>::const_iterator it = elements[i].m_sharedRanks.begin();
@@ -1563,12 +1789,14 @@ private:
             }
         }
 
+
         delete [] sendPos;
 
         // Exchange cell data
         unsigned long* recvGid = new unsigned long[totalRecvGid];
         unsigned long* recvDGid = new unsigned long[totalRecvGid*N];
 
+        //mpitime.start();
         MPI_Alltoallv(sendGid, nSendGid, sDispls, MPI_UNSIGNED_LONG,
             recvGid, nRecvGid, rDispls, MPI_UNSIGNED_LONG,
             m_comm);
@@ -1577,6 +1805,7 @@ private:
             recvDGid, nRecvGid, rDispls, type,
             m_comm);
 
+        //printf("Time spend in MPI stuff: %f", mpitime.pause());
         MPI_Type_free(&type);
 
         delete [] sendGid;
@@ -1588,6 +1817,7 @@ private:
 
         // Create a hash map from the received elements
         std::unordered_map<internal::DownElement<N>, unsigned long, internal::DownElementHash<N> > dg2g;
+
         for (unsigned int i = 0; i < totalRecvGid; i++) {
             dg2g.emplace(&recvDGid[i*N], recvGid[i]);
         }

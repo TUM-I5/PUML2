@@ -122,7 +122,7 @@ public:
 
 	void clear()
 	{
-        for(unsigned int i = 0; i < capacity / LOCK_SIZE; i++)
+        for(unsigned int i = 0; i < (capacity / LOCK_SIZE) + 1; i++)
             omp_destroy_lock(&lock[i]);
         delete [] lock;
 		delete [] face_table;
