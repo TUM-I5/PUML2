@@ -79,10 +79,6 @@ public:
     /** Internal vertex type */
     typedef Vertex vertex_t;
 
-    double times[9];
-
-
-    //Stopwatch mpitime;
 private:
 #ifdef USE_MPI
     MPI_Comm m_comm;
@@ -122,12 +118,6 @@ private:
 
     /** Mapping from global vertex ids to locl vertex ids */
     g2l_t m_verticesg2l;
-
-    /** Maps from local vertex ids to to a local face ids */
-    //internal::VertexElementMap<internal::Topology<Topo>::facevertices()> m_v2f;
-
-    /** Maps from local vertex ids to local edge ids */
-    //internal::VertexElementMap<2> m_v2e;
 
     /** User cell data */
     std::vector<int*> m_cellData;
@@ -460,35 +450,6 @@ public:
 
         newCells = new ocell_t[m_originalSize[0]];
 
-/*
-        int zeroes = 0;
-        double nonzeroes = 0;
-        double AVGmessageSize = 0;
-        int typeSize;
-        MPI_Type_size(cellType, &typeSize);
-        for(int i = 0; i < procs;i++)
-        {
-            if(sendCount[i] > 0)
-            {
-                nonzeroes++;
-                AVGmessageSize += sendCount[i] * typeSize;
-            }
-            else
-                zeroes++;
-        }
-        AVGmessageSize = AVGmessageSize / nonzeroes;
-        double totalAVGsizes = 0;
-        double totalAVGnonzeroes = 0;
-        MPI_Reduce(&AVGmessageSize, &totalAVGsizes, 1, MPI_DOUBLE, MPI_SUM, 0,
-                   m_comm);
-        MPI_Reduce(&nonzeroes, &totalAVGnonzeroes, 1, MPI_DOUBLE, MPI_SUM, 0,
-                   m_comm);
-        totalAVGsizes = totalAVGsizes / procs;
-        totalAVGnonzeroes = totalAVGnonzeroes / procs;
-        if(rank == 0)
-            printf("AVG: Processes send on avg messages of size %f to %f different processes\n", totalAVGsizes, totalAVGnonzeroes);
-
-*/
         MPI_Alltoallv(m_originalCells, sendCount, sDispls, cellType,
             newCells, recvCount, rDispls, cellType,
             m_comm);
@@ -543,14 +504,6 @@ public:
             lessThreads = omp_get_max_threads();
 
         logInfo(rank) << "Starting PUML's steps 3 to 5 with" << omp_get_max_threads() << "cores";
-        //logInfo(rank) << "Begin section with " << omp_get_max_threads() << "( " << lessThreads << "/" << threads << "/" << maxThreads << ")" << " cores";
-        //Stopwatch totalTime = Stopwatch();
-        //totalTime.start();
-        //Stopwatch topTime = Stopwatch();
-        //topTime.start();
-        //Stopwatch stopper = Stopwatch();
-
-
 
         // Generate a list of vertices we need from other processors
         unsigned int maxVertices = (m_originalTotalSize[1] + procs - 1) / procs;
@@ -621,10 +574,8 @@ public:
         // Exchange required vertex information
         int* recvCount = new int[procs];
 #ifdef USE_MPI
-        //mpitime = Stopwatch();;
-        //mpitime.start();
+
         MPI_Alltoall(sendCount, 1, MPI_INT, recvCount, 1, MPI_INT, m_comm);
-        //mpitime.pause();
 #else // USE_MPI
         recvCount[0] = sendCount[0];
 #endif // USE_MPI
@@ -643,11 +594,9 @@ public:
         unsigned long* distribVertexIds = new unsigned long[totalRecv];
 #ifdef USE_MPI
         
-        //mpitime.start();
         MPI_Alltoallv(requiredVertices, sendCount, sDispls, MPI_UNSIGNED_LONG,
             distribVertexIds, recvCount, rDispls, MPI_UNSIGNED_LONG,
             m_comm);
-        //mpitime.pause();
 #endif // USE_MPI
 
         // Send back vertex coordinates (an other data)
@@ -698,7 +647,6 @@ public:
         MPI_Type_contiguous(3, MPI_DOUBLE, &vertexType);
         MPI_Type_commit(&vertexType);
 
-        //mpitime.start();
         MPI_Alltoallv(distribVertices, recvCount, rDispls, vertexType,
             recvVertices, sendCount, sDispls, vertexType,
             m_comm);
@@ -711,7 +659,6 @@ public:
                 m_vertexData[i], sendCount, sDispls, MPI_INT,
                 m_comm);
         }
-        //mpitime.pause();
 #endif // USE_MPI
 
         delete [] distribVertices;
@@ -734,11 +681,9 @@ public:
         unsigned int* recvNsharedRanks = new unsigned int[totalVertices];
 #ifdef USE_MPI
 
-        //mpitime.start();
         MPI_Alltoallv(distNsharedRanks, recvCount, rDispls, MPI_UNSIGNED,
             recvNsharedRanks, sendCount, sDispls, MPI_UNSIGNED,
             m_comm);
-        //mpitime.pause();
 #endif // USE_MPI
 
         delete [] distNsharedRanks;
@@ -797,11 +742,9 @@ public:
 
 #ifdef USE_MPI
 
-        //mpitime.start();
         MPI_Alltoallv(distSharedRanks, sharedSendCount, sDispls, MPI_INT,
             recvSharedRanks, sharedRecvCount, rDispls, MPI_INT,
             m_comm);
-        //mpitime.pause();
 #endif // USE_MPI
 
         delete [] distSharedRanks;
@@ -838,27 +781,15 @@ public:
 
         // Create the cell, face and edge list
         m_cells.resize(m_originalSize[0]);
-       // m_v2f.clear();
         m_faces.clear();
-        //m_v2e.clear();
 
         unsigned long cellOffset = m_originalSize[0];
 #ifdef USE_MPI
-        //mpitime.start();
         MPI_Scan(MPI_IN_PLACE, &cellOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
-        //mpitime.pause();
 #endif // USE_MPI
         cellOffset -= m_originalSize[0];
 
         logInfo(rank) << "Step 3 successful";
-
-
-
-        //times[0] = topTime.pause();
-        //topTime.stop();
-
-        //Stopwatch center_time = Stopwatch();
-        //center_time.start();
 
         unsigned int face_table_size = m_originalSize[0] * 4;
         unsigned int edge_table_size = m_originalSize[0] * 6;        
@@ -875,8 +806,6 @@ public:
         {
             omp_init_lock(&faceMap.lock[i]);
         }
-
-        //stopper.start();
 
         int* double_subtract = new int[maxThreads];
         for(int i = 0; i < maxThreads; i++)
@@ -934,16 +863,7 @@ public:
 
         edge_table_size = 6 * edge_table_size;
 
-
-        //Stopwatch findprime = Stopwatch();
-        //findprime.start();
         edge_table_size = NextPrime(edge_table_size);
-
-        //double primetime = findprime.pause();
-        //findprime.stop();
-        
-        //times[1] = stopper.pause();
-        //stopper.stop();
 
         int* distribution_faces = new int[threads];
         for(int i = 0; i < threads; i++)
@@ -966,7 +886,6 @@ public:
         m_faces.clear();
         m_faces.resize(distribution_faces[threads-1]);
 
-        //stopper.start();
         #pragma omp parallel num_threads(threads)
         {
             unsigned int counter;
@@ -993,12 +912,6 @@ public:
         }
 
         delete [] distribution_faces;
-
-        //times[2] = stopper.pause();
-        //stopper.stop();
-        //stopper.pause();
-        //stopper.printTime("Numbering faces and inserting them to target vector (Parallel); ");
-        //stopper.stop();
     
         internal::EdgeMap edgeMap(edge_table_size);
         #pragma omp parallel for schedule(guided) num_threads(threads)
@@ -1017,7 +930,6 @@ public:
         for(unsigned int i = 0; i < (m_vertices.size() / LOCK_SIZE) + 1; i++)
             omp_init_lock(&(lock_vertices[i]));
 
-        //stopper.start();
         #pragma omp parallel for schedule(guided) num_threads(maxThreads)
         for (unsigned int i = 0; i < m_originalSize[0]; i++) {
             // TODO adapt for hex
@@ -1132,8 +1044,6 @@ public:
                 omp_unset_lock(&(lock_vertices[m_cells[i].m_vertices[3] / LOCK_SIZE]));
             }
         }
-        //times[3] = stopper.pause();
-        //stopper.stop();
 
         for(unsigned int i = 0; i < (m_vertices.size() / LOCK_SIZE) + 1; i++)
             omp_destroy_lock(&(lock_vertices[i]));
@@ -1161,12 +1071,9 @@ public:
             }
         }
 
-        //printf("Rank %i, edge_table_size = %i, edges in table = %i\n", rank, edge_table_size, distribution_edges[lessThreads-1]);
-
         m_edges.clear();
         m_edges.resize(distribution_edges[lessThreads-1]);     
 
-        //stopper.start();
         #pragma omp parallel num_threads(lessThreads)
         {
             unsigned int counter;
@@ -1197,12 +1104,9 @@ public:
                 counter++;
             }
         }
-        //times[4] = stopper.pause();
-        //stopper.stop();
 
         delete [] distribution_edges;
 
-        //stopper.start();
         #pragma omp parallel for num_threads(maxThreads)
         for(unsigned int i = 0; i < m_vertices.size(); i++)
         {
@@ -1211,159 +1115,10 @@ public:
                 m_vertices[i].m_upward[j] = edgeMap.edge_table[m_vertices[i].m_upward[j]].id;
             }
         }
-        //times[5] = stopper.pause();
-        //stopper.stop();
 
         edgeMap.clear();
- 
-        //times[6] = center_time.pause();
-        //center_time.stop();
-
-        // VERIFICATION 
-        
-        /*
-        
-        std::vector<std::vector<unsigned int>> e_down(m_edges.size(), std::vector<unsigned int>());
-
-        for(unsigned int i = 0; i < m_vertices.size(); i++)
-        {
-            for(unsigned int j = 0; j < m_vertices[i].m_upward.size(); j++)
-            {
-                e_down[m_vertices[i].m_upward[j]].push_back(i);
-            }
-        }
-
-        std::vector<std::vector<unsigned int>> f_down(m_faces.size(), std::vector<unsigned int>());
-
-        std::vector<std::vector<unsigned int>> f_down_down(m_faces.size(), std::vector<unsigned int>());
-
-        for(unsigned int i = 0; i < m_edges.size(); i++)
-        {
-            for(unsigned int j = 0; j < m_edges[i].m_upward.size(); j++)
-            {
-                f_down[m_edges[i].m_upward[j]].push_back(i);
-            }
-        }
-
-        for(unsigned int i = 0; i < f_down.size(); i++)
-        {
-            f_down_down[i].push_back(e_down[f_down[i][0]][0]);
-            f_down_down[i].push_back(e_down[f_down[i][0]][1]);
-            if(e_down[f_down[i][1]][0] != f_down_down[i][0] && e_down[f_down[i][1]][0] != f_down_down[i][1])
-                f_down_down[i].push_back(e_down[f_down[i][1]][0]);
-            else
-                f_down_down[i].push_back(e_down[f_down[i][1]][1]);
-
-            f_down_down[i][0] = m_vertices[f_down_down[i][0]].gid();
-            f_down_down[i][1] = m_vertices[f_down_down[i][1]].gid();
-            f_down_down[i][2] = m_vertices[f_down_down[i][2]].gid();
-        }
-
-        std::vector<bool> vertexVisited(m_vertices.size(), true);
-        std::vector<bool> double_edges(m_edges.size(), false);
-        std::vector<unsigned int> edges_vertices;
-        std::string filename = "edge_validation";
-        filename += std::to_string(rank);
-        std::ofstream edge_validation (filename);
-        if(edge_validation.is_open())
-        {
-            for (unsigned int i = 0; i < m_originalSize[0]; i++)
-            {
-                unsigned int v = -1;
-                for(unsigned int j = 0; j < 4; j++)
-                {
-                    if(vertexVisited[m_cells[i].m_vertices[j]])
-                        vertexVisited[m_cells[i].m_vertices[j]] = false;
-                    else
-                        continue;
-                    edges_vertices.clear();
-                    
-                    for(unsigned int k = 0; k < m_vertices[m_cells[i].m_vertices[j]].m_upward.size(); k++)
-                    {
-                        unsigned int edge_id = m_vertices[m_cells[i].m_vertices[j]].m_upward[k];
-                        if(m_cells[i].m_vertices[j] == e_down[edge_id][0])
-                            v = e_down[edge_id][1];
-                        else
-                            v = e_down[edge_id][0];
-
-                        v = m_vertices[v].gid();
-
-                        edges_vertices.push_back(v);
-                    }
-
-                    std::sort(edges_vertices.begin(), edges_vertices.end());
-                    for(unsigned int k = 0; k < edges_vertices.size(); k++)
-                    {
-                        edge_validation << m_vertices[m_cells[i].m_vertices[j]].gid() << " and " << edges_vertices[k] << "\n";
-                    }
-                }
-            }
-            edge_validation.close();
-        }
-        std::vector<bool> vertexVisited2(m_vertices.size(), true);
-        std::vector<std::pair<std::pair<unsigned int, unsigned int>, std::pair<unsigned int, unsigned int>>> faces_vertices;
-        std::vector<bool> double_faces(m_faces.size(), false);
-        filename = "face_validation";
-        filename += std::to_string(rank);
-        std::ofstream face_validation (filename);
-        if(face_validation.is_open())
-        {
-            for (unsigned int i = 0; i < m_originalSize[0]; i++)
-            {
-                for(unsigned int j = 0; j < 4; j++)
-                {
-                    if(vertexVisited2[m_cells[i].m_vertices[j]])
-                        vertexVisited2[m_cells[i].m_vertices[j]] = false;
-                    else
-                        continue;
-                    faces_vertices.clear();
-                    
-                    for(unsigned int k = 0; k < m_vertices[m_cells[i].m_vertices[j]].m_upward.size(); k++)
-                    {
-                        unsigned int edge_id = m_vertices[m_cells[i].m_vertices[j]].m_upward[k];
-                        for(unsigned int l = 0; l < m_edges[edge_id].m_upward.size(); l++)
-                        {
-                            unsigned int face_id = m_edges[edge_id].m_upward[l];
-                            if(f_down_down[face_id][0] == m_vertices[m_cells[i].m_vertices[j]].gid())
-                            {
-                                if(f_down_down[face_id][1] > f_down_down[face_id][2])
-                                    faces_vertices.push_back({{f_down_down[face_id][2], f_down_down[face_id][1]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
-                                else
-                                    faces_vertices.push_back({{f_down_down[face_id][1], f_down_down[face_id][2]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
-                            }
-                            else if(f_down_down[face_id][1] == m_vertices[m_cells[i].m_vertices[j]].gid())
-                            {
-                                if(f_down_down[face_id][0] > f_down_down[face_id][2])
-                                    faces_vertices.push_back({{f_down_down[face_id][2], f_down_down[face_id][0]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
-                                else
-                                    faces_vertices.push_back({{f_down_down[face_id][0], f_down_down[face_id][2]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
-                            }
-                            else if(f_down_down[face_id][2] == m_vertices[m_cells[i].m_vertices[j]].gid())
-                            {
-                                if(f_down_down[face_id][1] > f_down_down[face_id][0])
-                                    faces_vertices.push_back({{f_down_down[face_id][0], f_down_down[face_id][1]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
-                                else
-                                    faces_vertices.push_back({{f_down_down[face_id][1], f_down_down[face_id][0]}, {m_faces[face_id].m_upward[0], m_faces[face_id].m_upward[1]}});
-                            }
-                        }
-                        
-                    }
-
-                    std::sort(faces_vertices.begin(), faces_vertices.end());
-                    for(unsigned int k = 0; k < faces_vertices.size(); k = k + 2)
-                    {
-                        face_validation << m_vertices[m_cells[i].m_vertices[j]].gid() << " and " << faces_vertices[k].first.first << " and " << faces_vertices[k].first.second << "  ->  "  << faces_vertices[k].second.first << " and " << faces_vertices[k].second.second << "\n";
-                    }
-                }
-            }
-            face_validation.close();
-        }
-        */
        
         logInfo(rank) << "Step 4 successful";
-
-        //Stopwatch bottomTime = Stopwatch();
-        //bottomTime.start();
 
         // Generate shared information and global ids for edges
         generatedSharedAndGID<edge_t, vertex_t, 2>(m_edges, m_vertices, maxThreads);
@@ -1372,11 +1127,6 @@ public:
         generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces, m_edges, maxThreads);
 
         logInfo(rank) << "Step 5 successful";
-        //times[7] = bottomTime.pause();
-        //bottomTime.stop();
-
-        //times[8] = totalTime.pause();
-        //totalTime.stop();
     }
 
     // from https://stackoverflow.com/questions/30052316/find-next-prime-number-algorithm
@@ -1631,10 +1381,7 @@ private:
 
         int *nRecvShared = new int[procs];
 
-        //mpitime.start();
         MPI_Alltoall(nShared, 1, MPI_INT, nRecvShared, 1, MPI_INT, m_comm);
-
-        //mpitime.pause();
 
         int *sDispls = new int[procs];
         int *rDispls = new int[procs];
@@ -1672,11 +1419,9 @@ private:
         MPI_Type_contiguous(N, MPI_UNSIGNED_LONG, &type);
         MPI_Type_commit(&type);
 
-        //mpitime.start();
         MPI_Alltoallv(sendShared, nShared, sDispls, type,
             recvShared, nRecvShared, rDispls, type,
             m_comm);
-        //mpitime.pause();
 
         delete [] nShared;
         delete [] sendShared;
@@ -1730,9 +1475,7 @@ private:
 
         // Get global id offset
         unsigned long gidOffset = owned;
-        //mpitime.start();
         MPI_Scan(MPI_IN_PLACE, &gidOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
-        //mpitime.pause();
         gidOffset -= owned;
 
         // Set global ids for owned elements and count the number of elements we need to forward
@@ -1796,7 +1539,6 @@ private:
         unsigned long* recvGid = new unsigned long[totalRecvGid];
         unsigned long* recvDGid = new unsigned long[totalRecvGid*N];
 
-        //mpitime.start();
         MPI_Alltoallv(sendGid, nSendGid, sDispls, MPI_UNSIGNED_LONG,
             recvGid, nRecvGid, rDispls, MPI_UNSIGNED_LONG,
             m_comm);
@@ -1805,7 +1547,6 @@ private:
             recvDGid, nRecvGid, rDispls, type,
             m_comm);
 
-        //printf("Time spend in MPI stuff: %f", mpitime.pause());
         MPI_Type_free(&type);
 
         delete [] sendGid;
