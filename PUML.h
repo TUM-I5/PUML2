@@ -551,7 +551,7 @@ public:
 		std::vector<int>* sharedRanks = new std::vector<int>[m_originalSize[1]];
 		k = 0;
 		for (int i = 0; i < procs; i++) {
-			for (unsigned int j = 0; j < recvCount[i]; j++) {
+			for (int j = 0; j < recvCount[i]; j++) {
 				assert(k < totalRecv);
 				distribVertexIds[k] %= maxVertices; // Map to local vertex id
 				assert(distribVertexIds[k] < m_originalSize[1]);
@@ -630,7 +630,7 @@ public:
 		k = 0;
 		unsigned int l = 0;
 		for (int i = 0; i < procs; i++) {
-			for (unsigned int j = 0; j < recvCount[i]; j++) {
+			for (int j = 0; j < recvCount[i]; j++) {
 				assert(k < totalRecv);
 				assert(l + sharedRanks[distribVertexIds[k]].size() <= distTotalSharedRanks);
 				memcpy(&distSharedRanks[l], &sharedRanks[distribVertexIds[k]][0], sharedRanks[distribVertexIds[k]].size() * sizeof(int));
@@ -652,7 +652,7 @@ public:
 		unsigned int recvTotalSharedRanks = 0;
 		k = 0;
 		for (int i = 0; i < procs; i++) {
-			for (unsigned int j = 0; j < sendCount[i]; j++) {
+			for (int j = 0; j < sendCount[i]; j++) {
 				assert(k < totalVertices);
 				recvTotalSharedRanks += recvNsharedRanks[k];
 				sharedRecvCount[i] += recvNsharedRanks[k];
@@ -1053,7 +1053,7 @@ private:
 		for (unsigned int i = 0; i < elements.size(); i++) {
 			for (std::vector<int>::const_iterator it = elements[i].m_sharedRanks.begin();
 					it != elements[i].m_sharedRanks.end(); ++it) {
-				assert(sharedPos[*it] < nShared[*it]);
+				assert(sharedPos[*it] < static_cast<unsigned>(nShared[*it]));
 				memcpy(&sendShared[(sDispls[*it]+sharedPos[*it])*N], &downward[i * N],
 					N * sizeof(unsigned long));
 				sharedPos[*it]++;
@@ -1168,7 +1168,7 @@ private:
 			if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
 				for (std::vector<int>::const_iterator it = elements[i].m_sharedRanks.begin();
 						it != elements[i].m_sharedRanks.end(); ++it) {
-					assert(sendPos[*it] < nSendGid[*it]);
+					assert(sendPos[*it] < static_cast<unsigned>(nSendGid[*it]));
 
 					sendGid[sDispls[*it] + sendPos[*it]] = elements[i].m_gid;
 					memcpy(&sendDGid[(sDispls[*it] + sendPos[*it])*N], &downward[i*N], N*sizeof(unsigned long));

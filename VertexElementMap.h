@@ -73,9 +73,7 @@ public:
 		const Element e(vertices);
 
 		typename std::unordered_map<Element, unsigned int, ElementHash>::const_iterator it = m_elements.find(e);
-		bool f = false;
 		if (it == m_elements.end()) {
-			f = true;
 			unsigned int id = m_elements.size();
 			it = m_elements.emplace(e, id).first;
 		}
