@@ -804,7 +804,6 @@ public:
 
 		// Set vertex upward information
 		for (unsigned int i = 0; i < m_vertices.size(); i++) {
-			assert(m_vertices[i].m_upward.empty());
 			m_vertices[i].m_upward.resize(vertexUpward[i].size());
 			unsigned int j = 0;
 			for (std::set<unsigned int>::const_iterator it = vertexUpward[i].begin();
