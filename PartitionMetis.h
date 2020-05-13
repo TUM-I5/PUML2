@@ -73,7 +73,7 @@ public:
 		idx_t* elemdist = new idx_t[procs+1];
 		MPI_Allgather(const_cast<idx_t*>(&m_numCells), 1, IDX_T, elemdist, 1, IDX_T, m_comm);
 		idx_t sum = 0;
-		for (unsigned i = 0; i < procs; i++) {
+		for (int i = 0; i < procs; i++) {
 			idx_t e = elemdist[i];
 			elemdist[i] = sum;
 			sum += e;
@@ -83,7 +83,7 @@ public:
 		idx_t* eptr = new idx_t[m_numCells+1];
 		idx_t* eind = new idx_t[m_numCells * internal::Topology<Topo>::cellvertices()];
 		unsigned long m = 0;
-		for (unsigned int i = 0; i < m_numCells; i++) {
+		for (idx_t i = 0; i < m_numCells; i++) {
 			eptr[i] = i * internal::Topology<Topo>::cellvertices();
 
 			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
@@ -98,7 +98,7 @@ public:
     if (vertexWeights != nullptr) {
       wgtflag = 2;
       elmwgt = new idx_t[m_numCells];
-      for (unsigned int i = 0; i < m_numCells; i++) {
+      for (idx_t i = 0; i < m_numCells; i++) {
         elmwgt[i] = static_cast<idx_t>(vertexWeights[i]);
       }
     }
@@ -110,19 +110,19 @@ public:
 
 		real_t* tpwgts = new real_t[nparts * ncon];
     if (nodeWeights != nullptr) {
-      for (int i = 0; i < nparts; i++) {
-        for (unsigned j = 0; j < ncon; ++j) {
+      for (idx_t i = 0; i < nparts; i++) {
+        for (idx_t j = 0; j < ncon; ++j) {
           tpwgts[i*ncon + j] = nodeWeights[i];
         }
       }
     } else {
-      for (int i = 0; i < nparts * ncon; i++) {
+      for (idx_t i = 0; i < nparts * ncon; i++) {
         tpwgts[i] = static_cast<real_t>(1.) / nparts;
       }
     }
 
 		real_t* ubvec = new real_t[ncon];
-		for (int i = 0; i < ncon; ++i) {
+		for (idx_t i = 0; i < ncon; ++i) {
 			ubvec[i] = imbalance;
 		}
 		idx_t edgecut;
@@ -139,7 +139,7 @@ public:
 		delete [] tpwgts;
 		delete [] ubvec;
 
-		for (unsigned int i = 0; i < m_numCells; i++)
+		for (idx_t i = 0; i < m_numCells; i++)
 			partition[i] = part[i];
 
 		delete [] part;
