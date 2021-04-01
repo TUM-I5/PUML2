@@ -1,3 +1,4 @@
+dist: bionic
 language: cpp
 comiler:
  - gcc
@@ -6,27 +7,22 @@ comiler:
 before_install:
  - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
  - sudo apt-get update -qq
- - wget http://glaros.dtc.umn.edu/gkhome/fetch/sw/metis/metis-5.1.0.tar.gz
- - wget http://glaros.dtc.umn.edu/gkhome/fetch/sw/parmetis/parmetis-4.0.3.tar.gz
 
 install:
- - sudo apt-get install -qq g++-4.7 openmpi-bin openmpi-common openmpi-dev libhdf5-openmpi-1.8.4 hdf5-tools libhdf5-openmpi-dev
- - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.7 50 --slave /usr/bin/g++ g++ /usr/bin/g++-4.7
- - sudo update-alternatives --set gcc /usr/bin/gcc-4.7
- - tar -xaf metis-5.1.0.tar.gz
- - cd metis-5.1.0 && make config prefix=/usr && make && sudo make install && cd ..
- - tar -xaf parmetis-4.0.3.tar.gz
- - cd parmetis-4.0.3 && make config prefix=/usr && make && sudo make install && cd ..
+ - |
+  sudo apt-get update
+  sudo apt-get install gcc-8 g++-8 gfortran-8 cmake
+  sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 100
+  sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-8 100
+  sudo update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-8 100
+  sudo apt-get install -qq openmpi-bin openmpi-common libopenmpi-dev hdf5-tools libhdf5-openmpi-100 libhdf5-openmpi-dev libmetis-dev libparmetis-dev
 
 before_script:
- - export CC=mpicc
- - export CXX=mpicxx
+ - export CTEST_OUTPUT_ON_FAILURE=1
 
 script:
  - cd test/
  - git clone https://github.com/TUM-I5/XdmfWriter.git
  - cd XdmfWriter && git checkout dev && cd ..
- - scons
+ - mkdir build && cd build && cmake .. && make
 
-after_script:
- - cat config.log
