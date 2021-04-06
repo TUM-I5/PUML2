@@ -19,10 +19,12 @@ install:
 
 before_script:
  - export CTEST_OUTPUT_ON_FAILURE=1
+ - export OMPI_MCA_rmaps_base_oversubscribe=1
+ - export OMPI_MCA_btl=vader,self
 
 script:
  - cd test/
  - git clone https://github.com/TUM-I5/XdmfWriter.git
  - cd XdmfWriter && git checkout dev && cd ..
  - mkdir build && cd build && cmake .. && make
-
+ - mpirun -n 2 ./tests ../test_data/mesh.h5 out
