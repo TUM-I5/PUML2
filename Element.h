@@ -112,7 +112,7 @@ class Face : public BoundaryElement<int[2]>
 };
 
 template<TopoType Topo>
-class Cell : public Element<int[0]>
+class Cell : public Element<std::array<int, 0>>
 {
 	friend class PUML<Topo>;
 	friend class Downward;
