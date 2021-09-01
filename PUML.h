@@ -117,13 +117,13 @@ private:
 	internal::VertexElementMap<2> m_v2e;
 
 	/** User cell data */
-	std::vector<int*> m_cellData;
+	std::vector<int64_t*> m_cellData;
 
 	/** User vertex data */
-	std::vector<int*> m_vertexData;
+	std::vector<int64_t*> m_vertexData;
 
 	/** Original user vertex data */
-	std::vector<int*> m_originalVertexData;
+	std::vector<int64_t*> m_originalVertexData;
 public:
 	PUML() :
 #ifdef USE_MPI
@@ -138,17 +138,17 @@ public:
 		delete [] m_originalCells;
 		delete [] m_originalVertices;
 
-		for (std::vector<int*>::const_iterator it = m_cellData.begin();
+		for (std::vector<int64_t*>::const_iterator it = m_cellData.begin();
 				it != m_cellData.end(); ++it) {
 			delete [] *it;
 		}
 
-		for (std::vector<int*>::const_iterator it = m_vertexData.begin();
+		for (std::vector<int64_t*>::const_iterator it = m_vertexData.begin();
 				it != m_vertexData.end(); ++it) {
 			delete [] *it;
 		}
 
-		for (std::vector<int*>::const_iterator it = m_originalVertexData.begin();
+		for (std::vector<int64_t*>::const_iterator it = m_originalVertexData.begin();
 				it != m_originalVertexData.end(); ++it) {
 			delete [] *it;
 		}
@@ -338,8 +338,8 @@ public:
 		checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-		int* data = new int[localSize];
-		checkH5Err(H5Dread(h5dataset, H5T_NATIVE_INT, h5memspace, h5space, h5alist, data));
+		int64_t* data = new int64_t[localSize];
+    	checkH5Err(H5Dread(h5dataset, H5T_NATIVE_INT64, h5memspace, h5space, h5alist, data));
 
 		// Close data
 		checkH5Err(H5Sclose(h5space));
@@ -398,9 +398,9 @@ public:
 		m_originalCells = newCells;
 
 		// Sort other data
-		for (std::vector<int*>::iterator it = m_cellData.begin();
+		for (std::vector<int64_t*>::iterator it = m_cellData.begin();
 				it != m_cellData.end(); ++it) {
-			int* newData = new int[m_originalSize[0]];
+			int64_t* newData = new int64_t[m_originalSize[0]];
 			for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 				newData[i] = (*it)[indices[i]];
 			}
@@ -455,9 +455,9 @@ public:
 		MPI_Type_free(&cellType);
 
 		// Exchange cell data
-		for (std::vector<int*>::iterator it = m_cellData.begin();
+		for (std::vector<int64_t*>::iterator it = m_cellData.begin();
 				it != m_cellData.end(); ++it) {
-			int* newData = new int[m_originalSize[0]];
+			int64_t* newData = new int64_t[m_originalSize[0]];
 			MPI_Alltoallv(*it, sendCount, sDispls, MPI_INT,
 				newData, recvCount, rDispls, MPI_INT,
 				m_comm);
@@ -544,10 +544,10 @@ public:
 
 		// Send back vertex coordinates (an other data)
 		overtex_t* distribVertices = new overtex_t[totalRecv];
-		std::vector<int*> distribData;
+		std::vector<int64_t*> distribData;
 		distribData.resize(m_originalVertexData.size());
 		for (unsigned int i = 0; i < m_originalVertexData.size(); i++)
-			distribData[i] = new int[totalRecv];
+			distribData[i] = new int64_t[totalRecv];
 		std::vector<int>* sharedRanks = new std::vector<int>[m_originalSize[1]];
 		k = 0;
 		for (int i = 0; i < procs; i++) {
@@ -570,14 +570,14 @@ public:
 
 		overtex_t* recvVertices = new overtex_t[totalVertices];
 
-		for (std::vector<int*>::iterator it = m_vertexData.begin();
+		for (std::vector<int64_t*>::iterator it = m_vertexData.begin();
 				it != m_vertexData.end(); ++it) {
 			delete [] *it;
 		}
 		m_vertexData.resize(m_originalVertexData.size());
-		for (std::vector<int*>::iterator it = m_vertexData.begin();
+		for (std::vector<int64_t*>::iterator it = m_vertexData.begin();
 				it != m_vertexData.end(); ++it) {
-			*it = new int[totalVertices];
+			*it = new int64_t[totalVertices];
 		}
 #ifdef USE_MPI
 		MPI_Datatype vertexType;
@@ -598,7 +598,7 @@ public:
 #endif // USE_MPI
 
 		delete [] distribVertices;
-		for (std::vector<int*>::iterator it = distribData.begin();
+		for (std::vector<int64_t*>::iterator it = distribData.begin();
 				it != distribData.end(); ++it) {
 			delete [] *it;
 		}
@@ -907,7 +907,7 @@ public:
 	/**
 	 * @return User cell data
 	 */
-	const int* cellData(unsigned int index) const
+	const int64_t* cellData(unsigned int index) const
 	{
 		return m_cellData[index];
 	}
