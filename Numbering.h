@@ -15,41 +15,33 @@
 
 #include "Topology.h"
 
-namespace PUML
-{
+namespace PUML {
 
-namespace internal
-{
+namespace internal {
 
-template<TopoType Topo>
-class Numbering
-{
-public:
-	typedef unsigned int face_t[Topology<Topo>::facevertices()];
+template <TopoType Topo>
+class Numbering {
+ public:
+  typedef unsigned int face_t[Topology<Topo>::facevertices()];
 
-	static const face_t* facevertices();
+  static const face_t* facevertices();
 };
 
-template<>
-class Numbering<TETRAHEDRON>
-{
-public:
-	typedef unsigned int face_t[Topology<TETRAHEDRON>::facevertices()];
+template <>
+class Numbering<TETRAHEDRON> {
+ public:
+  typedef unsigned int face_t[Topology<TETRAHEDRON>::facevertices()];
 
-	static const face_t* facevertices()
-	{
-		static const face_t vertices[4] = {
-			{ 1, 0, 2 },
-			{ 0, 1, 3 },
-			{ 1, 2, 3 },
-			{ 2, 0, 3 } };
+  static const face_t* facevertices() {
+    static const face_t vertices[4] = {
+      {1, 0, 2}, {0, 1, 3}, {1, 2, 3}, {2, 0, 3}};
 
-		return vertices;
-	}
+    return vertices;
+  }
 };
 
-}
+}  // namespace internal
 
-}
+}  // namespace PUML
 
-#endif // PUML_NUMBERING_H
+#endif  // PUML_NUMBERING_H

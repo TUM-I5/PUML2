@@ -15,104 +15,142 @@
 
 #ifdef USE_MPI
 #include <mpi.h>
-#endif // USE_MPI
+#endif  // USE_MPI
 
 #include <parmetis.h>
+#include <tuple>
 
 #include "Topology.h"
 
-namespace PUML
-{
+namespace PUML {
 
-template<TopoType Topo>
-class PartitionMetis
-{
-public:
-	/** The cell type */
-	typedef unsigned long cell_t[internal::Topology<Topo>::cellvertices()];
+template <TopoType Topo>
+class PartitionMetis {
+ public:
+  /** The cell type */
+  typedef unsigned long cell_t[internal::Topology<Topo>::cellvertices()];
 
-private:
+ private:
 #ifdef USE_MPI
-	MPI_Comm m_comm;
-#endif // USE_MPI
+  MPI_Comm m_comm;
+#endif  // USE_MPI
 
-	const cell_t * const m_cells;
+  const cell_t* const m_cells;
+  const idx_t m_numCells;
 
-	const idx_t m_numCells;
+  int rank = 0;
+  int procs = 0;
 
-public:
-	PartitionMetis(const cell_t* cells, unsigned int numCells) :
+  idx_t* xadj = nullptr;
+  idx_t* adjncy = nullptr;
+  idx_t* elemdist = nullptr;
+
+ public:
+  PartitionMetis(const cell_t* cells, unsigned int numCells)
+      :
 #ifdef USE_MPI
-		m_comm(MPI_COMM_WORLD),
-#endif // USE_MPI
-		m_cells(cells), m_numCells(numCells)
-	{ }
+        m_comm(MPI_COMM_WORLD),
+#endif  // USE_MPI
+        m_cells(cells),
+        m_numCells(numCells) {
+    MPI_Comm_rank(m_comm, &rank);
+    MPI_Comm_size(m_comm, &procs);
+    elemdist = new idx_t[procs + 1];
+  }
+
+  ~PartitionMetis() {
+    METIS_Free(xadj);
+    METIS_Free(adjncy);
+    delete[] elemdist;
+  }
 
 #ifdef USE_MPI
-	void setComm(MPI_Comm comm)
-	{
-		m_comm = comm;
-	}
-#endif // USE_MPI
+  void setComm(MPI_Comm comm) { m_comm = comm; }
+#endif  // USE_MPI
 
 #ifdef USE_MPI
-	/**
-	 * @param partition An array of size <code>numCells</code> which
-	 *  will contain the partition for each cells
-         * @param vertexWeights Weight for each vertex
-         * @param nWeightsPerVertex Number of weights per vertex
-         * @param nodeWeights Weight for each node
-	 * @param imbalance The allowed imbalance
-	 */
-	void partition(int* partition, int const* vertexWeights = nullptr, int nWeightsPerVertex = 1, double* nodeWeights = nullptr, double imbalance = 1.05)
-	{
-		int rank, procs;
-		MPI_Comm_rank(m_comm, &rank);
-		MPI_Comm_size(m_comm, &procs);
+  std::tuple<idx_t*, idx_t*> getGraph() {
 
-		idx_t* elemdist = new idx_t[procs+1];
-		MPI_Allgather(const_cast<idx_t*>(&m_numCells), 1, IDX_T, elemdist, 1, IDX_T, m_comm);
-		idx_t sum = 0;
-		for (int i = 0; i < procs; i++) {
-			idx_t e = elemdist[i];
-			elemdist[i] = sum;
-			sum += e;
-		}
-		elemdist[procs] = sum;
-
-		idx_t* eptr = new idx_t[m_numCells+1];
-		idx_t* eind = new idx_t[m_numCells * internal::Topology<Topo>::cellvertices()];
-		unsigned long m = 0;
-		for (idx_t i = 0; i < m_numCells; i++) {
-			eptr[i] = i * internal::Topology<Topo>::cellvertices();
-
-			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-				m = std::max(m, m_cells[i][j]);
-				eind[i*internal::Topology<Topo>::cellvertices() + j] = m_cells[i][j];
-			}
-		}
-		eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
-    
-    idx_t wgtflag = 0;
-    idx_t* elmwgt = nullptr;
-    if (vertexWeights != nullptr) {
-      wgtflag = 2;
-      elmwgt = new idx_t[m_numCells];
-      for (idx_t i = 0; i < m_numCells; i++) {
-        elmwgt[i] = static_cast<idx_t>(vertexWeights[i]);
-      }
+    if (xadj == nullptr && adjncy == nullptr) {
+      generateGraphFromMesh();
     }
 
-		idx_t numflag = 0;
-		idx_t ncon = nWeightsPerVertex;
-		idx_t ncommonnodes = 3; // TODO adapt for hex
-		idx_t nparts = procs;
+    return {xadj, adjncy};
+  }
+#endif
 
-		real_t* tpwgts = new real_t[nparts * ncon];
+#ifdef USE_MPI
+  void generateGraphFromMesh() {
+    assert((xadj == nullptr && adjncy == nullptr) ||
+           (xadj != nullptr && adjncy != nullptr));
+
+    if (xadj == nullptr && adjncy == nullptr) {
+      MPI_Allgather(const_cast<idx_t*>(&m_numCells), 1, IDX_T, elemdist, 1,
+                    IDX_T, m_comm);
+
+      idx_t sum = 0;
+      for (int i = 0; i < procs; i++) {
+        idx_t e = elemdist[i];
+        elemdist[i] = sum;
+        sum += e;
+      }
+      elemdist[procs] = sum;
+
+      idx_t* eptr = new idx_t[m_numCells + 1];
+      idx_t* eind =
+        new idx_t[m_numCells * internal::Topology<Topo>::cellvertices()];
+      unsigned long m = 0;
+      for (idx_t i = 0; i < m_numCells; i++) {
+        eptr[i] = i * internal::Topology<Topo>::cellvertices();
+
+        for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices();
+             j++) {
+          m = std::max(m, m_cells[i][j]);
+          eind[i * internal::Topology<Topo>::cellvertices() + j] =
+            m_cells[i][j];
+        }
+      }
+      eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
+
+      idx_t numflag = 0;
+      idx_t ncon = nWeightsPerVertex;
+      idx_t ncommonnodes = 3;  // TODO adapt for hex
+      idx_t nparts = procs;
+
+      ParMETIS_V3_Mesh2Dual(elmdist, eptr, eind, &numflag, ncommonnodes, &xadj,
+                            &adjncy, &m_comm);
+
+      delete[] elemdist;
+      delete[] eptr;
+      delete[] eind;
+    }
+  }
+#endif
+
+#ifdef USE_MPI
+  /**
+   * @param partition An array of size <code>numCells</code> which
+   *  will contain the partition for each cells
+   * @param vertexWeights Weight for each vertex
+   * @param nWeightsPerVertex Number of weights per vertex
+   * @param nodeWeights Weight for each node
+   * @param imbalance The allowed imbalance
+   */
+  void partition(int* partition, int const* vertexWeights = nullptr,
+                 int nWeightsPerVertex = 1, double* nodeWeights = nullptr,
+                 double* edgeWeights = nullptr, size_t edgeCount = 0,
+                 double imbalance = 1.05) {
+
+    if (xadj == nullptr && adjncy == nullptr) {
+      generateGraphFromMesh();
+    }
+    // else it was already generated before
+
+    real_t* tpwgts = new real_t[nparts * ncon];
     if (nodeWeights != nullptr) {
       for (idx_t i = 0; i < nparts; i++) {
         for (idx_t j = 0; j < ncon; ++j) {
-          tpwgts[i*ncon + j] = nodeWeights[i];
+          tpwgts[i * ncon + j] = nodeWeights[i];
         }
       }
     } else {
@@ -121,38 +159,72 @@ public:
       }
     }
 
-		real_t* ubvec = new real_t[ncon];
-		for (idx_t i = 0; i < ncon; ++i) {
-			ubvec[i] = imbalance;
-		}
-		idx_t edgecut;
-		idx_t options[3] = {1, 0, METIS_RANDOM_SEED};
+    idx_t* elmwgt = nullptr;
+    if (vertexWeights != nullptr) {
+      elmwgt = new idx_t[m_numCells];
+      for (idx_t i = 0; i < m_numCells; i++) {
+        elmwgt[i] = static_cast<idx_t>(vertexWeights[i]);
+      }
+    }
 
-		idx_t* part = new idx_t[m_numCells];
+    idx_t* edgewgt = nullptr;
+    if (edgeWeights != nullptr) {
+      edgewgt = new idx_t[edgeCount];
+      for (idx_t i = 0; i < edgeCount; i++) {
+        edgewgt[i] = static_cast<idx_t>(edgeWeights[i]);
+      }
+    }
 
-		ParMETIS_V3_PartMeshKway(elemdist, eptr, eind, elmwgt, &wgtflag, &numflag,
-			&ncon, &ncommonnodes, &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
+    real_t* ubvec = new real_t[ncon];
+    for (idx_t i = 0; i < ncon; ++i) {
+      ubvec[i] = imbalance;
+    }
+    idx_t edgecut;
+    idx_t options[3] = {1, 0, METIS_RANDOM_SEED};
 
-		delete [] elemdist;
-		delete [] eptr;
-		delete [] eind;
-		delete [] tpwgts;
-		delete [] ubvec;
+    idx_t* part = new idx_t[m_numCells];
 
-		for (idx_t i = 0; i < m_numCells; i++)
-			partition[i] = part[i];
+    idx_t wgtflag = 0;
 
-		delete [] part;
-	}
-#endif // USE_MPI
+    if (edgeWeights == nullptr && nodeWeights == nullptr) {
+      wgtflag = 0;
+    } else if (edgeWeights != nullptr && nodeWeights != nullptr) {
+      wgtflag = 3;
+    } else if (edgeWeights == nullptr && nodeWeights != nullptr) {
+      wgtflag = 2;
+    } else {
+      wgtflag = 1;
+    }
 
-private:
-	static const int METIS_RANDOM_SEED = 42;
+    ParMETIS_V3_PartKway(elemdist, xadj, adjncy, elmwgt, edgewgt, &wgtflag,
+                         &numflag, &ncon, &nparts, tpwgts, ubvec, options,
+                         &edgecut, part, &m_comm);
+
+    /*
+      ParMETIS_V3_PartMeshKway(elemdist, eptr, eind, elmwgt, &wgtflag,
+       &numflag, &ncon, &ncommonnodes, &nparts, tpwgts, ubvec, options,
+       &edgecut, part, &m_comm);
+    */
+
+    delete[] tpwgts;
+    delete[] ubvec;
+    delete[] elmwgt;
+    delete[] edgewgt;
+
+    for (idx_t i = 0; i < m_numCells; i++)
+      partition[i] = part[i];
+
+    delete[] part;
+  }
+#endif  // USE_MPI
+
+ private:
+  static const int METIS_RANDOM_SEED = 42;
 };
 
 /** Convenient typedef for tetrahrdral meshes */
 typedef PartitionMetis<TETRAHEDRON> TETPartitionMetis;
 
-}
+}  // namespace PUML
 
-#endif // PUML_PARTITIONMETHIS_H
+#endif  // PUML_PARTITIONMETHIS_H
