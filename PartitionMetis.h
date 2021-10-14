@@ -108,7 +108,7 @@ class PartitionMetis {
       ParMETIS_V3_Mesh2Dual(elemdist, eptr, eind, &numflag, &ncommonnodes,
                             &xadj, &adjncy, &m_comm);
 
-      vtxdist = elmdist;
+      vtxdist = elemdist;
       delete[] eptr;
       delete[] eind;
     }
@@ -118,7 +118,7 @@ class PartitionMetis {
 #ifdef USE_MPI
   std::tuple<const idx_t*, const idx_t*, const idx_t*> getGraph() {
     if (xadj == nullptr && adjncy == nullptr) {
-      generateGraph();
+      generateGraphFromMesh();
     }
 
     return {vtxdist, xadj, adjncy};
@@ -182,7 +182,7 @@ class PartitionMetis {
     idx_t edgecut;
     idx_t options[3] = {1, 1, METIS_RANDOM_SEED};
 
-    idx t* part = new idx_t[m_numCells];
+    idx_t* part = new idx_t[m_numCells];
 
     auto metisResult = ParMETIS_V3_PartKway(
       vtxdist, xadj, adjncy, elmwgt, &wgtflag, nullptr, &numflag, &ncon,
