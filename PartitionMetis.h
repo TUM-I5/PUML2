@@ -185,7 +185,7 @@ class PartitionMetis {
     idx_t* part = new idx_t[m_numCells];
 
     auto metisResult = ParMETIS_V3_PartKway(
-      vtxdist, xadj, adjncy, elmwgt, &wgtflag, nullptr, &numflag, &ncon,
+      vtxdist, xadj, adjncy, elmwgt, nullptr, &wgtflag, &numflag, &ncon,
       &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
     /*
     ParMETIS_V3_PartMeshKway(
