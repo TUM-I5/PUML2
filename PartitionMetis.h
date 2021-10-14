@@ -140,21 +140,40 @@ class PartitionMetis {
                    const double* imbalances = nullptr,
                    int nWeightsPerVertex = 1,
                    const double* nodeWeights = nullptr,
-                   const int* edgeWeights = nullptr) {
+                   const int* edgeWeights = nullptr, size_t edgeCount = 0) {
 
     generateGraphFromMesh();
 
     idx_t wgtflag = 0;
+
+    // set the flag
+    if (nodeWeights == nullptr && edgeWeights == nullptr) {
+      wgtflag = 0;
+    } else if (nodeWeights != nullptr && edgeWeights != nullptr) {
+      wgtflag = 3;
+    } else if (nodeWeights == nullptr && edgeWeights != nullptr) {
+      wgtflag = 1;
+    } else {
+      wgtflag = 2;
+    }
+
     idx_t ncon = nWeightsPerVertex;
     idx_t* elmwgt = nullptr;
     if (vertexWeights != nullptr) {
-      wgtflag = 2;
       elmwgt = new idx_t[m_numCells * ncon];
       for (idx_t cell = 0; cell < m_numCells; ++cell) {
         for (idx_t j = 0; j < ncon; ++j) {
           elmwgt[ncon * cell + j] =
             static_cast<idx_t>(vertexWeights[ncon * cell + j]);
         }
+      }
+    }
+
+    idx_t* edgewgt = nullptr;
+    if (edgeWeights != nullptr) {
+      elmwgt = new idx_t[edgeCount];
+      for (idx_t i = 0; i < edgeCount; ++i) {
+        elmwgt[i] = static_cast<idx_t>(edgeWeights[i]);
       }
     }
 
@@ -185,7 +204,7 @@ class PartitionMetis {
     idx_t* part = new idx_t[m_numCells];
 
     auto metisResult = ParMETIS_V3_PartKway(
-      vtxdist, xadj, adjncy, elmwgt, nullptr, &wgtflag, &numflag, &ncon,
+      vtxdist, xadj, adjncy, elmwgt, edgewgt, &wgtflag, &numflag, &ncon,
       &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
     /*
     ParMETIS_V3_PartMeshKway(
@@ -196,6 +215,7 @@ class PartitionMetis {
     delete[] tpwgts;
     delete[] ubvec;
     delete[] elmwgt;
+    delete[] edgewgt;
 
     for (idx_t i = 0; i < m_numCells; i++)
       partition[i] = part[i];
