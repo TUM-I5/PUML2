@@ -113,11 +113,10 @@ class PartitionMetis {
       eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
 
       idx_t numflag = 0;
-      idx_t ncon = nWeightsPerVertex;
       idx_t ncommonnodes = 3;  // TODO adapt for hex
       idx_t nparts = procs;
 
-      ParMETIS_V3_Mesh2Dual(elmdist, eptr, eind, &numflag, ncommonnodes, &xadj,
+      ParMETIS_V3_Mesh2Dual(elemdist, eptr, eind, &numflag, ncommonnodes, &xadj,
                             &adjncy, &m_comm);
 
       delete[] elemdist;
@@ -136,15 +135,20 @@ class PartitionMetis {
    * @param nodeWeights Weight for each node
    * @param imbalance The allowed imbalance
    */
-  void partition(int* partition, int const* vertexWeights = nullptr,
-                 int nWeightsPerVertex = 1, double* nodeWeights = nullptr,
+  void partition(int* partition, const int* vertexWeights = nullptr,
+                 int nWeightsPerVertex = 1, const double* nodeWeights = nullptr,
                  double* edgeWeights = nullptr, size_t edgeCount = 0,
-                 double imbalance = 1.05) {
+                 const double* imbalance = 1.05) {
 
     if (xadj == nullptr && adjncy == nullptr) {
       generateGraphFromMesh();
     }
     // else it was already generated before
+
+    idx_t nparts = procs;
+    idx_t ncon = nWeightsPerVertex;
+    idx_t numflag = 0;
+    idx_t ncommonnodes = 3;
 
     real_t* tpwgts = new real_t[nparts * ncon];
     if (nodeWeights != nullptr) {
@@ -161,9 +165,12 @@ class PartitionMetis {
 
     idx_t* elmwgt = nullptr;
     if (vertexWeights != nullptr) {
-      elmwgt = new idx_t[m_numCells];
-      for (idx_t i = 0; i < m_numCells; i++) {
-        elmwgt[i] = static_cast<idx_t>(vertexWeights[i]);
+      elmwgt = new idx_t[m_numCells * ncon];
+      for (idx_t cell = 0; cell < m_nemCells; ++cell) {
+        for (idx_t j = 0; j < m_numCells; j++) {
+          elmwgt[ncon * cell + j] =
+            static_cast<idx_t>(vertexWeights[ncon * cell + j]);
+        }
       }
     }
 
@@ -177,7 +184,7 @@ class PartitionMetis {
 
     real_t* ubvec = new real_t[ncon];
     for (idx_t i = 0; i < ncon; ++i) {
-      ubvec[i] = imbalance;
+      ubvec[i] = imbalance[i];
     }
     idx_t edgecut;
     idx_t options[3] = {1, 0, METIS_RANDOM_SEED};
