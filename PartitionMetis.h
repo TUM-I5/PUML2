@@ -189,7 +189,8 @@ class PartitionMetis {
 
     idx_t* edgewgt = nullptr;
     if (edgeWeights != nullptr) {
-      elmwgt = new idx_t[edgeCount];
+      assert(edgeCount != 0);
+      edgewgt = new idx_t[edgeCount];
       for (idx_t i = 0; i < edgeCount; ++i) {
         elmwgt[i] = static_cast<idx_t>(edgeWeights[i]);
       }
