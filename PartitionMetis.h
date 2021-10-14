@@ -50,7 +50,7 @@ class PartitionMetis {
   idx_t* xadj = nullptr;
   size_t xadj_size = 0;
   idx_t* adjncy = nullptr;
-  soze_t adjncy_size = 0;
+  size_t adjncy_size = 0;
 
  public:
   PartitionMetis(const cell_t* cells, unsigned int numCells)
@@ -118,7 +118,7 @@ class PartitionMetis {
       //  - vtxdist[proc] + vtxdist[proc+1]
       //  because proc has the index proc to proc +1 elements
 
-      xadj_size = vtxdist[procs + 1] - vtxdist[proc];
+      xadj_size = vtxdist[procs + 1] - vtxdist[procs];
 
       // last element of xadj will be the size of adjncy
       adjncy_size = xadj[xadj_size - 1];
