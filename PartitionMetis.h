@@ -41,6 +41,14 @@ class PartitionMetis {
   int rank = 0;
   int procs = 0;
 
+  idx_t numflag = 0;
+  idx_t ncommonnodes = 3;  // TODO adapt for hex
+  idx_t nparts = 0;        // will be set to procs in constructor later
+
+  idx_t* vtxdist = nullptr;  // should be same elmdist
+  idx_t* xadj = nullptr;
+  idx_t* adjncy = nullptr;
+
  public:
   PartitionMetis(const cell_t* cells, unsigned int numCells)
       :
@@ -49,13 +57,73 @@ class PartitionMetis {
 #endif  // USE_MPI
         m_cells(cells),
         m_numCells(numCells) {
+    MPI_Comm_rank(m_comm, &rank);
+    MPI_Comm_size(m_comm, &procs);
+    nparts = procs;
   }
 
-  ~PartitionMetis() {}
+  ~PartitionMetis() {
+    METIS_Free(xadj);
+    METIS_Free(adjncy);
+    METIS_Free(vtxdist);
+  }
 
 #ifdef USE_MPI
   void setComm(MPI_Comm comm) { m_comm = comm; }
 #endif  // USE_MPI
+
+#ifdef USE_MPI
+  void generateGraphFromMesh() {
+    assert((xadj == nullptr && adjncy == nullptr) ||
+           (xadj != nullptr && adjncy != nullptr));
+
+    if (xadj == nullptr && adjncy == nullptr) {
+      idx_t* elemdist = new idx_t[procs + 1];
+      MPI_Allgather(const_cast<idx_t*>(&m_numCells), 1, IDX_T, elemdist, 1,
+                    IDX_T, m_comm);
+      idx_t sum = 0;
+      for (int i = 0; i < procs; i++) {
+        idx_t e = elemdist[i];
+        elemdist[i] = sum;
+        sum += e;
+      }
+      elemdist[procs] = sum;
+
+      idx_t* eptr = new idx_t[m_numCells + 1];
+      idx_t* eind =
+        new idx_t[m_numCells * internal::Topology<Topo>::cellvertices()];
+      unsigned long m = 0;
+      for (idx_t i = 0; i < m_numCells; i++) {
+        eptr[i] = i * internal::Topology<Topo>::cellvertices();
+
+        for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices();
+             j++) {
+          m = std::max(m, m_cells[i][j]);
+          eind[i * internal::Topology<Topo>::cellvertices() + j] =
+            m_cells[i][j];
+        }
+      }
+      eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
+
+      ParMETIS_V3_Mesh2Dual(elemdist, eptr, eind, &numflag, &ncommonnodes,
+                            &xadj, &adjncy, &m_comm);
+
+      vtxdist = elmdist;
+      delete[] eptr;
+      delete[] eind;
+    }
+  }
+#endif
+
+#ifdef USE_MPI
+  std::tuple<const idx_t*, const idx_t*, const idx_t*> getGraph() {
+    if (xadj == nullptr && adjncy == nullptr) {
+      generateGraph();
+    }
+
+    return {vtxdist, xadj, adjncy};
+  }
+#endif
 
 #ifdef USE_MPI
   enum Status { Ok, Error };
@@ -71,35 +139,10 @@ class PartitionMetis {
   Status partition(int* partition, const int* vertexWeights = nullptr,
                    const double* imbalances = nullptr,
                    int nWeightsPerVertex = 1,
-                   const double* nodeWeights = nullptr) {
-    MPI_Comm_rank(m_comm, &rank);
-    MPI_Comm_size(m_comm, &procs);
+                   const double* nodeWeights = nullptr,
+                   const int* edgeWeights = nullptr) {
 
-    idx_t* elemdist = new idx_t[procs + 1];
-    MPI_Allgather(const_cast<idx_t*>(&m_numCells), 1, IDX_T, elemdist, 1, IDX_T,
-                  m_comm);
-    idx_t sum = 0;
-    for (int i = 0; i < procs; i++) {
-      idx_t e = elemdist[i];
-      elemdist[i] = sum;
-      sum += e;
-    }
-    elemdist[procs] = sum;
-
-    idx_t* eptr = new idx_t[m_numCells + 1];
-    idx_t* eind =
-      new idx_t[m_numCells * internal::Topology<Topo>::cellvertices()];
-    unsigned long m = 0;
-    for (idx_t i = 0; i < m_numCells; i++) {
-      eptr[i] = i * internal::Topology<Topo>::cellvertices();
-
-      for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices();
-           j++) {
-        m = std::max(m, m_cells[i][j]);
-        eind[i * internal::Topology<Topo>::cellvertices() + j] = m_cells[i][j];
-      }
-    }
-    eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
+    generateGraphFromMesh();
 
     idx_t wgtflag = 0;
     idx_t ncon = nWeightsPerVertex;
@@ -116,7 +159,6 @@ class PartitionMetis {
     }
 
     idx_t numflag = 0;
-    idx_t ncommonnodes = 3;  // TODO adapt for hex
     idx_t nparts = procs;
 
     real_t* tpwgts = new real_t[nparts * ncon];
@@ -136,17 +178,24 @@ class PartitionMetis {
     for (idx_t i = 0; i < ncon; ++i) {
       ubvec[i] = imbalances[i];
     }
+
     idx_t edgecut;
     idx_t options[3] = {1, 1, METIS_RANDOM_SEED};
 
-    auto metisResult = ParMETIS_V3_PartMeshKway(
+    idx t* part = new idx_t[m_numCells];
+
+    auto metisResult = ParMETIS_V3_PartKway(
+      vtxdist, xadj, adjncy, elmwgt, &wgtflag, nullptr, &numflag, &ncon,
+      &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
+    /*
+    ParMETIS_V3_PartMeshKway(
       elemdist, eptr, eind, elmwgt, &wgtflag, &numflag, &ncon, &ncommonnodes,
       &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
+    */
 
     delete[] tpwgts;
     delete[] ubvec;
     delete[] elmwgt;
-    delete[] edgewgt;
 
     for (idx_t i = 0; i < m_numCells; i++)
       partition[i] = part[i];
