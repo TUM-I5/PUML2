@@ -46,8 +46,11 @@ class PartitionMetis {
   idx_t nparts = 0;        // will be set to procs in constructor later
 
   idx_t* vtxdist = nullptr;  // should be same elmdist
+  size_t vtxdist_size = 0;
   idx_t* xadj = nullptr;
+  size_t xadj_size = 0;
   idx_t* adjncy = nullptr;
+  soze_t adjncy_size = 0;
 
  public:
   PartitionMetis(const cell_t* cells, unsigned int numCells)
@@ -109,6 +112,17 @@ class PartitionMetis {
                             &xadj, &adjncy, &m_comm);
 
       vtxdist = elemdist;
+      vtxdist_size = procs + 1;
+
+      //  the size of xadj is the
+      //  - vtxdist[proc] + vtxdist[proc+1]
+      //  because proc has the index proc to proc +1 elements
+
+      xadj_size = vtxdist[procs + 1] - vtxdist[proc];
+
+      // last element of xadj will be the size of adjncy
+      adjncy_size = xadj[xadj_size - 1];
+
       delete[] eptr;
       delete[] eind;
     }
@@ -116,12 +130,16 @@ class PartitionMetis {
 #endif
 
 #ifdef USE_MPI
-  std::tuple<const idx_t*, const idx_t*, const idx_t*> getGraph() {
+  std::tuple<std::pair<const idx_t*, size_t>, std::pair<const idx_t*, size_t>,
+             std::pair<const idx_t*, size_t>>
+    getGraph() {
     if (xadj == nullptr && adjncy == nullptr) {
       generateGraphFromMesh();
     }
 
-    return {vtxdist, xadj, adjncy};
+    return {std::make_pair(vtxdist, vtxdist_size),
+            std::make_pair(xadj, xadj_size),
+            std::make_pair(adjncy, adjncy_size)};
   }
 #endif
 
