@@ -113,7 +113,7 @@ template <TopoType Topo> class PartitionMetis {
                             &metis_adjncy, &m_comm);
 
       vtxdist.reserve(procs + 1);
-      assert(elemdist.size() == procs.size());
+      assert(elemdist.size() == procs + 1);
       std::copy(elemdist.begin(), elemdist.end(), std::back_inserter(vtxdist));
       assert(vtxdist.size() == procs + 1);
 
@@ -192,8 +192,8 @@ template <TopoType Topo> class PartitionMetis {
     if (edgeWeights != nullptr) {
       assert(edgeCount != 0);
       edgewgt = new idx_t[edgeCount];
-      for (idx_t i = 0; i < edgeCount; ++i) {
-        elmwgt[i] = static_cast<idx_t>(edgeWeights[i]);
+      for (size_t i = 0; i < edgeCount; ++i) {
+        edgewgt[i] = static_cast<idx_t>(edgeWeights[i]);
       }
     }
 
