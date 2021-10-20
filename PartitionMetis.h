@@ -70,7 +70,7 @@ template <TopoType Topo> class PartitionMetis {
   void generateGraphFromMesh() {
     assert(xadj.empty() && adjncy.empty() || !xadj.empty() && !adjncy.empty());
 
-    if (xxadj.empty() && adjncy.empty()) {
+    if (xadj.empty() && adjncy.empty()) {
       std::vector<idx_t> elemdist;
       elemdist.resize(procs + 1);
       std::fill(elemdist.begin(), elemdist.end(), 0);
@@ -109,11 +109,12 @@ template <TopoType Topo> class PartitionMetis {
       idx_t* metis_xadj;
       idx_t* metis_adjncy;
 
-      ParMETIS_V3_Mesh2Dual(elemdist, eptr, eind, &numflag, &ncommonnodes, &metis_xadj, &metis_adjncy, &m_comm);
+      ParMETIS_V3_Mesh2Dual(elemdist.data(), eptr.data(), eind.data(), &numflag, &ncommonnodes, &metis_xadj,
+                            &metis_adjncy, &m_comm);
 
       vtxdist.reserve(procs + 1);
       assert(elemdist.size() == procs.size());
-      std::copy(elemdist.begin(), elemdist.end(), std::back_inserter(vtxdist)));
+      std::copy(elemdist.begin(), elemdist.end(), std::back_inserter(vtxdist));
       assert(vtxdist.size() == procs + 1);
 
       //  the size of xadj is the
@@ -130,10 +131,8 @@ template <TopoType Topo> class PartitionMetis {
       adjncy.reserve(adjncySize);
       std::copy(metis_adjncy, metis_adjncy + adjncySize, std::back_inserter(adjncy));
 
-      delete[] eptr;
-      delete[] eind;
-      delete[] metis_xadj;
-      delete[] metis_adjncy;
+      METIS_Free(metis_xadj);
+      METIS_Free(metis_adjncy);
     }
   }
 #endif
