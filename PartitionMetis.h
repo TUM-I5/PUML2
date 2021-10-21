@@ -112,17 +112,15 @@ template <TopoType Topo> class PartitionMetis {
       ParMETIS_V3_Mesh2Dual(elemdist.data(), eptr.data(), eind.data(), &numflag, &ncommonnodes, &metis_xadj,
                             &metis_adjncy, &m_comm);
 
-      vtxdist.reserve(procs + 1);
-      assert(elemdist.size() == procs + 1);
-      std::copy(elemdist.begin(), elemdist.end(), std::back_inserter(vtxdist));
-      assert(vtxdist.size() == procs + 1);
+      vtxdist = std::move(elemdist);
 
       //  the size of xadj is the
       //  - vtxdist[proc] + vtxdist[proc+1]
       //  because proc has the index proc to proc +1 elements
 
-      assert(rank + 1 < procs);
-      size_t numElements = vtxdist[rank + 1] - vtxdist[rank];
+      assert(vtxdist.size() == procs + 1);
+      // the first element is always 0 and on top of that we have n nodes
+      size_t numElements = vtxdist[rank + 1] - vtxdist[rank] + 1;
       xadj.reserve(numElements);
       std::copy(metis_xadj, metis_xadj + numElements, std::back_inserter(xadj));
 
