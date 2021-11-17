@@ -68,9 +68,9 @@ template <TopoType Topo> class PartitionMetis {
 
 #ifdef USE_MPI
   void generateGraphFromMesh() {
-    assert(xadj.empty() && adjncy.empty() || !xadj.empty() && !adjncy.empty());
+    assert((vtxdist.empty() && xadj.empty() && adjncy.empty()) || (!vtxdist.empty() && !xadj.empty() && !adjncy.empty()));
 
-    if (xadj.empty() && adjncy.empty()) {
+    if (vtxdist.empty() && xadj.empty() && adjncy.empty()) {
       std::vector<idx_t> elemdist;
       elemdist.resize(procs + 1);
       std::fill(elemdist.begin(), elemdist.end(), 0);
@@ -118,9 +118,9 @@ template <TopoType Topo> class PartitionMetis {
       //  - vtxdist[proc] + vtxdist[proc+1]
       //  because proc has the index proc to proc +1 elements
 
-      assert(vtxdist.size() == procs + 1);
+      assert(vtxdist.size() == static_cast<size_t>(procs + 1));
       // the first element is always 0 and on top of that we have n nodes
-      size_t numElements = vtxdist[rank + 1] - vtxdist[rank] + 1;
+      size_t numElements = vtxdist[rank + 1] - vtxdist[rank];
       xadj.reserve(numElements);
       std::copy(metis_xadj, metis_xadj + numElements, std::back_inserter(xadj));
 
@@ -128,6 +128,8 @@ template <TopoType Topo> class PartitionMetis {
       size_t adjncySize = xadj[numElements - 1];
       adjncy.reserve(adjncySize);
       std::copy(metis_adjncy, metis_adjncy + adjncySize, std::back_inserter(adjncy));
+
+
 
       METIS_Free(metis_xadj);
       METIS_Free(metis_adjncy);
