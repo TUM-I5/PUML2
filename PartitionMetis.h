@@ -223,6 +223,9 @@ template <TopoType Topo> class PartitionMetis {
 
     idx_t* part = new idx_t[m_numCells];
 
+    assert(xadj.size() == static_cast<size_t>(vtxdist[rank + 1] - vtxdist[rank] + 1));
+    assert(adjncy.size() == static_cast<size_t>(xadj.back()));
+
     auto metisResult = ParMETIS_V3_PartKway(vtxdist.data(), xadj.data(), adjncy.data(), elmwgt, edgewgt, &wgtflag,
                                             &numflag, &ncon, &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
     /*
