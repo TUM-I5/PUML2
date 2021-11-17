@@ -120,7 +120,7 @@ template <TopoType Topo> class PartitionMetis {
 
       assert(vtxdist.size() == static_cast<size_t>(procs + 1));
       // the first element is always 0 and on top of that we have n nodes
-      size_t numElements = vtxdist[rank + 1] - vtxdist[rank];
+      size_t numElements = vtxdist[rank + 1] - vtxdist[rank] + 1;
       xadj.reserve(numElements);
       std::copy(metis_xadj, metis_xadj + numElements, std::back_inserter(xadj));
 
