@@ -14,7 +14,7 @@
 #define PUML_ELEMENT_H
 
 #include <vector>
-
+#include <array>
 #include "Topology.h"
 
 namespace PUML {
