@@ -228,12 +228,7 @@ template <TopoType Topo> class PartitionMetis {
 
     auto metisResult = ParMETIS_V3_PartKway(vtxdist.data(), xadj.data(), adjncy.data(), elmwgt, edgewgt, &wgtflag,
                                             &numflag, &ncon, &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
-    /*
-    ParMETIS_V3_PartMeshKway(
-      elemdist, eptr, eind, elmwgt, &wgtflag, &numflag, &ncon, &ncommonnodes,
-      &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
-    */
-
+                                            
     delete[] tpwgts;
     delete[] ubvec;
     delete[] elmwgt;
