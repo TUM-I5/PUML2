@@ -179,33 +179,34 @@ public:
 
 		// set the flag
 		if (nodeWeights == nullptr && edgeWeights == nullptr) {
-		wgtflag = 0;
+			wgtflag = 0;
 		} else if (nodeWeights != nullptr && edgeWeights != nullptr) {
-		wgtflag = 3;
+			wgtflag = 3;
 		} else if (nodeWeights == nullptr && edgeWeights != nullptr) {
-		wgtflag = 1;
+			wgtflag = 1;
 		} else {
-		wgtflag = 2;
+			wgtflag = 2;
 		}
 
 		idx_t ncon = nWeightsPerVertex;
 		idx_t* elmwgt = nullptr;
+		
 		if (vertexWeights != nullptr) {
-		elmwgt = new idx_t[m_numCells * ncon];
-		for (idx_t cell = 0; cell < m_numCells; ++cell) {
-			for (idx_t j = 0; j < ncon; ++j) {
-			elmwgt[ncon * cell + j] = static_cast<idx_t>(vertexWeights[ncon * cell + j]);
+			elmwgt = new idx_t[m_numCells * ncon];
+			for (idx_t cell = 0; cell < m_numCells; ++cell) {
+				for (idx_t j = 0; j < ncon; ++j) {
+					elmwgt[ncon * cell + j] = static_cast<idx_t>(vertexWeights[ncon * cell + j]);
+				}
 			}
-		}
 		}
 
 		idx_t* edgewgt = nullptr;
 		if (edgeWeights != nullptr) {
-		assert(edgeCount != 0);
-		edgewgt = new idx_t[edgeCount];
-		for (size_t i = 0; i < edgeCount; ++i) {
-			edgewgt[i] = static_cast<idx_t>(edgeWeights[i]);
-		}
+			assert(edgeCount != 0);
+			edgewgt = new idx_t[edgeCount];
+			for (size_t i = 0; i < edgeCount; ++i) {
+				edgewgt[i] = static_cast<idx_t>(edgeWeights[i]);
+			}
 		}
 
 		idx_t numflag = 0;
@@ -213,20 +214,20 @@ public:
 
 		real_t* tpwgts = new real_t[nparts * ncon];
 		if (nodeWeights != nullptr) {
-		for (idx_t i = 0; i < nparts; i++) {
-			for (idx_t j = 0; j < ncon; ++j) {
-			tpwgts[i * ncon + j] = nodeWeights[i];
+			for (idx_t i = 0; i < nparts; i++) {
+				for (idx_t j = 0; j < ncon; ++j) {
+					tpwgts[i * ncon + j] = nodeWeights[i];
+				}
 			}
-		}
 		} else {
-		for (idx_t i = 0; i < nparts * ncon; i++) {
-			tpwgts[i] = static_cast<real_t>(1.) / nparts;
-		}
+			for (idx_t i = 0; i < nparts * ncon; i++) {
+				tpwgts[i] = static_cast<real_t>(1.) / nparts;
+			}
 		}
 
 		real_t* ubvec = new real_t[ncon];
 		for (idx_t i = 0; i < ncon; ++i) {
-		ubvec[i] = imbalances[i];
+			ubvec[i] = imbalances[i];
 		}
 
 		idx_t edgecut;
@@ -245,9 +246,10 @@ public:
 		delete[] elmwgt;
 		delete[] edgewgt;
 
-		for (idx_t i = 0; i < m_numCells; i++)
-		partition[i] = part[i];
-
+		for (idx_t i = 0; i < m_numCells; i++){
+			partition[i] = part[i];
+		}
+		
 		delete[] part;
 
 		return (metisResult == METIS_OK) ? Status::Ok : Status::Error;
