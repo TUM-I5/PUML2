@@ -67,9 +67,13 @@ template <TopoType Topo> class PartitionMetis {
 #endif // USE_MPI
 
 #ifdef USE_MPI
+  // Generate the dual graph of the mesh with METIS
+  // Saves the result in the members vtxdist, xadj, adjncy. Overwrites if the members are not empty
   void generateGraphFromMesh() {
-    assert((vtxdist.empty() && xadj.empty() && adjncy.empty()) || (!vtxdist.empty() && !xadj.empty() && !adjncy.empty()));
+    assert((vtxdist.empty() && xadj.empty() && adjncy.empty()) ||
+           (!vtxdist.empty() && !xadj.empty() && !adjncy.empty()));
 
+    // Getting the distribution of vertices is taken as it is from before, manual memory management is removed
     if (vtxdist.empty() && xadj.empty() && adjncy.empty()) {
       std::vector<idx_t> elemdist;
       elemdist.resize(procs + 1);
@@ -114,22 +118,20 @@ template <TopoType Topo> class PartitionMetis {
 
       vtxdist = std::move(elemdist);
 
-      //  the size of xadj is the
-      //  - vtxdist[proc] + vtxdist[proc+1]
-      //  because proc has the index proc to proc +1 elements
-
+      //  The size of xadj is the
+      //  1 - vtxdist[proc] + vtxdist[proc+1]
+      //  Because proc has the index proc to proc +1 elements
       assert(vtxdist.size() == static_cast<size_t>(procs + 1));
+
       // the first element is always 0 and on top of that we have n nodes
       size_t numElements = vtxdist[rank + 1] - vtxdist[rank] + 1;
       xadj.reserve(numElements);
       std::copy(metis_xadj, metis_xadj + numElements, std::back_inserter(xadj));
 
-      // last element of xadj will be the size of adjncy
+      // Last element of xadj will be the size of adjncy
       size_t adjncySize = xadj[numElements - 1];
       adjncy.reserve(adjncySize);
       std::copy(metis_adjncy, metis_adjncy + adjncySize, std::back_inserter(adjncy));
-
-
 
       METIS_Free(metis_xadj);
       METIS_Free(metis_adjncy);
@@ -161,12 +163,12 @@ template <TopoType Topo> class PartitionMetis {
   Status partition(int* partition, const int* vertexWeights = nullptr, const double* imbalances = nullptr,
                    int nWeightsPerVertex = 1, const double* nodeWeights = nullptr, const int* edgeWeights = nullptr,
                    size_t edgeCount = 0) {
-
+    // We generate the dual graph from the mesh
     generateGraphFromMesh();
 
     idx_t wgtflag = 0;
 
-    // set the flag
+    // set the flags to have edge weights or vertex weights or both or none
     if (nodeWeights == nullptr && edgeWeights == nullptr) {
       wgtflag = 0;
     } else if (nodeWeights != nullptr && edgeWeights != nullptr) {
@@ -177,6 +179,7 @@ template <TopoType Topo> class PartitionMetis {
       wgtflag = 2;
     }
 
+    // Copy vertex weights to metis datatype if provided
     idx_t ncon = nWeightsPerVertex;
     idx_t* elmwgt = nullptr;
     if (vertexWeights != nullptr) {
@@ -188,6 +191,7 @@ template <TopoType Topo> class PartitionMetis {
       }
     }
 
+    // Copy edge weights to metis datatype if provided
     idx_t* edgewgt = nullptr;
     if (edgeWeights != nullptr) {
       assert(edgeCount != 0);
@@ -197,6 +201,7 @@ template <TopoType Topo> class PartitionMetis {
       }
     }
 
+    // Node weights, implementation taken as it is
     idx_t numflag = 0;
     idx_t nparts = procs;
 
@@ -213,6 +218,7 @@ template <TopoType Topo> class PartitionMetis {
       }
     }
 
+    // Set allowed imbalances
     real_t* ubvec = new real_t[ncon];
     for (idx_t i = 0; i < ncon; ++i) {
       ubvec[i] = imbalances[i];
@@ -226,9 +232,10 @@ template <TopoType Topo> class PartitionMetis {
     assert(xadj.size() == static_cast<size_t>(vtxdist[rank + 1] - vtxdist[rank] + 1));
     assert(adjncy.size() == static_cast<size_t>(xadj.back()));
 
+    // Partition with weights
     auto metisResult = ParMETIS_V3_PartKway(vtxdist.data(), xadj.data(), adjncy.data(), elmwgt, edgewgt, &wgtflag,
                                             &numflag, &ncon, &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
-                                            
+
     delete[] tpwgts;
     delete[] ubvec;
     delete[] elmwgt;
