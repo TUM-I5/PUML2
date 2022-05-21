@@ -40,13 +40,28 @@ private:
 
 	const idx_t m_numCells;
 
+	int rank = 0;
+	int procs = 0;
+
+	idx_t numflag = 0;
+	idx_t ncommonnodes = 3; // TODO adapt for hex
+	idx_t nparts = 0;       // will be set to procs in constructor later
+
+	std::vector<idx_t> vtxdist;
+	std::vector<idx_t> xadj;
+	std::vector<idx_t> adjncy;
+
 public:
 	PartitionMetis(const cell_t* cells, unsigned int numCells) :
 #ifdef USE_MPI
 		m_comm(MPI_COMM_WORLD),
 #endif // USE_MPI
 		m_cells(cells), m_numCells(numCells)
-	{ }
+	{ 
+		MPI_Comm_rank(m_comm, &rank);
+		MPI_Comm_size(m_comm, &procs);
+		nparts = procs;
+	}
 
 #ifdef USE_MPI
 	void setComm(MPI_Comm comm)
@@ -54,6 +69,87 @@ public:
 		m_comm = comm;
 	}
 #endif // USE_MPI
+
+#ifdef USE_MPI
+  void generateGraphFromMesh() {
+    assert((vtxdist.empty() && xadj.empty() && adjncy.empty()) || (!vtxdist.empty() && !xadj.empty() && !adjncy.empty()));
+
+    if (vtxdist.empty() && xadj.empty() && adjncy.empty()) {
+      std::vector<idx_t> elemdist;
+      elemdist.resize(procs + 1);
+      std::fill(elemdist.begin(), elemdist.end(), 0);
+
+      MPI_Allgather(const_cast<idx_t*>(&m_numCells), 1, IDX_T, elemdist.data(), 1, IDX_T, m_comm);
+
+      idx_t sum = 0;
+      for (int i = 0; i < procs; i++) {
+        idx_t e = elemdist[i];
+        elemdist[i] = sum;
+        sum += e;
+      }
+      elemdist[procs] = sum;
+
+      std::vector<idx_t> eptr;
+      eptr.resize(m_numCells + 1);
+      std::fill(eptr.begin(), eptr.end(), 0);
+
+      std::vector<idx_t> eind;
+      eind.resize(m_numCells * internal::Topology<Topo>::cellvertices());
+      std::fill(eind.begin(), eind.end(), 0);
+
+      unsigned long m = 0;
+
+      for (idx_t i = 0; i < m_numCells; i++) {
+        eptr[i] = i * internal::Topology<Topo>::cellvertices();
+
+        for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
+          m = std::max(m, m_cells[i][j]);
+          eind[i * internal::Topology<Topo>::cellvertices() + j] = m_cells[i][j];
+        }
+      }
+
+      eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
+
+      idx_t* metis_xadj;
+      idx_t* metis_adjncy;
+
+      ParMETIS_V3_Mesh2Dual(elemdist.data(), eptr.data(), eind.data(), &numflag, &ncommonnodes, &metis_xadj,
+                            &metis_adjncy, &m_comm);
+
+      vtxdist = std::move(elemdist);
+
+      //  the size of xadj is the
+      //  - vtxdist[proc] + vtxdist[proc+1]
+      //  because proc has the index proc to proc +1 elements
+
+      assert(vtxdist.size() == static_cast<size_t>(procs + 1));
+      // the first element is always 0 and on top of that we have n nodes
+      size_t numElements = vtxdist[rank + 1] - vtxdist[rank] + 1;
+      xadj.reserve(numElements);
+      std::copy(metis_xadj, metis_xadj + numElements, std::back_inserter(xadj));
+
+      // last element of xadj will be the size of adjncy
+      size_t adjncySize = xadj[numElements - 1];
+      adjncy.reserve(adjncySize);
+      std::copy(metis_adjncy, metis_adjncy + adjncySize, std::back_inserter(adjncy));
+
+
+
+      METIS_Free(metis_xadj);
+      METIS_Free(metis_adjncy);
+    }
+  }
+#endif
+
+#ifdef USE_MPI
+  std::tuple<const std::vector<idx_t>&, const std::vector<idx_t>&, const std::vector<idx_t>&> getGraph() {
+    if (xadj.empty() && adjncy.empty()) {
+      generateGraphFromMesh();
+    }
+
+    return {vtxdist, xadj, adjncy};
+  }
+#endif
 
 #ifdef USE_MPI
 	enum Status {
@@ -73,56 +169,54 @@ public:
 		const int* vertexWeights = nullptr,
 		const double* imbalances = nullptr,
 		int nWeightsPerVertex = 1,
-		const double* nodeWeights = nullptr) {
-		int rank, procs;
-		MPI_Comm_rank(m_comm, &rank);
-		MPI_Comm_size(m_comm, &procs);
+		const double* nodeWeights = nullptr,
+		const int* edgeWeights = nullptr,
+        size_t edgeCount = 0) 
+	{
+		generateGraphFromMesh();
 
-		idx_t* elemdist = new idx_t[procs+1];
-		MPI_Allgather(const_cast<idx_t*>(&m_numCells), 1, IDX_T, elemdist, 1, IDX_T, m_comm);
-		idx_t sum = 0;
-		for (int i = 0; i < procs; i++) {
-			idx_t e = elemdist[i];
-			elemdist[i] = sum;
-			sum += e;
-		}
-		elemdist[procs] = sum;
-
-		idx_t* eptr = new idx_t[m_numCells+1];
-		idx_t* eind = new idx_t[m_numCells * internal::Topology<Topo>::cellvertices()];
-		unsigned long m = 0;
-		for (idx_t i = 0; i < m_numCells; i++) {
-			eptr[i] = i * internal::Topology<Topo>::cellvertices();
-
-			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-				m = std::max(m, m_cells[i][j]);
-				eind[i*internal::Topology<Topo>::cellvertices() + j] = m_cells[i][j];
-			}
-		}
-		eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
-    
 		idx_t wgtflag = 0;
+
+		// set the flag
+		if (nodeWeights == nullptr && edgeWeights == nullptr) {
+			wgtflag = 0;
+		} else if (nodeWeights != nullptr && edgeWeights != nullptr) {
+			wgtflag = 3;
+		} else if (nodeWeights == nullptr && edgeWeights != nullptr) {
+			wgtflag = 1;
+		} else {
+			wgtflag = 2;
+		}
+
 		idx_t ncon = nWeightsPerVertex;
 		idx_t* elmwgt = nullptr;
+		
 		if (vertexWeights != nullptr) {
-			wgtflag = 2;
 			elmwgt = new idx_t[m_numCells * ncon];
 			for (idx_t cell = 0; cell < m_numCells; ++cell) {
 				for (idx_t j = 0; j < ncon; ++j) {
-					elmwgt[ncon * cell  + j] = static_cast<idx_t>(vertexWeights[ncon * cell + j]);
+					elmwgt[ncon * cell + j] = static_cast<idx_t>(vertexWeights[ncon * cell + j]);
 				}
 			}
 		}
 
+		idx_t* edgewgt = nullptr;
+		if (edgeWeights != nullptr) {
+			assert(edgeCount != 0);
+			edgewgt = new idx_t[edgeCount];
+			for (size_t i = 0; i < edgeCount; ++i) {
+				edgewgt[i] = static_cast<idx_t>(edgeWeights[i]);
+			}
+		}
+
 		idx_t numflag = 0;
-		idx_t ncommonnodes = 3; // TODO adapt for hex
 		idx_t nparts = procs;
 
 		real_t* tpwgts = new real_t[nparts * ncon];
 		if (nodeWeights != nullptr) {
 			for (idx_t i = 0; i < nparts; i++) {
 				for (idx_t j = 0; j < ncon; ++j) {
-					tpwgts[i*ncon + j] = nodeWeights[i];
+					tpwgts[i * ncon + j] = nodeWeights[i];
 				}
 			}
 		} else {
@@ -135,37 +229,28 @@ public:
 		for (idx_t i = 0; i < ncon; ++i) {
 			ubvec[i] = imbalances[i];
 		}
+
 		idx_t edgecut;
 		idx_t options[3] = {1, 1, METIS_RANDOM_SEED};
 
 		idx_t* part = new idx_t[m_numCells];
 
-		auto metisResult = ParMETIS_V3_PartMeshKway(elemdist,
-                                                eptr,
-                                                eind,
-                                                elmwgt,
-                                                &wgtflag,
-                                                &numflag,
-                                                &ncon,
-                                                &ncommonnodes,
-                                                &nparts,
-                                                tpwgts,
-                                                ubvec,
-                                                options,
-                                                &edgecut,
-                                                part,
-                                                &m_comm);
+		assert(xadj.size() == static_cast<size_t>(vtxdist[rank + 1] - vtxdist[rank] + 1));
+		assert(adjncy.size() == static_cast<size_t>(xadj.back()));
 
-		delete [] elemdist;
-		delete [] eptr;
-		delete [] eind;
-		delete [] tpwgts;
-		delete [] ubvec;
+		auto metisResult = ParMETIS_V3_PartKway(vtxdist.data(), xadj.data(), adjncy.data(), elmwgt, edgewgt, &wgtflag,
+												&numflag, &ncon, &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
+												
+		delete[] tpwgts;
+		delete[] ubvec;
+		delete[] elmwgt;
+		delete[] edgewgt;
 
-		for (idx_t i = 0; i < m_numCells; i++)
+		for (idx_t i = 0; i < m_numCells; i++){
 			partition[i] = part[i];
-
-		delete [] part;
+		}
+		
+		delete[] part;
 
 		return (metisResult == METIS_OK) ? Status::Ok : Status::Error;
 	}
