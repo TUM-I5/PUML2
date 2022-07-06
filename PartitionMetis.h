@@ -56,16 +56,24 @@ public:
 #endif // USE_MPI
 
 #ifdef USE_MPI
+	enum class Status {
+		Ok,
+		Error
+	};
+
 	/**
 	 * @param partition An array of size <code>numCells</code> which
 	 *  will contain the partition for each cells
-         * @param vertexWeights Weight for each vertex
-         * @param nWeightsPerVertex Number of weights per vertex
-         * @param nodeWeights Weight for each node
-	 * @param imbalance The allowed imbalance
+	 * @param vertexWeights Weight for each vertex
+	 * @param nWeightsPerVertex Number of weights per vertex
+	 * @param nodeWeights Weight for each node
+	 * @param imbalance The allowed imbalance for each constrain
 	 */
-	void partition(int* partition, int const* vertexWeights = nullptr, int nWeightsPerVertex = 1, double* nodeWeights = nullptr, double imbalance = 1.05)
-	{
+	Status partition(int* partition,
+		const int* vertexWeights = nullptr,
+		const double* imbalances = nullptr,
+		int nWeightsPerVertex = 1,
+		const double* nodeWeights = nullptr) {
 		int rank, procs;
 		MPI_Comm_rank(m_comm, &rank);
 		MPI_Comm_size(m_comm, &procs);
@@ -93,45 +101,60 @@ public:
 		}
 		eptr[m_numCells] = m_numCells * internal::Topology<Topo>::cellvertices();
     
-    idx_t wgtflag = 0;
-    idx_t* elmwgt = nullptr;
-    if (vertexWeights != nullptr) {
-      wgtflag = 2;
-      elmwgt = new idx_t[m_numCells];
-      for (idx_t i = 0; i < m_numCells; i++) {
-        elmwgt[i] = static_cast<idx_t>(vertexWeights[i]);
-      }
-    }
+		idx_t wgtflag = 0;
+		idx_t ncon = nWeightsPerVertex;
+		idx_t* elmwgt = nullptr;
+		if (vertexWeights != nullptr) {
+			wgtflag = 2;
+			elmwgt = new idx_t[m_numCells * ncon];
+			for (idx_t cell = 0; cell < m_numCells; ++cell) {
+				for (idx_t j = 0; j < ncon; ++j) {
+					elmwgt[ncon * cell  + j] = static_cast<idx_t>(vertexWeights[ncon * cell + j]);
+				}
+			}
+		}
 
 		idx_t numflag = 0;
-		idx_t ncon = nWeightsPerVertex;
 		idx_t ncommonnodes = 3; // TODO adapt for hex
 		idx_t nparts = procs;
 
 		real_t* tpwgts = new real_t[nparts * ncon];
-    if (nodeWeights != nullptr) {
-      for (idx_t i = 0; i < nparts; i++) {
-        for (idx_t j = 0; j < ncon; ++j) {
-          tpwgts[i*ncon + j] = nodeWeights[i];
-        }
-      }
-    } else {
-      for (idx_t i = 0; i < nparts * ncon; i++) {
-        tpwgts[i] = static_cast<real_t>(1.) / nparts;
-      }
-    }
+		if (nodeWeights != nullptr) {
+			for (idx_t i = 0; i < nparts; i++) {
+				for (idx_t j = 0; j < ncon; ++j) {
+					tpwgts[i*ncon + j] = nodeWeights[i];
+				}
+			}
+		} else {
+			for (idx_t i = 0; i < nparts * ncon; i++) {
+				tpwgts[i] = static_cast<real_t>(1.) / nparts;
+			}
+		}
 
 		real_t* ubvec = new real_t[ncon];
 		for (idx_t i = 0; i < ncon; ++i) {
-			ubvec[i] = imbalance;
+			ubvec[i] = imbalances[i];
 		}
 		idx_t edgecut;
-		idx_t options[3] = {1, 0, METIS_RANDOM_SEED};
+		idx_t options[3] = {1, 1, METIS_RANDOM_SEED};
 
 		idx_t* part = new idx_t[m_numCells];
 
-		ParMETIS_V3_PartMeshKway(elemdist, eptr, eind, elmwgt, &wgtflag, &numflag,
-			&ncon, &ncommonnodes, &nparts, tpwgts, ubvec, options, &edgecut, part, &m_comm);
+		auto metisResult = ParMETIS_V3_PartMeshKway(elemdist,
+                                                eptr,
+                                                eind,
+                                                elmwgt,
+                                                &wgtflag,
+                                                &numflag,
+                                                &ncon,
+                                                &ncommonnodes,
+                                                &nparts,
+                                                tpwgts,
+                                                ubvec,
+                                                options,
+                                                &edgecut,
+                                                part,
+                                                &m_comm);
 
 		delete [] elemdist;
 		delete [] eptr;
@@ -143,6 +166,8 @@ public:
 			partition[i] = part[i];
 
 		delete [] part;
+
+		return (metisResult == METIS_OK) ? Status::Ok : Status::Error;
 	}
 #endif // USE_MPI
 
