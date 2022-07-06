@@ -56,7 +56,7 @@ public:
 #endif // USE_MPI
 
 #ifdef USE_MPI
-	enum Status {
+	enum class Status {
 		Ok,
 		Error
 	};
