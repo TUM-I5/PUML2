@@ -100,13 +100,10 @@ public:
 	  eind.resize(m_numCells * internal::Topology<Topo>::cellvertices());
 	  std::fill(eind.begin(), eind.end(), 0);
 
-	  unsigned long m = 0;
-
 	  for (idx_t i = 0; i < m_numCells; i++) {
 		eptr[i] = i * internal::Topology<Topo>::cellvertices();
 
 		for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-		  m = std::max(m, m_cells[i][j]);
 		  eind[i * internal::Topology<Topo>::cellvertices() + j] = m_cells[i][j];
 		}
 	  }
