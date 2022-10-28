@@ -44,7 +44,7 @@ enum DataType
 	VERTEX = 1
 };
 
-#define checkH5Err(...) _checkH5Err(__VA_ARGS__, __FILE__, __LINE__)
+#define checkH5Err(...) _checkH5Err(__VA_ARGS__, __FILE__, __LINE__, rank)
 
 /**
  * @todo Handle non-MPI case correct
@@ -254,9 +254,7 @@ public:
 
 		// Read the vertices
 		m_originalTotalSize[1] = dims[0];
-		m_originalSize[1] = (dims[0] + procs - 1) / procs;
-		offset = static_cast<unsigned long>(m_originalSize[1]) * rank;
-		m_originalSize[1] = std::min(m_originalSize[1], static_cast<unsigned int>(dims[0] - offset));
+                std::tie(offset, m_originalSize[1]) = offsetAndSize(dims[0], procs, rank);
 
 		start[0] = offset;
 		count[0] = m_originalSize[1]; count[1] = 3;
@@ -483,12 +481,10 @@ public:
 #endif // USE_MPI
 
 		// Generate a list of vertices we need from other processors
-		unsigned int maxVertices = (m_originalTotalSize[1] + procs - 1) / procs;
-
 		std::unordered_set<unsigned long>* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-				int proc = m_originalCells[i][j] / maxVertices;
+				int proc = rankOfVertex(m_originalTotalSize[1], procs, m_originalCells[i][j]);
 				assert(proc < procs);
 
 				requiredVertexSets[proc].insert(m_originalCells[i][j]); // Convert to local vid
@@ -553,7 +549,8 @@ public:
 		for (int i = 0; i < procs; i++) {
 			for (int j = 0; j < recvCount[i]; j++) {
 				assert(k < totalRecv);
-				distribVertexIds[k] %= maxVertices; // Map to local vertex id
+                                distribVertexIds[k] = globalToLocalId(m_originalTotalSize[1], procs, rank, distribVertexIds[k]);
+
 				assert(distribVertexIds[k] < m_originalSize[1]);
 				memcpy(distribVertices[k], m_originalVertices[distribVertexIds[k]], sizeof(overtex_t));
 
@@ -1266,12 +1263,56 @@ private:
 	}
 
 	template<typename TT>
-	static void _checkH5Err(TT status, const char* file, int line)
+	static void _checkH5Err(TT status, const char* file, int line, int rank)
 	{
-		if (status < 0)
+		if (status < 0) {
 			logError() << utils::nospace << "An HDF5 error occurred in PUML ("
-				<< file << ": " << line << ")";
+				<< file << ": " << line << ") on rank " << rank;
+                }
 	}
+
+        static std::pair<unsigned long, unsigned long> offsetAndSize(unsigned long numVertices, unsigned long numRanks, unsigned long rank) {
+                assert(numVertices > numRanks);
+                assert(rank < numRanks);
+                unsigned long vertices_per_proc = numVertices / numRanks;
+                unsigned long missing_vertices = numVertices % numRanks;
+                unsigned long offset = 0;
+                unsigned long size = 0;
+                if (rank < missing_vertices) {
+		        offset = rank * (vertices_per_proc + 1);
+		        size = std::min(vertices_per_proc + 1, numVertices - offset);
+                } else {
+		        offset = missing_vertices * (vertices_per_proc + 1) + (rank - missing_vertices) * vertices_per_proc;
+		        size = std::min(vertices_per_proc, numVertices - offset);
+                }
+                assert(offset + size < numVertices);
+                return {offset, size};
+        }
+
+        static unsigned long rankOfVertex(unsigned long numVertices, unsigned long numRanks, unsigned long vertex) {
+                assert(numVertices > numRanks);
+                assert(vertex < numVertices);
+                unsigned long vertices_per_proc = numVertices / numRanks;
+                unsigned long missing_vertices = numVertices % numRanks;
+                unsigned long rank = 0;
+                if (vertex < missing_vertices * (vertices_per_proc + 1)) {
+                        rank = vertex / (vertices_per_proc + 1);
+                } else {
+                        rank = (vertex - missing_vertices * (vertices_per_proc + 1)) / vertices_per_proc + missing_vertices;
+                }
+                assert(rank < numRanks);
+                return rank;
+        }
+
+        static unsigned long globalToLocalId(unsigned long numVertices, unsigned long numRanks, unsigned long rank, unsigned long globalId) {
+                assert(numVertices > numRanks);
+                assert(globalId < numVertices);
+                assert(rank < numRanks);
+                auto[offset, size] = offsetAndSize(numVertices, numRanks, rank);
+                assert (globalId >= offset);
+                assert (globalId < offset + size);
+                return globalId - offset;
+        }
 };
 
 #undef checkH5Err
