@@ -44,6 +44,77 @@ enum DataType
 	VERTEX = 1
 };
 
+/**
+ * Distributes a number of mesh entities (i.e. elements or vertices) to  a given number of ranks
+ * For E entities and R ranks, the first E%R ranks will read E/R+1 entities.
+ * The remaining ranks will read E/R entities.
+ */
+class Distributor {
+  public: 
+  Distributor() = default;
+  Distributor(unsigned long numEntities, unsigned long numRanks) {
+    init(numEntities, numRanks);
+  }
+
+  void init(unsigned long newNumEntities, unsigned long newNumRanks) {
+    assert(newNumEntities > newNumRanks); 
+    numEntities = newNumEntities;
+    numRanks = newNumRanks;
+    entitiesPerRank = numEntities / numRanks;
+    missingEntities = numEntities % numRanks;
+  }
+
+  /**
+   * Gives the offset and size of data where the rank should read data.
+   */
+  std::pair<unsigned long, unsigned long> offsetAndSize(unsigned long rank) {
+    assert(rank < numRanks);
+    unsigned long offset = 0;
+    unsigned long size = 0;
+    if (rank < missingEntities) {
+      offset = rank * (entitiesPerRank + 1);
+      size = std::min(entitiesPerRank + 1, numEntities - offset);
+    } else {
+      offset = missingEntities * (entitiesPerRank + 1) + (rank - missingEntities) * entitiesPerRank;
+      size = std::min(entitiesPerRank, numEntities - offset);
+    }
+    assert(offset + size < numEntities);
+    return {offset, size};
+  }
+
+  /**
+   * Gives the rank, which has read the entity with the given globalId.
+   */
+  unsigned long rankOfEntity(unsigned long globalId) {
+    assert(id < numEntities);
+    unsigned long rank = 0;
+    if (globalId < missingEntities * (entitiesPerRank + 1)) {
+      rank = globalId / (entitiesPerRank + 1);
+    } else {
+      rank = (globalId - missingEntities * (entitiesPerRank + 1)) / entitiesPerRank + missingEntities;
+    }
+    assert(rank < numRanks);
+    return rank;
+  }
+
+  /**
+   * Gives the local id of a mesh entity for the given globalId.
+   */
+  unsigned long globalToLocalId(unsigned long rank, unsigned long globalId) {
+    assert(globalId < numEntities);
+    auto[offset, size] = offsetAndSize(rank);
+    assert (globalId >= offset);
+    assert (globalId < offset + size);
+    return globalId - offset;
+  }
+
+  private:
+  unsigned long numEntities;
+  unsigned long numRanks;
+  unsigned long entitiesPerRank;
+  unsigned long missingEntities;
+};
+
 #define checkH5Err(...) _checkH5Err(__VA_ARGS__, __FILE__, __LINE__, rank)
 
 /**
@@ -251,12 +322,14 @@ public:
 			logError() << "Each vertex must have xyz coordinate";
 
 		logInfo(rank) << "Found" << dims[0] << "vertices";
+		m_vertexDistributor.init(dims[0], procs);
 
 		// Read the vertices
 		m_originalTotalSize[1] = dims[0];
-                std::tie(offset, m_originalSize[1]) = offsetAndSize(dims[0], procs, rank);
+		auto[offsetVertices, sizeVertices] = m_vertexDistributor.offsetAndSize(rank);
+		m_originalSize[1] = sizeVertices;
 
-		start[0] = offset;
+		start[0] = offsetVertices;
 		count[0] = m_originalSize[1]; count[1] = 3;
 
 		checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, 0L, count, 0L));
@@ -484,7 +557,7 @@ public:
 		std::unordered_set<unsigned long>* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-				int proc = rankOfVertex(m_originalTotalSize[1], procs, m_originalCells[i][j]);
+				int proc = m_vertexDistributor.rankOfEntity(m_originalCells[i][j]);
 				assert(proc < procs);
 
 				requiredVertexSets[proc].insert(m_originalCells[i][j]); // Convert to local vid
@@ -549,7 +622,7 @@ public:
 		for (int i = 0; i < procs; i++) {
 			for (int j = 0; j < recvCount[i]; j++) {
 				assert(k < totalRecv);
-                                distribVertexIds[k] = globalToLocalId(m_originalTotalSize[1], procs, rank, distribVertexIds[k]);
+				distribVertexIds[k] = m_vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
 
 				assert(distribVertexIds[k] < m_originalSize[1]);
 				memcpy(distribVertices[k], m_originalVertices[distribVertexIds[k]], sizeof(overtex_t));
@@ -1224,6 +1297,7 @@ private:
 	}
 
 private:
+	Distributor m_vertexDistributor;
 	/**
 	 * Add an edge if it does not exist yet
 	 *
@@ -1268,51 +1342,8 @@ private:
 		if (status < 0) {
 			logError() << utils::nospace << "An HDF5 error occurred in PUML ("
 				<< file << ": " << line << ") on rank " << rank;
-                }
+		}
 	}
-
-        static std::pair<unsigned long, unsigned long> offsetAndSize(unsigned long numVertices, unsigned long numRanks, unsigned long rank) {
-                assert(numVertices > numRanks);
-                assert(rank < numRanks);
-                unsigned long vertices_per_proc = numVertices / numRanks;
-                unsigned long missing_vertices = numVertices % numRanks;
-                unsigned long offset = 0;
-                unsigned long size = 0;
-                if (rank < missing_vertices) {
-		        offset = rank * (vertices_per_proc + 1);
-		        size = std::min(vertices_per_proc + 1, numVertices - offset);
-                } else {
-		        offset = missing_vertices * (vertices_per_proc + 1) + (rank - missing_vertices) * vertices_per_proc;
-		        size = std::min(vertices_per_proc, numVertices - offset);
-                }
-                assert(offset + size < numVertices);
-                return {offset, size};
-        }
-
-        static unsigned long rankOfVertex(unsigned long numVertices, unsigned long numRanks, unsigned long vertex) {
-                assert(numVertices > numRanks);
-                assert(vertex < numVertices);
-                unsigned long vertices_per_proc = numVertices / numRanks;
-                unsigned long missing_vertices = numVertices % numRanks;
-                unsigned long rank = 0;
-                if (vertex < missing_vertices * (vertices_per_proc + 1)) {
-                        rank = vertex / (vertices_per_proc + 1);
-                } else {
-                        rank = (vertex - missing_vertices * (vertices_per_proc + 1)) / vertices_per_proc + missing_vertices;
-                }
-                assert(rank < numRanks);
-                return rank;
-        }
-
-        static unsigned long globalToLocalId(unsigned long numVertices, unsigned long numRanks, unsigned long rank, unsigned long globalId) {
-                assert(numVertices > numRanks);
-                assert(globalId < numVertices);
-                assert(rank < numRanks);
-                auto[offset, size] = offsetAndSize(numVertices, numRanks, rank);
-                assert (globalId >= offset);
-                assert (globalId < offset + size);
-                return globalId - offset;
-        }
 };
 
 #undef checkH5Err
