@@ -86,7 +86,7 @@ class Distributor {
    * Gives the rank, which has read the entity with the given globalId.
    */
   unsigned long rankOfEntity(unsigned long globalId) {
-    assert(id < numEntities);
+    assert(globalId < numEntities);
     unsigned long rank = 0;
     if (globalId < missingEntities * (entitiesPerRank + 1)) {
       rank = globalId / (entitiesPerRank + 1);
