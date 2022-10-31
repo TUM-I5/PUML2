@@ -274,14 +274,15 @@ public:
 			logError() << "Each cell must have" << internal::Topology<Topo>::cellvertices() << "vertices";
 
 		logInfo(rank) << "Found" << dims[0] << "cells";
+		m_cellDistributor.init(dims[0], procs);
 
 		// Read the cells
 		m_originalTotalSize[0] = dims[0];
-		m_originalSize[0] = (dims[0] + procs - 1) / procs;
-		unsigned long offset = static_cast<unsigned long>(m_originalSize[0]) * rank;
-		m_originalSize[0] = std::min(m_originalSize[0], static_cast<unsigned int>(dims[0] - offset));
+		m_vertexDistributor.init(dims[0], procs);
+		auto[offsetCells, sizeCells] = m_cellDistributor.offsetAndSize(rank);
+		m_originalSize[0] = sizeCells;
 
-		hsize_t start[2] = {offset, 0};
+		hsize_t start[2] = {offsetCells, 0};
 		hsize_t count[2] = {m_originalSize[0], internal::Topology<Topo>::cellvertices()};
 
 		checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, 0L, count, 0L));
@@ -375,7 +376,6 @@ public:
 		checkH5Err(h5file);
 
 		unsigned long totalSize = m_originalTotalSize[type];
-		unsigned int localSize = m_originalSize[type];
 
 		// Get cell dataset
 		hid_t h5dataset = H5Dopen(h5file, dataNames[1].c_str(), H5P_DEFAULT);
@@ -392,8 +392,7 @@ public:
 			logError() << "Dataset has the wrong size";
 
 		// Read the cells
-		unsigned int maxLocalSize = (totalSize + procs - 1) / procs;
-		unsigned long offset = static_cast<unsigned long>(maxLocalSize) * rank;
+		auto[offset, localSize] = m_cellDistributor.offsetAndSize(rank);
 
 		hsize_t start = offset;
 		hsize_t count = localSize;
@@ -1297,6 +1296,7 @@ private:
 	}
 
 private:
+	Distributor m_cellDistributor;
 	Distributor m_vertexDistributor;
 	/**
 	 * Add an edge if it does not exist yet
