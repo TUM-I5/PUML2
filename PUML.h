@@ -78,7 +78,7 @@ class Distributor {
       offset = missingEntities * (entitiesPerRank + 1) + (rank - missingEntities) * entitiesPerRank;
       size = std::min(entitiesPerRank, numEntities - offset);
     }
-    assert(offset + size < numEntities);
+    assert(offset + size <= numEntities);
     return {offset, size};
   }
 
