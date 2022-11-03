@@ -44,7 +44,73 @@ enum DataType
 	VERTEX = 1
 };
 
-#define checkH5Err(...) _checkH5Err(__VA_ARGS__, __FILE__, __LINE__)
+/**
+ * Distributes a number of mesh entities (i.e. elements or vertices) to  a given number of ranks
+ * For E entities and R ranks, the first E%R ranks will read E/R+1 entities.
+ * The remaining ranks will read E/R entities.
+ */
+class Distributor {
+  public: 
+  Distributor() = default;
+  Distributor(unsigned long newNumEntities, unsigned long newNumRanks) : numEntities(newNumEntities),
+    numRanks(newNumRanks),
+    entitiesPerRank(numEntities / numRanks),
+    missingEntities(numEntities % numRanks) {
+    assert(numEntities > numRanks); 
+  }
+
+  /**
+   * Gives the offset and size of data where the rank should read data.
+   */
+  std::pair<unsigned long, unsigned long> offsetAndSize(unsigned long rank) {
+    assert(rank < numRanks);
+    unsigned long offset = 0;
+    unsigned long size = 0;
+    if (rank < missingEntities) {
+      offset = rank * (entitiesPerRank + 1);
+      size = std::min(entitiesPerRank + 1, numEntities - offset);
+    } else {
+      offset = missingEntities * (entitiesPerRank + 1) + (rank - missingEntities) * entitiesPerRank;
+      size = std::min(entitiesPerRank, numEntities - offset);
+    }
+    assert(offset + size <= numEntities);
+    return {offset, size};
+  }
+
+  /**
+   * Gives the rank, which has read the entity with the given globalId.
+   */
+  unsigned long rankOfEntity(unsigned long globalId) {
+    assert(globalId < numEntities);
+    unsigned long rank = 0;
+    if (globalId < missingEntities * (entitiesPerRank + 1)) {
+      rank = globalId / (entitiesPerRank + 1);
+    } else {
+      rank = (globalId - missingEntities * (entitiesPerRank + 1)) / entitiesPerRank + missingEntities;
+    }
+    assert(rank < numRanks);
+    return rank;
+  }
+
+  /**
+   * Gives the local id of a mesh entity for the given globalId.
+   */
+  unsigned long globalToLocalId(unsigned long rank, unsigned long globalId) {
+    assert(globalId < numEntities);
+    auto[offset, size] = offsetAndSize(rank);
+    assert (globalId >= offset);
+    assert (globalId < offset + size);
+    return globalId - offset;
+  }
+
+  private:
+  const unsigned long numEntities;
+  const unsigned long numRanks;
+  const unsigned long entitiesPerRank;
+  const unsigned long missingEntities;
+};
+
+#define checkH5Err(...) _checkH5Err(__VA_ARGS__, __FILE__, __LINE__, rank)
 
 /**
  * @todo Handle non-MPI case correct
@@ -203,14 +269,14 @@ public:
 			logError() << "Each cell must have" << internal::Topology<Topo>::cellvertices() << "vertices";
 
 		logInfo(rank) << "Found" << dims[0] << "cells";
+		auto cellDistributor = Distributor(dims[0], procs);
 
 		// Read the cells
 		m_originalTotalSize[0] = dims[0];
-		m_originalSize[0] = (dims[0] + procs - 1) / procs;
-		unsigned long offset = static_cast<unsigned long>(m_originalSize[0]) * rank;
-		m_originalSize[0] = std::min(m_originalSize[0], static_cast<unsigned int>(dims[0] - offset));
+		auto[offsetCells, sizeCells] = cellDistributor.offsetAndSize(rank);
+		m_originalSize[0] = sizeCells;
 
-		hsize_t start[2] = {offset, 0};
+		hsize_t start[2] = {offsetCells, 0};
 		hsize_t count[2] = {m_originalSize[0], internal::Topology<Topo>::cellvertices()};
 
 		checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, 0L, count, 0L));
@@ -251,14 +317,14 @@ public:
 			logError() << "Each vertex must have xyz coordinate";
 
 		logInfo(rank) << "Found" << dims[0] << "vertices";
+		auto vertexDistributor = Distributor(dims[0], procs);
 
 		// Read the vertices
 		m_originalTotalSize[1] = dims[0];
-		m_originalSize[1] = (dims[0] + procs - 1) / procs;
-		offset = static_cast<unsigned long>(m_originalSize[1]) * rank;
-		m_originalSize[1] = std::min(m_originalSize[1], static_cast<unsigned int>(dims[0] - offset));
+		auto[offsetVertices, sizeVertices] = vertexDistributor.offsetAndSize(rank);
+		m_originalSize[1] = sizeVertices;
 
-		start[0] = offset;
+		start[0] = offsetVertices;
 		count[0] = m_originalSize[1]; count[1] = 3;
 
 		checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, 0L, count, 0L));
@@ -289,6 +355,7 @@ public:
 		MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
+		auto cellDistributor = Distributor(m_originalTotalSize[0], procs);
 		std::vector<std::string> dataNames = utils::StringUtils::split(dataName, ':');
 		if (dataNames.size() != 2)
 			logError() << "Data name must have the form \"filename:/dataset\"";
@@ -304,7 +371,6 @@ public:
 		checkH5Err(h5file);
 
 		unsigned long totalSize = m_originalTotalSize[type];
-		unsigned int localSize = m_originalSize[type];
 
 		// Get cell dataset
 		hid_t h5dataset = H5Dopen(h5file, dataNames[1].c_str(), H5P_DEFAULT);
@@ -321,8 +387,7 @@ public:
 			logError() << "Dataset has the wrong size";
 
 		// Read the cells
-		unsigned int maxLocalSize = (totalSize + procs - 1) / procs;
-		unsigned long offset = static_cast<unsigned long>(maxLocalSize) * rank;
+		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
 
 		hsize_t start = offset;
 		hsize_t count = localSize;
@@ -482,13 +547,12 @@ public:
 		MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
+		auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
 		// Generate a list of vertices we need from other processors
-		unsigned int maxVertices = (m_originalTotalSize[1] + procs - 1) / procs;
-
 		std::unordered_set<unsigned long>* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-				int proc = m_originalCells[i][j] / maxVertices;
+				int proc = vertexDistributor.rankOfEntity(m_originalCells[i][j]);
 				assert(proc < procs);
 
 				requiredVertexSets[proc].insert(m_originalCells[i][j]); // Convert to local vid
@@ -553,7 +617,8 @@ public:
 		for (int i = 0; i < procs; i++) {
 			for (int j = 0; j < recvCount[i]; j++) {
 				assert(k < totalRecv);
-				distribVertexIds[k] %= maxVertices; // Map to local vertex id
+				distribVertexIds[k] = vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
+
 				assert(distribVertexIds[k] < m_originalSize[1]);
 				memcpy(distribVertices[k], m_originalVertices[distribVertexIds[k]], sizeof(overtex_t));
 
@@ -1266,11 +1331,12 @@ private:
 	}
 
 	template<typename TT>
-	static void _checkH5Err(TT status, const char* file, int line)
+	static void _checkH5Err(TT status, const char* file, int line, int rank)
 	{
-		if (status < 0)
+		if (status < 0) {
 			logError() << utils::nospace << "An HDF5 error occurred in PUML ("
-				<< file << ": " << line << ")";
+				<< file << ": " << line << ") on rank " << rank;
+		}
 	}
 };
 
