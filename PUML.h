@@ -52,16 +52,11 @@ enum DataType
 class Distributor {
   public: 
   Distributor() = default;
-  Distributor(unsigned long numEntities, unsigned long numRanks) {
-    init(numEntities, numRanks);
-  }
-
-  void init(unsigned long newNumEntities, unsigned long newNumRanks) {
-    assert(newNumEntities > newNumRanks); 
-    numEntities = newNumEntities;
-    numRanks = newNumRanks;
-    entitiesPerRank = numEntities / numRanks;
-    missingEntities = numEntities % numRanks;
+  Distributor(unsigned long newNumEntities, unsigned long newNumRanks) : numEntities(newNumEntities),
+    numRanks(newNumRanks),
+    entitiesPerRank(numEntities / numRanks),
+    missingEntities(numEntities % numRanks) {
+    assert(numEntities > numRanks); 
   }
 
   /**
@@ -109,10 +104,10 @@ class Distributor {
   }
 
   private:
-  unsigned long numEntities;
-  unsigned long numRanks;
-  unsigned long entitiesPerRank;
-  unsigned long missingEntities;
+  const unsigned long numEntities;
+  const unsigned long numRanks;
+  const unsigned long entitiesPerRank;
+  const unsigned long missingEntities;
 };
 
 #define checkH5Err(...) _checkH5Err(__VA_ARGS__, __FILE__, __LINE__, rank)
@@ -274,12 +269,11 @@ public:
 			logError() << "Each cell must have" << internal::Topology<Topo>::cellvertices() << "vertices";
 
 		logInfo(rank) << "Found" << dims[0] << "cells";
-		m_cellDistributor.init(dims[0], procs);
+		auto cellDistributor = Distributor(dims[0], procs);
 
 		// Read the cells
 		m_originalTotalSize[0] = dims[0];
-		m_vertexDistributor.init(dims[0], procs);
-		auto[offsetCells, sizeCells] = m_cellDistributor.offsetAndSize(rank);
+		auto[offsetCells, sizeCells] = cellDistributor.offsetAndSize(rank);
 		m_originalSize[0] = sizeCells;
 
 		hsize_t start[2] = {offsetCells, 0};
@@ -323,11 +317,11 @@ public:
 			logError() << "Each vertex must have xyz coordinate";
 
 		logInfo(rank) << "Found" << dims[0] << "vertices";
-		m_vertexDistributor.init(dims[0], procs);
+		auto vertexDistributor = Distributor(dims[0], procs);
 
 		// Read the vertices
 		m_originalTotalSize[1] = dims[0];
-		auto[offsetVertices, sizeVertices] = m_vertexDistributor.offsetAndSize(rank);
+		auto[offsetVertices, sizeVertices] = vertexDistributor.offsetAndSize(rank);
 		m_originalSize[1] = sizeVertices;
 
 		start[0] = offsetVertices;
@@ -361,6 +355,7 @@ public:
 		MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
+		auto cellDistributor = Distributor(m_originalTotalSize[0], procs);
 		std::vector<std::string> dataNames = utils::StringUtils::split(dataName, ':');
 		if (dataNames.size() != 2)
 			logError() << "Data name must have the form \"filename:/dataset\"";
@@ -392,7 +387,7 @@ public:
 			logError() << "Dataset has the wrong size";
 
 		// Read the cells
-		auto[offset, localSize] = m_cellDistributor.offsetAndSize(rank);
+		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
 
 		hsize_t start = offset;
 		hsize_t count = localSize;
@@ -552,11 +547,12 @@ public:
 		MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
+		auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
 		// Generate a list of vertices we need from other processors
 		std::unordered_set<unsigned long>* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-				int proc = m_vertexDistributor.rankOfEntity(m_originalCells[i][j]);
+				int proc = vertexDistributor.rankOfEntity(m_originalCells[i][j]);
 				assert(proc < procs);
 
 				requiredVertexSets[proc].insert(m_originalCells[i][j]); // Convert to local vid
@@ -621,7 +617,7 @@ public:
 		for (int i = 0; i < procs; i++) {
 			for (int j = 0; j < recvCount[i]; j++) {
 				assert(k < totalRecv);
-				distribVertexIds[k] = m_vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
+				distribVertexIds[k] = vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
 
 				assert(distribVertexIds[k] < m_originalSize[1]);
 				memcpy(distribVertices[k], m_originalVertices[distribVertexIds[k]], sizeof(overtex_t));
@@ -1296,8 +1292,6 @@ private:
 	}
 
 private:
-	Distributor m_cellDistributor;
-	Distributor m_vertexDistributor;
 	/**
 	 * Add an edge if it does not exist yet
 	 *
