@@ -355,6 +355,36 @@ public:
 		checkH5Err(H5Pclose(h5alist));
 	}
 
+        template<typename T>
+	void addData(const T* rawData, unsigned long dataSize, DataType type)
+	{
+		int rank = 0;
+		int procs = 1;
+#ifdef USE_MPI
+		MPI_Comm_rank(m_comm, &rank);
+		MPI_Comm_size(m_comm, &procs);
+#endif // USE_MPI
+
+		auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
+		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
+
+		unsigned long totalSize = m_originalTotalSize[type];
+		if (dataSize != totalSize) {
+                  logError() << "Data has the wrong size, expected" << totalSize << ", but got" << dataSize;
+                }
+
+		T* data = new T[localSize];
+                std::copy(&rawData[offset], &rawData[offset + localSize], &data[0]);
+		switch (type) {
+		case CELL:
+			m_cellData.push_back(data);
+			break;
+		case VERTEX:
+			m_originalVertexData.push_back(data);
+			break;
+		}
+	}
+
 	void addData(const char* dataName, DataType type)
 	{
 		int rank = 0;
@@ -887,6 +917,16 @@ public:
 
 		// Generate shared information and global ids for faces
 		generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces, m_edges);
+	}
+
+	/**
+	 * @return The total number of cells
+	 *
+	 * @note This is the number of all cells within the mesh.
+	 */
+	unsigned int numTotalCells() const
+	{
+		return m_originalTotalSize[0];
 	}
 
 	/**
