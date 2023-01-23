@@ -103,6 +103,15 @@ class Distributor {
     return globalId - offset;
   }
 
+  /**
+   * Gives the global id of a mesh entity for the given localId.
+   */
+  unsigned long localToGlobalId(unsigned long rank, unsigned long localId) {
+    auto[offset, size] = offsetAndSize(rank);
+    assert(localId < size);
+    return offset + localId;
+  }
+
   private:
   const unsigned long numEntities;
   const unsigned long numRanks;
@@ -346,6 +355,36 @@ public:
 		checkH5Err(H5Pclose(h5alist));
 	}
 
+        template<typename T>
+	void addData(const T* rawData, unsigned long dataSize, DataType type)
+	{
+		int rank = 0;
+		int procs = 1;
+#ifdef USE_MPI
+		MPI_Comm_rank(m_comm, &rank);
+		MPI_Comm_size(m_comm, &procs);
+#endif // USE_MPI
+
+		auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
+		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
+
+		unsigned long totalSize = m_originalTotalSize[type];
+		if (dataSize != totalSize) {
+                  logError() << "Data has the wrong size, expected" << totalSize << ", but got" << dataSize;
+                }
+
+		T* data = new T[localSize];
+                std::copy(&rawData[offset], &rawData[offset + localSize], &data[0]);
+		switch (type) {
+		case CELL:
+			m_cellData.push_back(data);
+			break;
+		case VERTEX:
+			m_originalVertexData.push_back(data);
+			break;
+		}
+	}
+
 	void addData(const char* dataName, DataType type)
 	{
 		int rank = 0;
@@ -548,6 +587,7 @@ public:
 #endif // USE_MPI
 
 		auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
+		auto cellDistributor = Distributor(m_originalTotalSize[0], procs);
 		// Generate a list of vertices we need from other processors
 		std::unordered_set<unsigned long>* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
@@ -780,17 +820,11 @@ public:
 		m_faces.clear();
 		m_v2e.clear();
 
-		unsigned long cellOffset = m_originalSize[0];
-#ifdef USE_MPI
-		MPI_Scan(MPI_IN_PLACE, &cellOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
-#endif // USE_MPI
-		cellOffset -= m_originalSize[0];
-
 		std::vector<std::set<unsigned int> > edgeUpward;
 		std::set<unsigned int>* vertexUpward = new std::set<unsigned int>[m_vertices.size()];
 
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-			m_cells[i].m_gid = i + cellOffset;
+			m_cells[i].m_gid = cellDistributor.localToGlobalId(rank, i);
 
 			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++)
 				m_cells[i].m_vertices[j] = m_verticesg2l[m_originalCells[i][j]];
@@ -883,6 +917,14 @@ public:
 
 		// Generate shared information and global ids for faces
 		generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces, m_edges);
+	}
+
+	/**
+	 * @return The total number of all cells within the mesh.
+	 */
+	unsigned int numTotalCells() const
+	{
+		return m_originalTotalSize[0];
 	}
 
 	/**
