@@ -920,9 +920,7 @@ public:
 	}
 
 	/**
-	 * @return The total number of cells
-	 *
-	 * @note This is the number of all cells within the mesh.
+	 * @return The total number of all cells within the mesh.
 	 */
 	unsigned int numTotalCells() const
 	{
