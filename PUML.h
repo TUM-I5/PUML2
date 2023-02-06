@@ -103,15 +103,6 @@ class Distributor {
     return globalId - offset;
   }
 
-  /**
-   * Gives the global id of a mesh entity for the given localId.
-   */
-  unsigned long localToGlobalId(unsigned long rank, unsigned long localId) {
-    auto[offset, size] = offsetAndSize(rank);
-    assert(localId < size);
-    return offset + localId;
-  }
-
   private:
   const unsigned long numEntities;
   const unsigned long numRanks;
@@ -587,7 +578,6 @@ public:
 #endif // USE_MPI
 
 		auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
-		auto cellDistributor = Distributor(m_originalTotalSize[0], procs);
 		// Generate a list of vertices we need from other processors
 		std::unordered_set<unsigned long>* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
@@ -820,11 +810,17 @@ public:
 		m_faces.clear();
 		m_v2e.clear();
 
+		unsigned long cellOffset = m_originalSize[0];
+#ifdef USE_MPI
+		MPI_Scan(MPI_IN_PLACE, &cellOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
+#endif // USE_MPI
+		cellOffset -= m_originalSize[0];
+
 		std::vector<std::set<unsigned int> > edgeUpward;
 		std::set<unsigned int>* vertexUpward = new std::set<unsigned int>[m_vertices.size()];
 
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-			m_cells[i].m_gid = cellDistributor.localToGlobalId(rank, i);
+			m_cells[i].m_gid = i + cellOffset;
 
 			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++)
 				m_cells[i].m_vertices[j] = m_verticesg2l[m_originalCells[i][j]];
