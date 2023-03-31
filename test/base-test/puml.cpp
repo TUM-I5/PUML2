@@ -18,7 +18,8 @@
 #include "PUML.h"
 #include "Downward.h"
 #include "Neighbor.h"
-#include "PartitionMetis.h"
+#include "Partition.h"
+#include "PartitionGraph.h"
 
 #include "XdmfWriter/XdmfWriter.h"
 
@@ -56,9 +57,14 @@ int main(int argc, char* argv[])
 
 	// Run the partitioning
 	logInfo(rank) << "Creating partitions";
-	PUML::TETPartitionMetis metis(puml.originalCells(), puml.numOriginalCells());
 	int* partition = new int[puml.numOriginalCells()];
-	metis.partition(partition);
+
+	PUML::TETPartitionGraph graph(puml);
+	auto partitioner = PUML::Partition::get_partitioner("parmetis");
+	PUML::PartitionTarget target;
+	target.set_vertex_weights_uniform();
+	target.set_imbalance(1.01);
+	partitioner->partition(partition, graph, target);
 
 	// Redistribute the cells
 	logInfo(rank) << "Redistributing cells";
