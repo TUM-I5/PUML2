@@ -2,11 +2,14 @@
 .kdev4/
 *.kdev4
 
-# Test
-test/XdmfWriter
-test/puml.o
-test/config.log
-test/.sconf_temp/
-test/.sconsign.dblite
-test/build/
+# VS Code
+.vscode/
 
+# Test
+test/base-test/XdmfWriter
+test/base-test/puml.o
+test/base-test/config.log
+test/base-test/.sconf_temp/
+test/base-test/.sconsign.dblite
+test/base-test/build/
+test/partition-test/build/
