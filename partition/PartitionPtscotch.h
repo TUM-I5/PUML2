@@ -54,7 +54,7 @@ public:
 		auto nparts = target.vertex_count();
 
 		std::vector<SCOTCH_Num> weights(nparts, 1);
-		if (target.has_vertex_weights()) {
+		if (!target.vertex_weight_uniform()) {
 			double maxv = 2;
 			double minv = -1;
 
@@ -97,7 +97,7 @@ public:
 		SCOTCH_dgraphBuild(&dgraph, 0, graph.local_vertex_count(), graph.local_vertex_count(), adj_disp.data(), nullptr,
 				vertex_weights.empty() ? nullptr : vertex_weights.data(), nullptr, graph.local_edge_count(), graph.local_edge_count(), 
 				adj.data(), nullptr, edge_weights.empty() ? nullptr : edge_weights.data());
-		SCOTCH_stratDgraphMapBuild(&strategy, stratflag, process_count, part_count, imbalance - 1);
+		SCOTCH_stratDgraphMapBuild(&strategy, stratflag, process_count, part_count, target.imbalance());
 		SCOTCH_archCmpltw(&arch, part_count, weights.data());
 
 		SCOTCH_dgraphMap(&dgraph, &arch, &strategy, part.data());

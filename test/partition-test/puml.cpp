@@ -73,6 +73,24 @@ std::vector<nlohmann::json> argparse(int argc, char* argv[]) {
 	return settings;
 }
 
+template<typename T>
+T readsetting(const nlohmann::json& settings, const std::string& arg)
+{
+	if (settings.find(arg) != settings.end()) {
+		try {
+			return settings[arg];
+		}
+		catch (const std::exception& e) {
+			logError() << "Error while reading argument" << arg << " ... The error was" << e.what();
+			return T(); // TODO: unreachable hint
+		}
+	}
+	else {
+		logError() << "Argument" << arg << "not found in the settings list.";
+		return T(); // TODO: unreachable hint
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	int p;
@@ -111,10 +129,10 @@ int main(int argc, char* argv[])
 			break;
 		}
 
-		if (puml == nullptr || settings["meshfile"] != lastmesh) {
+		if (puml == nullptr || readsetting<std::string>(settings, "meshfile") != lastmesh) {
 			delete puml;
 			puml = new PUML::TETPUML();
-			std::string infile = settings["meshfile"];
+			std::string infile = readsetting<std::string>(settings, "meshfile");
 			logInfo(rank) << "Reading mesh" << infile;
 			puml->open((infile + ":/connect").c_str(), (infile + ":/geometry").c_str());
 
@@ -125,10 +143,10 @@ int main(int argc, char* argv[])
 			logInfo(rank) << "Generating mesh information";
 			puml->generateMesh();
 
-			lastmesh = settings["meshfile"];
+			lastmesh = readsetting<std::string>(settings, "meshfile");
 		}
 
-		std::string partitioner_name = settings["name"];
+		std::string partitioner_name = readsetting<std::string>(settings, "name");
 		auto partition_invoker = PUML::TETPartition::get_partitioner(partitioner_name);
 		if (partition_invoker == nullptr) {
 			logInfo(rank) << "Partitioner name not recognized. Aborting...";
@@ -140,9 +158,9 @@ int main(int argc, char* argv[])
 		std::vector<int> partition(puml->numOriginalCells());
 		PUML::TETPartitionGraph graph(*puml);
 
-		std::string vertexweightsetting = settings["vw"];
-		std::string edgeweightsetting = settings["ew"];
-		std::string nodeweightsetting = settings["nw"];
+		std::string vertexweightsetting = readsetting<std::string>(settings, "vw");
+		std::string edgeweightsetting = readsetting<std::string>(settings, "ew");
+		std::string nodeweightsetting = readsetting<std::string>(settings, "nw");
 
 		int * vertexweights = nullptr;
 		int * edgeweights = nullptr;
@@ -162,6 +180,12 @@ int main(int argc, char* argv[])
 			std::uniform_int_distribution<int> distribution(1,1000);
 			for (int i = 0; i < puml->numOriginalCells(); ++i) {
 				vertexweights[i] = distribution(gen);
+			}
+		}
+		else if (vertexweightsetting == "increasing") {
+			vertexweights = new int[puml->cells().size()];
+			for (int i = 0; i < puml->numOriginalCells(); ++i) {
+				vertexweights[i] = i + 1;
 			}
 		}
 		else {
@@ -187,13 +211,19 @@ int main(int argc, char* argv[])
 				edgeweights[i] = distribution(gen);
 			}
 		}
+		else if (edgeweightsetting == "increasing") {
+			edgeweights = new int[graph.local_edge_count()];
+			for (int i = 0; i < graph.local_edge_count(); ++i) {
+				edgeweights[i] = i + 1;
+			}
+		}
 		else {
 			logInfo(rank) << "Edge weight setting not recognized. Aborting...";
 			MPI_Finalize();
 			return 1;
 		}
 
-		int nparts = settings["nparts"];
+		int nparts = readsetting<int>(settings, "nparts");
 
 		if (nodeweightsetting == "none") {
 			// empty
@@ -230,8 +260,8 @@ int main(int argc, char* argv[])
 
 		graph.set_vertex_weights(vertexweights, 1);
 		graph.set_edge_weights(edgeweights);
-		double imbalance = settings["imbalance"];
-		int seed = settings["seed"];
+		double imbalance = readsetting<double>(settings, "imbalance");
+		int seed = readsetting<int>(settings, "seed");
 
 		PUML::PartitionTarget target;
 		target.set_imbalance(imbalance);
@@ -341,7 +371,7 @@ int main(int argc, char* argv[])
 			ec /= 2; ecw /= 2;
 			double mi = (double)ps / ((double)pss / (double)nparts);
 			double miw = (double)psw / ((double)psws / (double)nparts);
-			logInfo(rank) << ec << ecw << mi << miw << peakmem[0] << peakmem[1] << (endt - startt);
+			logDebug(rank) << "End stats:" << ec << ecw << mi << miw << peakmem[0] << peakmem[1] << (endt - startt);
 
 			nlohmann::json output;
 
@@ -369,12 +399,17 @@ int main(int argc, char* argv[])
 
 			output["rank_stats"] = rankdata;
 
-			std::string odir = settings["output"];
-			size_t hash = std::hash<nlohmann::json>()(output);
-			std::ofstream output_file(odir + "/" + std::to_string(hash) + ".json");
-			output_file << output;
-			if (settings_list.size() <= 4) {
+			std::string odir = readsetting<std::string>(settings, "output");
+			if (odir == "-") {
+				// use stdout
 				logInfo(rank) << "Results: " << output;
+			}
+			else {
+				size_t hash = std::hash<nlohmann::json>()(output);
+
+				// this is not ideal, but it avoids the dependency on std::filesystem
+				std::ofstream output_file(odir + "/" + std::to_string(hash) + ".json");
+				output_file << output;
 			}
 		}
 

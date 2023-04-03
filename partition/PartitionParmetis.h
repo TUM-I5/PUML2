@@ -18,6 +18,7 @@
 #include <mpi.h>
 #endif // USE_MPI
 
+#include <metis.h>
 #include <parmetis.h>
 
 #include <cassert>
@@ -52,7 +53,7 @@ public:
 		if (ncon == 0) ncon = 1;
 		idx_t nparts = target.vertex_count();
 		std::vector<real_t> tpwgts(nparts * ncon, static_cast<real_t>(1.) / nparts);
-		if (target.has_vertex_weights()) {
+		if (!target.vertex_weight_uniform()) {
 			for (idx_t i = 0; i < target.vertex_count(); i++) {
 				for (idx_t j = 0; j < ncon; ++j) {
 					tpwgts[i*ncon + j] = target.vertex_weights()[i];
@@ -65,7 +66,7 @@ public:
 		idx_t wgtflag = 0;
 		if (!vwgt.empty()) wgtflag |= 2;
 		if (!adjwgt.empty()) wgtflag |= 1;
-		std::vector<real_t> ubvec(ncon, imbalance);
+		std::vector<real_t> ubvec(ncon, target.imbalance() + 1.0);
 
 		idx_t edgecut;
 		std::vector<idx_t> part(cell_count);

@@ -50,7 +50,7 @@ public:
 		std::vector<kaminpar::GlobalEdgeWeight> adjwgt(graph.edge_weights().begin(), graph.edge_weights().end());
 		auto cell_count = graph.local_vertex_count();
 
-		if (target.has_vertex_weights()) {
+		if (target.vertex_weight_uniform()) {
 			logWarning() << "Node weights (target vertex weights) are currently ignored by dKaMinPar.";
 		}
 		if (graph.vertex_weights().size() > graph.local_vertex_count()) {

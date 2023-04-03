@@ -50,24 +50,24 @@ public:
         m_imbalance = imbalance;
     }
 
-    const std::vector<double>& vertex_weights() {
+    const std::vector<double>& vertex_weights() const {
         return m_vertex_weights;
     }
 
-    bool vertex_weight_uniform() {
+    bool vertex_weight_uniform() const {
         return m_vertex_weights.empty();
     }
 
-    bool edge_weight_uniform() {
+    bool edge_weight_uniform() const {
         // TODO: implement non-uniform
         return true;
     }
 
-    double imbalance() {
+    double imbalance() const {
         return m_imbalance;
     }
 
-    std::size_t vertex_count() {
+    std::size_t vertex_count() const {
         return m_vertex_count;
     }
 
