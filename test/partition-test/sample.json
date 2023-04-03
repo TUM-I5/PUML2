@@ -1,0 +1,32 @@
+[
+    {
+        "name": "parmetis",
+        "nparts": 2,
+        "meshfile": "../../base-test/test_data/mesh.h5",
+        "vw": "none",
+        "ew": "none",
+        "nw": "none",
+        "imbalance": 0.005,
+        "seed": 1
+    },
+    {
+        "name": "parhip-fast",
+        "nparts": 2,
+        "meshfile": "../../base-test/test_data/mesh.h5",
+        "vw": "none",
+        "ew": "none",
+        "nw": "none",
+        "imbalance": 0.005,
+        "seed": 1
+    },
+    {
+        "name": "ptscotch",
+        "nparts": 2,
+        "meshfile": "../../base-test/test_data/mesh.h5",
+        "vw": "none",
+        "ew": "none",
+        "nw": "none",
+        "imbalance": 0.005,
+        "seed": 1
+    }
+]
