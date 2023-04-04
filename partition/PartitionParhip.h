@@ -38,6 +38,9 @@ public:
 #ifdef USE_MPI
 	virtual void partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
+		int rank;
+		MPI_Comm_rank(graph.comm(), &rank);
+
 		std::vector<idxtype> vtxdist(graph.vertex_distribution().begin(), graph.vertex_distribution().end());
 		std::vector<idxtype> xadj(graph.adj_disp().begin(), graph.adj_disp().end());
 		std::vector<idxtype> adjncy(graph.adj().begin(), graph.adj().end());
@@ -46,10 +49,10 @@ public:
 		auto cell_count = graph.local_vertex_count();
 
 		if (!target.vertex_weight_uniform()) {
-			logWarning() << "Node weights (target vertex weights) are currently ignored by ParHIP.";
+			logWarning(rank) << "Node weights (target vertex weights) are currently ignored by ParHIP.";
 		}
 		if (graph.vertex_weights().size() > graph.local_vertex_count()) {
-			logWarning() << "Multiple vertex weights are currently ignored by ParHIP.";
+			logWarning(rank) << "Multiple vertex weights are currently ignored by ParHIP.";
 		}
 
 		int edgecut;

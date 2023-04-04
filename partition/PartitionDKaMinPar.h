@@ -41,13 +41,11 @@ public:
 #ifdef USE_MPI
 	virtual void partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
-		kaminpar::dKaMinPar dist(MPI_Comm comm, int num_threads, dist::create_default_context());
-
-		std::vector<kaminpar::GlobalNodeID> vtxdist(graph.vertex_distribution().begin(), graph.vertex_distribution().end());
-		std::vector<kaminpar::GlobalEdgeID> xadj(graph.adj_disp().begin(), graph.adj_disp().end());
-		std::vector<kaminpar::GlobalNodeID> adjncy(graph.adj().begin(), graph.adj().end());
-		std::vector<kaminpar::GlobalNodeWeight> vwgt(graph.vertex_weights().begin(), graph.vertex_weights().end());
-		std::vector<kaminpar::GlobalEdgeWeight> adjwgt(graph.edge_weights().begin(), graph.edge_weights().end());
+		std::vector<kaminpar::dist::GlobalNodeID> vtxdist(graph.vertex_distribution().begin(), graph.vertex_distribution().end());
+		std::vector<kaminpar::dist::GlobalEdgeID> xadj(graph.adj_disp().begin(), graph.adj_disp().end());
+		std::vector<kaminpar::dist::GlobalNodeID> adjncy(graph.adj().begin(), graph.adj().end());
+		std::vector<kaminpar::dist::GlobalNodeWeight> vwgt(graph.vertex_weights().begin(), graph.vertex_weights().end());
+		std::vector<kaminpar::dist::GlobalEdgeWeight> adjwgt(graph.edge_weights().begin(), graph.edge_weights().end());
 		auto cell_count = graph.local_vertex_count();
 
 		if (target.vertex_weight_uniform()) {
@@ -57,16 +55,16 @@ public:
 			logWarning() << "Multiple vertex weights are currently ignored by dKaMinPar.";
 		}
 
-		kaminpar::BlockID nparts = target.vertex_count();
-		std::vector<kaminpar::BlockID> part(cell_count);
+		kaminpar::dist::BlockID nparts = target.vertex_count();
+		std::vector<kaminpar::dist::BlockID> part(cell_count);
 
+		// take OMP number of threads for now
 #ifdef USE_OPENMP
 		unsigned num_threads = omp_get_num_threads();
 #else
 		unsigned num_threads = 1;
 #endif
 
-		// take OMP number of threads for now
 		kaminpar::dKaMinPar dist(graph.comm(), num_threads, kaminpar::dist::create_default_context());
 		dist.import_graph(vtxdist.data(), xadj.data(), adjncy.data(), vwgt.empty() ? nullptr : vwgt.data(), adjwgt.empty() ? nullptr : adjwgt.data());
 		dist.compute_partition(seed, nparts, part.data());

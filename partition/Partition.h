@@ -88,13 +88,13 @@ static std::unique_ptr<PartitionBase<Topo>> get_partitioner(const std::string& n
 	else if (name == "parhip-eco") {
 		partition = new PartitionParhip<Topo>(ECOMESH);
 	}
-	else if (name == "parhip-ultrafast") {
+	else if (name == "parhip-ultrafastsocial") {
 		partition = new PartitionParhip<Topo>(ULTRAFASTSOCIAL);
 	}
-	else if (name == "parhip-fast") {
+	else if (name == "parhip-fastsocial") {
 		partition = new PartitionParhip<Topo>(FASTSOCIAL);
 	}
-	else if (name == "parhip-eco") {
+	else if (name == "parhip-ecosocial") {
 		partition = new PartitionParhip<Topo>(ECOSOCIAL);
 	}
 #endif

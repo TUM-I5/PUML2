@@ -41,7 +41,15 @@ public:
 #ifdef USE_MPI
 	virtual void partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
-		assert(graph.vertex_weights().size() <= graph.local_vertex_count());
+		int rank;
+		MPI_Comm_rank(graph.comm(), &rank);
+
+		if (graph.vertex_weights().size() > graph.local_vertex_count()) {
+			logWarning(rank) << "Multiple vertex weights are currently ignored by PTSCOTCH.";
+		}
+		if (!graph.edge_weights().empty()) {
+			logWarning(rank) << "The existence of edge weights may make PTSCOTCH very slow.";
+		}
 
 		auto comm = graph.comm();
 
@@ -55,20 +63,10 @@ public:
 
 		std::vector<SCOTCH_Num> weights(nparts, 1);
 		if (!target.vertex_weight_uniform()) {
-			double maxv = 2;
-			double minv = -1;
-
+			double scale = (double)(1ULL<<24); // if this is not enough (or too much), adjust it
 			for (int i = 0; i < nparts; ++i) {
-				maxv = std::max(maxv, target.vertex_weights()[i]);
-				minv = std::min(minv, target.vertex_weights()[i]);
-			}
-
-			double f = maxv / minv;
-			f = std::min((double)(1ULL<<20), f); // prevents overflow. Adjust for more accuracy
-
-			double scale = f / maxv;
-			for (int i = 0; i < nparts; ++i) {
-				weights[i] = static_cast<SCOTCH_Num>(std::round(target.vertex_weights()[i] * scale));
+				// important: the weights should be non-negative
+				weights[i] = std::max(static_cast<SCOTCH_Num>(1), static_cast<SCOTCH_Num>(std::round(target.vertex_weights()[i] * scale)));
 			}
 		}
 
@@ -82,9 +80,6 @@ public:
 		SCOTCH_Num process_count = graph.process_count();
 		SCOTCH_Num part_count = nparts;
 		SCOTCH_Num stratflag = mode;
-
-		int rank;
-		MPI_Comm_rank(comm, &rank);
 
 		SCOTCH_randomProc(rank);
 		SCOTCH_randomSeed(seed);
