@@ -219,7 +219,7 @@ list(APPEND PTSCOTCH_libs_to_find "scotch;scotcherr")
 # call cmake macro to find the lib path
 if(PTSCOTCH_LIBDIR)
   foreach(ptscotch_lib ${PTSCOTCH_libs_to_find})
-    set(PTSCOTCH_${ptscotch_lib}_LIBRARY "PTSCOTCH_${ptscotch_lib}_LIBRARY-NOTFOUND")
+    # set(PTSCOTCH_${ptscotch_lib}_LIBRARY "PTSCOTCH_${ptscotch_lib}_LIBRARY-NOTFOUND")
     find_library(PTSCOTCH_${ptscotch_lib}_LIBRARY
       NAMES ${ptscotch_lib}
       HINTS ${PTSCOTCH_LIBDIR})
@@ -227,7 +227,7 @@ if(PTSCOTCH_LIBDIR)
 else()
   if(PTSCOTCH_DIR)
     foreach(ptscotch_lib ${PTSCOTCH_libs_to_find})
-      set(PTSCOTCH_${ptscotch_lib}_LIBRARY "PTSCOTCH_${ptscotch_lib}_LIBRARY-NOTFOUND")
+      # set(PTSCOTCH_${ptscotch_lib}_LIBRARY "PTSCOTCH_${ptscotch_lib}_LIBRARY-NOTFOUND")
       find_library(PTSCOTCH_${ptscotch_lib}_LIBRARY
         NAMES ${ptscotch_lib}
         HINTS ${PTSCOTCH_DIR}
@@ -235,7 +235,7 @@ else()
     endforeach()
   else()
     foreach(ptscotch_lib ${PTSCOTCH_libs_to_find})
-      set(PTSCOTCH_${ptscotch_lib}_LIBRARY "PTSCOTCH_${ptscotch_lib}_LIBRARY-NOTFOUND")
+      # set(PTSCOTCH_${ptscotch_lib}_LIBRARY "PTSCOTCH_${ptscotch_lib}_LIBRARY-NOTFOUND")
       find_library(PTSCOTCH_${ptscotch_lib}_LIBRARY
         NAMES ${ptscotch_lib}
         HINTS ${_lib_env})
@@ -245,6 +245,7 @@ endif()
 
 set(PTSCOTCH_LIBRARIES "")
 set(PTSCOTCH_LIBRARY_DIRS "")
+
 # If found, add path to cmake variable
 # ------------------------------------
 foreach(ptscotch_lib ${PTSCOTCH_libs_to_find})
