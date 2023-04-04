@@ -1,0 +1,22 @@
+[
+    {
+        "vw": "none",
+        "ew": "none",
+        "nw": "none"
+    },
+    {
+        "vw": "random",
+        "ew": "none",
+        "nw": "none"
+    },
+    {
+        "vw": "random",
+        "ew": "random",
+        "nw": "none"
+    },
+    {
+        "vw": "random",
+        "ew": "random",
+        "nw": "random"
+    }
+]

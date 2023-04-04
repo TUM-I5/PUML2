@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/../cmake" ${CMAKE_MODULE_PATH})
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/../../cmake" ${CMAKE_MODULE_PATH})
 
 find_package(MPI REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -33,7 +33,7 @@ target_link_libraries(tests
         ${PTSCOTCH_LIBRARIES}
         nlohmann_json::nlohmann_json)
 
-target_compile_definitions(tests PRIVATE USE_MPI REAL_SIZE=8)
+target_compile_definitions(tests PRIVATE USE_MPI REAL_SIZE=8 USE_PARMETIS USE_PARHIP USE_PTSCOTCH)
 
 enable_testing()
 add_test(NAME tests COMMAND tests)

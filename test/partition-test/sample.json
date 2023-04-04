@@ -1,32 +1,29 @@
 [
     {
-        "name": "parmetis",
-        "nparts": 2,
-        "meshfile": "../../base-test/test_data/mesh.h5",
-        "vw": "none",
-        "ew": "none",
-        "nw": "none",
-        "imbalance": 0.005,
-        "seed": 1
+        "name": "parmetis"
     },
     {
-        "name": "parhip-fast",
-        "nparts": 2,
-        "meshfile": "../../base-test/test_data/mesh.h5",
-        "vw": "none",
-        "ew": "none",
-        "nw": "none",
-        "imbalance": 0.005,
-        "seed": 1
+        "name": "parhip-fast"
+    },
+    {
+        "name": "parhip-ultrafast"
+    },
+    {
+        "name": "parhip-fastsocial"
+    },
+    {
+        "name": "parhip-ultrafastsocial"
     },
     {
         "name": "ptscotch",
-        "nparts": 2,
-        "meshfile": "../../base-test/test_data/mesh.h5",
-        "vw": "none",
-        "ew": "none",
-        "nw": "none",
-        "imbalance": 0.005,
-        "seed": 1
+        "ew": "none"
+    },
+    {
+        "name": "ptscotch-b",
+        "ew": "none"
+    },
+    {
+        "name": "ptscotch-s",
+        "ew": "none"
     }
 ]

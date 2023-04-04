@@ -45,7 +45,24 @@ std::vector<nlohmann::json> argparse(int argc, char* argv[]) {
 			size_t idx = carg.find('=');
 			std::string name = carg.substr(0, idx);
 			std::string val = carg.substr(idx + 1);
-			js[name] = val;
+
+			// a quick&dirty argument type evaluator (it should actually use some trimming as well, but that's TODO, in case it should ever be needed)
+			if ((*val.begin()) == '\"' && (*val.rbegin()) == '\"') {
+				// string
+				js[name] = val.substr(1, val.size() - 2);
+			}
+			else if (val == "true") {
+				// true bool
+				js[name] = true;
+			}
+			else if (val == "false") {
+				// false bool
+				js[name] = false;
+			}
+			else {
+				// number (represented by a double)
+				js[name] = std::stod(val);
+			}
 		}
 		else {
 			std::ifstream settings_file(carg);
@@ -105,7 +122,8 @@ int main(int argc, char* argv[])
 		logWarning(rank) << "No settings given. They can be set as command line arguments. "
 		    "An argument can have two forms, either a key-value pair in the form \"key=value\" (note the '=', and no spaces around it), "
 			"or it can be a file name which contains a JSON file (note in particular: you may mix files and key-value pairs, and you may supply multiple files). "
-			"Later arguments override earlier arguments.";
+			"Later arguments override earlier arguments. If a file contains an array of configurations, each configuration is tested."
+			"Any following argument is then applied to all configurations. If again an array of configurations is given, the cross product between the two arrays is used.";
 	}
 
 	auto settings_list = argparse(argc, argv);
@@ -289,6 +307,8 @@ int main(int argc, char* argv[])
 		std::vector<int> partition_size(nparts*4);
 		std::vector<int> partition_size_local(nparts*4);
 		for (int i = 0; i < puml->cells().size(); ++i) {
+			assert(partition[i] >= 0);
+			assert(partition[i] < nparts);
 			++partition_size_local[partition[i]];
 		}
 		if (vertexweights == nullptr) {
@@ -402,7 +422,7 @@ int main(int argc, char* argv[])
 			std::string odir = readsetting<std::string>(settings, "output");
 			if (odir == "-") {
 				// use stdout
-				logInfo(rank) << "Results: " << output;
+				logInfo(rank) << "Results: " << output.dump(4);
 			}
 			else {
 				size_t hash = std::hash<nlohmann::json>()(output);
