@@ -45,12 +45,12 @@ public:
 		return part;
 	}
 
-	void partition(std::vector<int>& partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
+	void partition(std::vector<int>& part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
-		partition(partition.data(), graph, target, seed);
+		partition(part.data(), graph, target, seed);
 	}
 
-	virtual void partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
+	virtual void partition(int* part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
 
 #endif // USE_MPI
 };

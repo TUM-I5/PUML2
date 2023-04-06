@@ -22,6 +22,7 @@
 #include "Topology.h"
 #include "PUML.h"
 #include "FaceIterator.h"
+#include "Downward.h"
 
 #include "utils/logger.h"
 

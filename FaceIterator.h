@@ -96,14 +96,14 @@ using Tupletype = std::tuple<X...>; // this typedef is needed, because a comma c
 static MPI_Datatype cache;
 
 template<size_t Idx, typename... Y>
-void fill(size_t offset, int* array_of_block_lengths, MPI_Aint* array_of_displacements, MPI_Datatype* array_of_types);
+static void fill(size_t offset, int* array_of_block_lengths, MPI_Aint* array_of_displacements, MPI_Datatype* array_of_types);
 
 template<size_t Idx>
-void fill(size_t offset, int* array_of_block_lengths, MPI_Aint* array_of_displacements, MPI_Datatype* array_of_types) {
+static void fill(size_t offset, int* array_of_block_lengths, MPI_Aint* array_of_displacements, MPI_Datatype* array_of_types) {
 }
 
 template<size_t Idx, typename Y, typename... Z>
-void fill(size_t offset, int* array_of_block_lengths, MPI_Aint* array_of_displacements, MPI_Datatype* array_of_types) {
+static void fill(size_t offset, int* array_of_block_lengths, MPI_Aint* array_of_displacements, MPI_Datatype* array_of_types) {
     // https://stackoverflow.com/questions/55071632/determine-member-offset-of-struct-or-tuple-in-template
     array_of_block_lengths[Idx] = 1;
     array_of_displacements[Idx] = offset;
