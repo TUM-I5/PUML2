@@ -16,9 +16,6 @@
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
-#ifdef USE_OPENMP
-#include <omp.h>
-#endif
 
 #include <algorithm>
 #include <vector>
