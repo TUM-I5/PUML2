@@ -43,7 +43,7 @@ public:
 
 	}
 #ifdef USE_MPI
-	virtual void partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
+	virtual PartitioningResult partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
 		int rank;
 		MPI_Comm_rank(graph.comm(), &rank);
@@ -108,6 +108,8 @@ public:
 		for (int i = 0; i < cell_count; i++) {
 			partition[i] = part[i];
 		}
+
+		return PartitioningResult::SUCCESS;
 	}
 #endif // USE_MPI
 

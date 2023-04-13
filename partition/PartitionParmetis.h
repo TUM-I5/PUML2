@@ -43,7 +43,7 @@ public:
 
 	}
 #ifdef USE_MPI
-	virtual void partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
+	virtual PartitioningResult partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
 		auto comm = graph.comm();
 		std::vector<idx_t> vtxdist(graph.vertex_distribution().begin(), graph.vertex_distribution().end());
@@ -91,6 +91,8 @@ public:
 		for (int i = 0; i < cell_count; i++) {
 			partition[i] = part[i];
 		}
+
+		return PartitioningResult::SUCCESS;
 	}
 #endif // USE_MPI
 
