@@ -155,7 +155,7 @@ public:
             const auto& cell = m_puml.cells()[i];
             unsigned int lid[internal::Topology<Topo>::cellvertices()];
             Downward::vertices(m_puml, cell, lid);
-            OutputType x = 0, y = 0, z = 0;
+            OutputType x = 0.0, y = 0.0, z = 0.0;
             for (unsigned long j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
                 auto vertex = m_puml.vertices()[lid[j]];
                 x += vertex.coordinate()[0];
@@ -170,85 +170,6 @@ public:
             coord[i * 3 + 2] = z;
         }
     }
-
-    // this here is cancelled code for re-distributing 
-/*
-    void gather(int target) {
-#ifdef USE_MPI
-        int rank, size;
-        MPI_Comm_rank(comm, &rank);
-        MPI_Comm_size(comm, &size);
-        
-        std::vector<unsigned long> adj;
-        std::vector<unsigned long> adj_disp;
-        if (rank == target || target == -1) {
-            adj.resize(m_edge_distribution[size]);
-            adj_disp.resize(m_vertex_distribution[size]+1);
-        }
-        std::vector<int> vcnt(size);
-        std::vector<int> vdisp(size);
-        std::vector<int> ecnt(size);
-        std::vector<int> edisp(size);
-        for (int i = 0; i < size; ++i) {
-            vdisp[i] = m_vertex_distribution[i];
-            vcnt[i] = m_vertex_distribution[i+1]-m_vertex_distribution[i];
-            edisp[i] = m_edge_distribution[i];
-            ecnt[i] = m_edge_distribution[i+1]-m_edge_distribution[i];
-        }
-        if (target == -1) {
-            MPI_Allgatherv(m_adj.data(), m_adj.size(), MPI_UNSIGNED_LONG, adj.data(), ecnt.data(), edisp.data(), MPI_UNSIGNED_LONG, target, m_comm);
-            MPI_Allgatherv(m_adj_disp.data(), m_adj_disp.size(), MPI_UNSIGNED_LONG, adj_disp.data(), vcnt.data(), vdisp.data(), MPI_UNSIGNED_LONG, target, m_comm);
-        } else {
-            MPI_Gatherv(m_adj.data(), m_adj.size(), MPI_UNSIGNED_LONG, adj.data(), ecnt.data(), edisp.data(), MPI_UNSIGNED_LONG, target, m_comm);
-            MPI_Gatherv(m_adj_disp.data(), m_adj_disp.size(), MPI_UNSIGNED_LONG, adj_disp.data(), vcnt.data(), vdisp.data(), MPI_UNSIGNED_LONG, target, m_comm);
-        }
-
-        size_t local_disp = 0;
-        for (size_t i = 0; i < size; ++i) {
-            for (size_t j = m_vertex_distribution[i]; j < m_vertex_distribution[i+1]; ++j) {
-                m_adj_disp[j] += local_disp;
-            }
-            local_disp = m_edge_distribution[i];
-        }
-
-        m_adj = adj;
-        m_adj_disp = adj_disp;
-#endif
-    }
-
-    void scatter(int source) {
-#ifdef USE_MPI
-        const auto& comm = m_comm;
-        int rank, size;
-        MPI_Comm_rank(comm, &rank);
-        MPI_Comm_size(comm, &size);
-
-        std::vector<unsigned long> adj;
-        std::vector<unsigned long> adj_disp;
-
-        std::vector<int> vcnt(size);
-        std::vector<int> vdisp(size);
-        std::vector<int> ecnt(size);
-        std::vector<int> edisp(size);
-        for (int i = 0; i < size; ++i) {
-            vdisp[i] = m_vertex_distribution[i];
-            vcnt[i] = m_vertex_distribution[i+1]-m_vertex_distribution[i];
-            edisp[i] = m_edge_distribution[i];
-            ecnt[i] = m_edge_distribution[i+1]-m_edge_distribution[i];
-        }
-
-        MPI_Scatterv(m_adj.data(), ecnt.data(), edisp.data(), MPI_UNSIGNED_LONG, adj.data(), adj.size(), MPI_UNSIGNED_LONG, source, m_comm);
-        MPI_Scatterv(m_adj_disp.data(), vcnt.data(), vdisp.data(), MPI_UNSIGNED_LONG, adj_disp.data(), adj_disp.size(), MPI_UNSIGNED_LONG, source, m_comm);
-
-        for (size_t i = 0; i < local_vertex_count(); ++i) {
-            adj_disp[i] -= m_edge_distribution[rank];
-        }
-
-        m_adj = adj;
-        m_adj_disp = adj_disp;
-#endif
-    }
-*/
 
     template<typename T>
     void set_vertex_weights(const std::vector<T>& vertex_weights, int vertex_weight_count) {

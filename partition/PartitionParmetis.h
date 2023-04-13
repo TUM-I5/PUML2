@@ -18,6 +18,10 @@
 #include <mpi.h>
 #endif // USE_MPI
 
+#ifndef USE_PARMETIS
+#warning ParMETIS is not enabled.
+#endif
+
 #include <metis.h>
 #include <parmetis.h>
 

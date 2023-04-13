@@ -17,6 +17,10 @@
 #include <mpi.h>
 #endif // USE_MPI
 
+#ifndef USE_PTSCOTCH
+#warning PTSCOTCH is not enabled.
+#endif
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>

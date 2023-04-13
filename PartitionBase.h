@@ -27,8 +27,9 @@
 namespace PUML
 {
 
-struct PartitionParameters{
-	
+enum class PartitioningResult {
+	SUCCESS = 0,
+	ERROR
 };
 
 template<TopoType Topo>
@@ -41,16 +42,19 @@ public:
 	std::vector<int> partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
 		std::vector<int> part(graph.local_vertex_count());
-		partition(part, graph, target, seed);
+		auto result = partition(part, graph, target, seed);
+		if (result != PartitioningResult::SUCCESS) {
+			throw std::exception("Partitioning failed.");
+		}
 		return part;
 	}
 
-	void partition(std::vector<int>& partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
+	PartitioningResult partition(std::vector<int>& partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
 		partition(partition.data(), graph, target, seed);
 	}
 
-	virtual void partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
+	virtual PartitioningResult partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
 
 #endif // USE_MPI
 };

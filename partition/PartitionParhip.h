@@ -17,6 +17,10 @@
 #include <mpi.h>
 #endif // USE_MPI
 
+#ifndef USE_PARHIP
+#warning ParHIP is not enabled.
+#endif
+
 #include "utils/logger.h"
 
 #include "PartitionBase.h"
