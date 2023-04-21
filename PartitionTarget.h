@@ -31,34 +31,34 @@ class PartitionTarget {
 public:
     PartitionTarget() {}
 
-    void set_vertex_weights_uniform(std::size_t vertex_count) {
-        m_vertex_count = vertex_count;
-        m_vertex_weights.clear();
+    void setVertexWeightsUniform(std::size_t vertexCount) {
+        m_vertexCount = vertexCount;
+        m_vertexWeights.clear();
     }
 
-    void set_vertex_weights(const std::vector<double>& vertex_weights) {
-        m_vertex_weights = vertex_weights;
-        m_vertex_count = vertex_weights.size();
+    void setVertexWeights(const std::vector<double>& vertexWeights) {
+        m_vertexWeights = vertexWeights;
+        m_vertexCount = vertexWeights.size();
     }
 
-    void set_vertex_weights(std::size_t vertex_count, double* vertex_weights) {
-        m_vertex_count = vertex_count;
-        m_vertex_weights = std::vector<double>(vertex_weights, vertex_weights + vertex_count);
+    void setVertexWeights(std::size_t vertexCount, double* vertexWeights) {
+        m_vertexCount = vertexCount;
+        m_vertexWeights = std::vector<double>(vertexWeights, vertexWeights + vertexCount);
     }
 
-    void set_imbalance(double imbalance) {
+    void setImbalance(double imbalance) {
         m_imbalance = imbalance;
     }
 
-    const std::vector<double>& vertex_weights() const {
-        return m_vertex_weights;
+    const std::vector<double>& vertexWeights() const {
+        return m_vertexWeights;
     }
 
-    bool vertex_weight_uniform() const {
-        return m_vertex_weights.empty();
+    bool vertexWeightsUniform() const {
+        return m_vertexWeights.empty();
     }
 
-    bool edge_weight_uniform() const {
+    bool edgeWeightsUniform() const {
         // TODO: implement non-uniform
         return true;
     }
@@ -67,13 +67,13 @@ public:
         return m_imbalance;
     }
 
-    std::size_t vertex_count() const {
-        return m_vertex_count;
+    std::size_t vertexCount() const {
+        return m_vertexCount;
     }
 
 private:
-    std::vector<double> m_vertex_weights;
-    std::size_t m_vertex_count;
+    std::vector<double> m_vertexWeights;
+    std::size_t m_vertexCount;
     double m_imbalance;
 };
 

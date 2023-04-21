@@ -41,7 +41,7 @@ public:
 #ifdef USE_MPI
 	std::vector<int> partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
-		std::vector<int> part(graph.local_vertex_count());
+		std::vector<int> part(graph.localVertexCount());
 		auto result = partition(part, graph, target, seed);
 		if (result != PartitioningResult::SUCCESS) {
 			throw std::exception("Partitioning failed.");
@@ -51,7 +51,7 @@ public:
 
 	PartitioningResult partition(std::vector<int>& partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
-		partition(partition.data(), graph, target, seed);
+		return partition(partition.data(), graph, target, seed);
 	}
 
 	virtual PartitioningResult partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;

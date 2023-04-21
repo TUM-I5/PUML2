@@ -46,21 +46,21 @@ public:
 	virtual PartitioningResult partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
 		auto comm = graph.comm();
-		std::vector<idx_t> vtxdist(graph.vertex_distribution().begin(), graph.vertex_distribution().end());
-		std::vector<idx_t> xadj(graph.adj_disp().begin(), graph.adj_disp().end());
+		std::vector<idx_t> vtxdist(graph.vertexDistribution().begin(), graph.vertexDistribution().end());
+		std::vector<idx_t> xadj(graph.adjDisp().begin(), graph.adjDisp().end());
 		std::vector<idx_t> adjncy(graph.adj().begin(), graph.adj().end());
-		std::vector<idx_t> vwgt(graph.vertex_weights().begin(), graph.vertex_weights().end());
-		std::vector<idx_t> adjwgt(graph.edge_weights().begin(), graph.edge_weights().end());
-		auto cell_count = graph.local_vertex_count();
+		std::vector<idx_t> vwgt(graph.vertexWeights().begin(), graph.vertexWeights().end());
+		std::vector<idx_t> adjwgt(graph.edgeWeights().begin(), graph.edgeWeights().end());
+		auto cell_count = graph.localVertexCount();
 
-		idx_t ncon = graph.vertex_weight_count();
+		idx_t ncon = graph.vertexWeightCount();
 		if (ncon == 0) ncon = 1;
-		idx_t nparts = target.vertex_count();
+		idx_t nparts = target.vertexCount();
 		std::vector<real_t> tpwgts(nparts * ncon, static_cast<real_t>(1.) / nparts);
-		if (!target.vertex_weight_uniform()) {
-			for (idx_t i = 0; i < target.vertex_count(); i++) {
+		if (!target.vertexWeightsUniform()) {
+			for (idx_t i = 0; i < target.vertexCount(); i++) {
 				for (idx_t j = 0; j < ncon; ++j) {
-					tpwgts[i*ncon + j] = target.vertex_weights()[i];
+					tpwgts[i*ncon + j] = target.vertexWeights()[i];
 				}
 			}
 		}
@@ -81,7 +81,7 @@ public:
 		else if (mode == 1) {
 			idx_t ndims = 3;
 			std::vector<real_t> xyz;
-			graph.geometric_coordinates(xyz);
+			graph.geometricCoordinates(xyz);
 			ParMETIS_V3_PartGeomKway(vtxdist.data(), xadj.data(), adjncy.data(), vwgt.empty() ? nullptr : vwgt.data(), adjwgt.empty() ? nullptr : adjwgt.data(), &wgtflag, &numflag, &ndims, xyz.data(), &ncon, &nparts, tpwgts.data(), ubvec.data(), options, &edgecut, part.data(), &comm);
 		}
 		else {

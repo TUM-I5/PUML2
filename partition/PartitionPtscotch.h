@@ -48,41 +48,41 @@ public:
 		int rank;
 		MPI_Comm_rank(graph.comm(), &rank);
 
-		if (graph.vertex_weights().size() > graph.local_vertex_count()) {
+		if (graph.vertexWeights().size() > graph.localVertexCount()) {
 			logWarning(rank) << "Multiple vertex weights are currently ignored by PTSCOTCH.";
 		}
-		if (!graph.edge_weights().empty()) {
+		if (!graph.edgeWeights().empty()) {
 			logWarning(rank) << "The existence of edge weights may make PTSCOTCH very slow.";
 		}
 
 		auto comm = graph.comm();
 
-		std::vector<SCOTCH_Num> adj_disp(graph.adj_disp().begin(), graph.adj_disp().end());
+		std::vector<SCOTCH_Num> adjDisp(graph.adjDisp().begin(), graph.adjDisp().end());
 		std::vector<SCOTCH_Num> adj(graph.adj().begin(), graph.adj().end());
-		std::vector<SCOTCH_Num> vertex_weights(graph.vertex_weights().begin(), graph.vertex_weights().end());
-		std::vector<SCOTCH_Num> edge_weights(graph.edge_weights().begin(), graph.edge_weights().end());
-		auto cell_count = graph.local_vertex_count();
+		std::vector<SCOTCH_Num> vertexWeights(graph.vertexWeights().begin(), graph.vertexWeights().end());
+		std::vector<SCOTCH_Num> edgeWeights(graph.edgeWeights().begin(), graph.edgeWeights().end());
+		auto cellCount = graph.localVertexCount();
 
-		auto nparts = target.vertex_count();
+		auto nparts = target.vertexCount();
 
 		std::vector<SCOTCH_Num> weights(nparts, 1);
-		if (!target.vertex_weight_uniform()) {
+		if (!target.vertexWeightsUniform()) {
 			double scale = (double)(1ULL<<24); // if this is not enough (or too much), adjust it
 			for (int i = 0; i < nparts; ++i) {
 				// important: the weights should be non-negative
-				weights[i] = std::max(static_cast<SCOTCH_Num>(1), static_cast<SCOTCH_Num>(std::round(target.vertex_weights()[i] * scale)));
+				weights[i] = std::max(static_cast<SCOTCH_Num>(1), static_cast<SCOTCH_Num>(std::round(target.vertexWeights()[i] * scale)));
 			}
 		}
 
 		int edgecut;
-		std::vector<SCOTCH_Num> part(cell_count);
+		std::vector<SCOTCH_Num> part(cellCount);
 
 		SCOTCH_Dgraph dgraph;
 		SCOTCH_Strat strategy;
 		SCOTCH_Arch arch;
 
-		SCOTCH_Num process_count = graph.process_count();
-		SCOTCH_Num part_count = nparts;
+		SCOTCH_Num processCount = graph.processCount();
+		SCOTCH_Num partCount = nparts;
 		SCOTCH_Num stratflag = mode;
 
 		SCOTCH_randomProc(rank);
@@ -93,11 +93,11 @@ public:
 		SCOTCH_stratInit(&strategy);
 		SCOTCH_archInit(&arch);
 
-		SCOTCH_dgraphBuild(&dgraph, 0, graph.local_vertex_count(), graph.local_vertex_count(), adj_disp.data(), nullptr,
-				vertex_weights.empty() ? nullptr : vertex_weights.data(), nullptr, graph.local_edge_count(), graph.local_edge_count(), 
-				adj.data(), nullptr, edge_weights.empty() ? nullptr : edge_weights.data());
-		SCOTCH_stratDgraphMapBuild(&strategy, stratflag, process_count, part_count, target.imbalance());
-		SCOTCH_archCmpltw(&arch, part_count, weights.data());
+		SCOTCH_dgraphBuild(&dgraph, 0, graph.localVertexCount(), graph.localVertexCount(), adjDisp.data(), nullptr,
+				vertexWeights.empty() ? nullptr : vertexWeights.data(), nullptr, graph.localEdgeCount(), graph.localEdgeCount(), 
+				adj.data(), nullptr, edgeWeights.empty() ? nullptr : edgeWeights.data());
+		SCOTCH_stratDgraphMapBuild(&strategy, stratflag, processCount, partCount, target.imbalance());
+		SCOTCH_archCmpltw(&arch, partCount, weights.data());
 
 		SCOTCH_dgraphMap(&dgraph, &arch, &strategy, part.data());
 		
@@ -105,7 +105,7 @@ public:
 		SCOTCH_stratExit(&strategy);
 		SCOTCH_dgraphExit(&dgraph);
 
-		for (int i = 0; i < cell_count; i++) {
+		for (int i = 0; i < cellCount; i++) {
 			partition[i] = part[i];
 		}
 

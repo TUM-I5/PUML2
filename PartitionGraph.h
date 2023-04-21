@@ -33,124 +33,125 @@ class PartitionGraph
 {
 public:
     PartitionGraph(const PUML<Topo>& puml) : m_puml(puml) {
-        int comm_size = 1;
+        int commSize = 1;
 #ifdef USE_MPI
         m_comm = m_puml.comm();
-        MPI_Comm_size(m_comm, &comm_size);
-        m_process_count = comm_size;
+        MPI_Comm_size(m_comm, &commSize);
+        m_processCount = commSize;
 #endif
 
         const unsigned long cellfaces = internal::Topology<Topo>::cellfaces();
         const auto& faces = m_puml.faces();
         const auto& cells = m_puml.cells();
-        unsigned long vertex_count = cells.size();
+        unsigned long vertexCount = cells.size();
 
-        std::vector<unsigned long> adj_raw_count(vertex_count);
-        std::vector<unsigned long> adj_raw(vertex_count * cellfaces);
+        std::vector<unsigned long> adjRawCount(vertexCount);
+        std::vector<unsigned long> adjRaw(vertexCount * cellfaces);
 
         FaceIterator<Topo> iterator(m_puml);
         iterator.template iterate<unsigned long>(
             [&cells] (int fid, int cid) {
                 return cells[cid].gid();
             },
-            [&adj_raw_count, &adj_raw] (int id, int lid, const unsigned long& gid) {
-                int idx = cellfaces * lid + adj_raw_count[lid]++;
-                adj_raw[idx] = gid;
+            [&adjRawCount, &adjRaw] (int id, int lid, const unsigned long& gid) {
+                int idx = cellfaces * lid + adjRawCount[lid]++;
+                adjRaw[idx] = gid;
             }
         );
 
-        m_adj_disp.resize(vertex_count+1);
-        m_adj_disp[0] = 0;
-        for (unsigned long i = 0; i < vertex_count; ++i) {
-            m_adj_disp[i+1] = m_adj_disp[i] + adj_raw_count[i];
+        m_adjDisp.resize(vertexCount+1);
+        m_adjDisp[0] = 0;
+        for (unsigned long i = 0; i < vertexCount; ++i) {
+            m_adjDisp[i+1] = m_adjDisp[i] + adjRawCount[i];
         }
 
-        m_adj.resize(m_adj_disp[vertex_count]);
-        for (unsigned long i = 0, j = 0; i < vertex_count; ++i) {
-            for (unsigned long k = 0; k < adj_raw_count[i]; ++k, ++j) {
-                m_adj[j] = adj_raw[i * cellfaces + k];
+        m_adj.resize(m_adjDisp[vertexCount]);
+        for (unsigned long i = 0, j = 0; i < vertexCount; ++i) {
+            for (unsigned long k = 0; k < adjRawCount[i]; ++k, ++j) {
+                m_adj[j] = adjRaw[i * cellfaces + k];
             }
         }
 
-        m_vertex_distribution.resize(comm_size+1);
-        m_edge_distribution.resize(comm_size+1);
-        m_vertex_distribution[0] = 0;
-        m_edge_distribution[0] = 0;
+        m_vertexDistribution.resize(commSize+1);
+        m_edgeDistribution.resize(commSize+1);
+        m_vertexDistribution[0] = 0;
+        m_edgeDistribution[0] = 0;
 
+        // TODO(David): replace by MPI_(Ex)Scan?
 #ifdef USE_MPI
-        MPI_Allgather(&vertex_count, 1, MPI_UNSIGNED_LONG, m_vertex_distribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
-        MPI_Allgather(&m_adj_disp[vertex_count], 1, MPI_UNSIGNED_LONG, m_edge_distribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
+        MPI_Allgather(&vertexCount, 1, MPI_UNSIGNED_LONG, m_vertexDistribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
+        MPI_Allgather(&m_adjDisp[vertexCount], 1, MPI_UNSIGNED_LONG, m_edgeDistribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
 #else
-        m_vertex_distribution[1] = vertex_count;
-        m_edge_distribution[1] = m_adj_disp[vertex_count];
+        m_vertexDistribution[1] = vertexCount;
+        m_edgeDistribution[1] = m_adjDisp[vertexCount];
 #endif
-        for (unsigned long i = 2; i <= m_process_count; ++i)
+        for (unsigned long i = 2; i <= m_processCount; ++i)
         {
-            m_vertex_distribution[i] += m_vertex_distribution[i - 1];
-            m_edge_distribution[i] += m_edge_distribution[i - 1];
+            m_vertexDistribution[i] += m_vertexDistribution[i - 1];
+            m_edgeDistribution[i] += m_edgeDistribution[i - 1];
         }
     }
 
     template<typename T>
-    void forall_local_edges(const T* cell_data,
-                        const std::function<void(int,int,const T&,const T&,int)>& face_handler,
+    void forallLocalEdges(const T* cellData,
+                        const std::function<void(int,int,const T&,const T&,int)>& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& handler = [&cell_data] (int fid, int id) -> const T& {return cell_data[id];};
-        forall_local_edges<T>(handler, face_handler, mpit);
+        const auto& handler = [&cellData] (int fid, int id) -> const T& {return cellData[id];};
+        forallLocalEdges<T>(handler, faceHandler, mpit);
     }
 
     template<typename T>
-    void forall_local_edges(const std::vector<T>& cell_data,
-                        const std::function<void(int,int,const T&,const T&,int)>& face_handler,
+    void forallLocalEdges(const std::vector<T>& cellData,
+                        const std::function<void(int,int,const T&,const T&,int)>& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& handler = [&cell_data] (int fid, int id) -> const T& {return cell_data[id];};
-        forall_local_edges<T>(handler, face_handler, mpit);
+        const auto& handler = [&cellData] (int fid, int id) -> const T& {return cellData[id];};
+        forallLocalEdges<T>(handler, faceHandler, mpit);
     }
 
     template<typename T>
-    void forall_local_edges(const std::function<T(int,int)>& cell_handler,
-                        const std::function<void(int,int,const T&,const T&,int)>& face_handler,
+    void forallLocalEdges(const std::function<T(int,int)>& cellHandler,
+                        const std::function<void(int,int,const T&,const T&,int)>& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& real_face_handler = [&face_handler, &cell_handler](int fid,int lid,const T& a, int eid) {
-            face_handler(fid, lid, a, cell_handler(fid,lid), eid);
+        const auto& realFaceHandler = [&faceHandler, &cellHandler](int fid,int lid,const T& a, int eid) {
+            faceHandler(fid, lid, a, cellHandler(fid,lid), eid);
         };
-        forall_local_edges<T>(cell_handler, real_face_handler, mpit);
+        forallLocalEdges<T>(cellHandler, realFaceHandler, mpit);
     }
 
     template<typename T>
-    void forall_local_edges(const std::function<T(int,int)>& external_cell_handler,
-                        const std::function<void(int,int,const T&,int)>& face_handler,
+    void forallLocalEdges(const std::function<T(int,int)>& externalCellHandler,
+                        const std::function<void(int,int,const T&,int)>& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         
-        std::vector<unsigned long> adj_raw_count(local_vertex_count());
-        const auto& adj_disp = m_adj_disp;
-        const auto& real_face_handler = [&adj_disp, &adj_raw_count, &face_handler](int fid,int lid,const T& a) {
-            face_handler(fid, lid, a, adj_disp[lid] + adj_raw_count[lid]++);
+        std::vector<unsigned long> adjRawCount(localVertexCount());
+        const auto& adjDisp = m_adjDisp;
+        const auto& realFaceHandler = [&adjDisp, &adjRawCount, &faceHandler](int fid,int lid,const T& a) {
+            faceHandler(fid, lid, a, adjDisp[lid] + adjRawCount[lid]++);
         };
         FaceIterator<Topo> iterator(m_puml);
-        iterator.template iterate<T>(external_cell_handler, real_face_handler, [](int a, int b){}, mpit);
+        iterator.template iterate<T>(externalCellHandler, realFaceHandler, [](int a, int b){}, mpit);
     }
 
-    unsigned long local_vertex_count() const {
-        return m_adj_disp.size() - 1;
+    unsigned long localVertexCount() const {
+        return m_adjDisp.size() - 1;
     }
 
-    unsigned long local_edge_count() const {
+    unsigned long localEdgeCount() const {
         return m_adj.size();
     }
 
-    unsigned long global_vertex_count() const {
-        return m_vertex_distribution[m_process_count];
+    unsigned long globalVertexCount() const {
+        return m_vertexDistribution[m_processCount];
     }
 
-    unsigned long global_edge_count() const {
-        return m_edge_distribution[m_process_count];
+    unsigned long globalEdgeCount() const {
+        return m_edgeDistribution[m_processCount];
     }
 
     template<typename OutputType>
-    void geometric_coordinates(std::vector<OutputType>& coord) const {
+    void geometricCoordinates(std::vector<OutputType>& coord) const {
         // basic idea: compute the barycenter of the cell (i.e. tetrahedron/hexahedron)
-        coord.resize(3 * local_vertex_count());
+        coord.resize(3 * localVertexCount());
         for (unsigned long i = 0; i < m_puml.cells().size(); ++i) {
             const auto& cell = m_puml.cells()[i];
             unsigned int lid[internal::Topology<Topo>::cellvertices()];
@@ -172,31 +173,31 @@ public:
     }
 
     template<typename T>
-    void set_vertex_weights(const std::vector<T>& vertex_weights, int vertex_weight_count) {
-        set_vertex_weights(vertex_weights.data(), vertex_weight_count);
+    void setVertexWeights(const std::vector<T>& vertexWeights, int vertexWeightCount) {
+        setVertexWeights(vertexWeights.data(), vertexWeightCount);
     }
 
     template<typename T>
-    void set_vertex_weights(const T* vertex_weights, int vertex_weight_count) {
-        if (vertex_weights == nullptr) return;
-        m_vertex_weight_count = vertex_weight_count;
-        m_vertex_weights.resize(local_vertex_count() * vertex_weight_count);
-        for (size_t i = 0; i < m_vertex_weights.size(); ++i) {
-            m_vertex_weights[i] = vertex_weights[i];
+    void setVertexWeights(const T* vertexWeights, int vertexWeightCount) {
+        if (vertexWeights == nullptr) return;
+        m_vertexWeightCount = vertexWeightCount;
+        m_vertexWeights.resize(localVertexCount() * vertexWeightCount);
+        for (size_t i = 0; i < m_vertexWeights.size(); ++i) {
+            m_vertexWeights[i] = vertexWeights[i];
         }
     }
 
     template<typename T>
-    void set_edge_weights(const std::vector<T>& edge_weights) {
-        set_edge_weights(edge_weights.data());
+    void set_edgeWeights(const std::vector<T>& edgeWeights) {
+        set_edgeWeights(edgeWeights.data());
     }
 
     template<typename T>
-    void set_edge_weights(const T* edge_weights) {
-        if (edge_weights == nullptr) return;
-        m_edge_weights.resize(m_adj.size());
+    void set_edgeWeights(const T* edgeWeights) {
+        if (edgeWeights == nullptr) return;
+        m_edgeWeights.resize(m_adj.size());
         for (size_t i = 0; i < m_adj.size(); ++i) {
-            m_edge_weights[i] = edge_weights[i];
+            m_edgeWeights[i] = edgeWeights[i];
         }
     }
 
@@ -204,24 +205,24 @@ public:
         return m_adj;
     }
 
-    const std::vector<unsigned long>& adj_disp() const {
-        return m_adj_disp;
+    const std::vector<unsigned long>& adjDisp() const {
+        return m_adjDisp;
     }
 
-    const std::vector<unsigned long>& vertex_distribution() const {
-        return m_vertex_distribution;
+    const std::vector<unsigned long>& vertexDistribution() const {
+        return m_vertexDistribution;
     }
 
-    const std::vector<unsigned long>& edge_distribution() const {
-        return m_edge_distribution;
+    const std::vector<unsigned long>& edgeDistribution() const {
+        return m_edgeDistribution;
     }
 
-    const std::vector<unsigned long>& vertex_weights() const {
-        return m_vertex_weights;
+    const std::vector<unsigned long>& vertexWeights() const {
+        return m_vertexWeights;
     }
 
-    const std::vector<unsigned long>& edge_weights() const {
-        return m_edge_weights;
+    const std::vector<unsigned long>& edgeWeights() const {
+        return m_edgeWeights;
     }
 
     const MPI_Comm& comm() const {
@@ -232,23 +233,23 @@ public:
         return m_puml;
     }
 
-    unsigned long vertex_weight_count() const {
-        return m_vertex_weight_count;
+    unsigned long vertexWeightCount() const {
+        return m_vertexWeightCount;
     }
 
-    unsigned long process_count() const {
-        return m_process_count;
+    unsigned long processCount() const {
+        return m_processCount;
     }
 
 private:
     std::vector<unsigned long> m_adj;
-    std::vector<unsigned long> m_adj_disp;
-    std::vector<unsigned long> m_vertex_weights;
-    std::vector<unsigned long> m_edge_weights;
-    std::vector<unsigned long> m_vertex_distribution;
-    std::vector<unsigned long> m_edge_distribution;
-    unsigned long m_vertex_weight_count = 0;
-    unsigned long m_process_count = 0;
+    std::vector<unsigned long> m_adjDisp;
+    std::vector<unsigned long> m_vertexWeights;
+    std::vector<unsigned long> m_edgeWeights;
+    std::vector<unsigned long> m_vertexDistribution;
+    std::vector<unsigned long> m_edgeDistribution;
+    unsigned long m_vertexWeightCount = 0;
+    unsigned long m_processCount = 0;
 #ifdef USE_MPI
     MPI_Comm m_comm;
 #endif

@@ -62,8 +62,8 @@ int main(int argc, char* argv[])
 	PUML::TETPartitionGraph graph(puml);
 	auto partitioner = PUML::Partition::get_partitioner("parmetis");
 	PUML::PartitionTarget target;
-	target.set_vertex_weights_uniform();
-	target.set_imbalance(1.01);
+	target.setVertexWeightsUniform();
+	target.setImbalance(1.01);
 	partitioner->partition(partition, graph, target);
 
 	// Redistribute the cells

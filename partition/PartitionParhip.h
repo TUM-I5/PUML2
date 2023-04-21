@@ -45,28 +45,28 @@ public:
 		int rank;
 		MPI_Comm_rank(graph.comm(), &rank);
 
-		std::vector<idxtype> vtxdist(graph.vertex_distribution().begin(), graph.vertex_distribution().end());
-		std::vector<idxtype> xadj(graph.adj_disp().begin(), graph.adj_disp().end());
+		std::vector<idxtype> vtxdist(graph.vertexDistribution().begin(), graph.vertexDistribution().end());
+		std::vector<idxtype> xadj(graph.adjDisp().begin(), graph.adjDisp().end());
 		std::vector<idxtype> adjncy(graph.adj().begin(), graph.adj().end());
-		std::vector<idxtype> vwgt(graph.vertex_weights().begin(), graph.vertex_weights().end());
-		std::vector<idxtype> adjwgt(graph.edge_weights().begin(), graph.edge_weights().end());
-		auto cell_count = graph.local_vertex_count();
+		std::vector<idxtype> vwgt(graph.vertexWeights().begin(), graph.vertexWeights().end());
+		std::vector<idxtype> adjwgt(graph.edgeWeights().begin(), graph.edgeWeights().end());
+		auto cellCount = graph.localVertexCount();
 
-		if (!target.vertex_weight_uniform()) {
+		if (!target.vertexWeightsUniform()) {
 			logWarning(rank) << "Node weights (target vertex weights) are currently ignored by ParHIP.";
 		}
-		if (graph.vertex_weights().size() > graph.local_vertex_count()) {
+		if (graph.vertexWeights().size() > graph.localVertexCount()) {
 			logWarning(rank) << "Multiple vertex weights are currently ignored by ParHIP.";
 		}
 
 		int edgecut;
-		int nparts = target.vertex_count();
-		std::vector<idxtype> part(cell_count);
+		int nparts = target.vertexCount();
+		std::vector<idxtype> part(cellCount);
 		double imbalance = target.imbalance();
 		MPI_Comm comm = graph.comm();
 		ParHIPPartitionKWay(vtxdist.data(), xadj.data(), adjncy.data(), vwgt.empty() ? nullptr : vwgt.data(), adjwgt.empty() ? nullptr : adjwgt.data(), &nparts, &imbalance, true, seed, mode, &edgecut, part.data(), &comm);
 
-		for (int i = 0; i < cell_count; i++) {
+		for (int i = 0; i < cellCount; i++) {
 			partition[i] = part[i];
 		}
 

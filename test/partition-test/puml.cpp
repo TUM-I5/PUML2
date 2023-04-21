@@ -126,11 +126,11 @@ int main(int argc, char* argv[])
 			"Any following argument is then applied to all configurations. If again an array of configurations is given, the cross product between the two arrays is used.";
 	}
 
-	auto settings_list = argparse(argc, argv);
+	auto settingsList = argparse(argc, argv);
 
 	
 	logInfo(rank) << "PUML Partition Tester --- Starting";
-	logInfo(rank) << settings_list.size() << "tests";
+	logInfo(rank) << settingsList.size() << "tests";
 
 	PUML::TETPUML* puml = nullptr;
 
@@ -138,9 +138,9 @@ int main(int argc, char* argv[])
 	std::string lastmatmesh = "";
 	std::string lastmat = "";
 
-	for (int i = 0; i < settings_list.size(); ++i) {
-		auto settings = settings_list[i];
-		logInfo(rank) << "Test" << (i+1) << "of" << settings_list.size();
+	for (int i = 0; i < settingsList.size(); ++i) {
+		auto settings = settingsList[i];
+		logInfo(rank) << "Test" << (i+1) << "of" << settingsList.size();
 		logInfo(rank) << "Using configuration: " << settings;
 		if (settings.is_null()) {
 			logInfo(rank) << "Aborting...";
@@ -164,15 +164,15 @@ int main(int argc, char* argv[])
 			lastmesh = readsetting<std::string>(settings, "meshfile");
 		}
 
-		std::string partitioner_name = readsetting<std::string>(settings, "name");
-		auto partition_invoker = PUML::TETPartition::get_partitioner(partitioner_name);
-		if (partition_invoker == nullptr) {
+		std::string partitionerName = readsetting<std::string>(settings, "name");
+		auto partitionInvoker = PUML::TETPartition::get_partitioner(partitionerName);
+		if (partitionInvoker == nullptr) {
 			logInfo(rank) << "Partitioner name not recognized. Aborting...";
 			MPI_Finalize();
 			return 1;
 		}
 
-		logInfo(rank) << "Creating partitions using partitioner" << partitioner_name;
+		logInfo(rank) << "Creating partitions using partitioner" << partitionerName;
 		std::vector<int> partition(puml->numOriginalCells());
 		PUML::TETPartitionGraph graph(*puml);
 
@@ -216,22 +216,22 @@ int main(int argc, char* argv[])
 			// blank
 		}
 		else if (edgeweightsetting == "uniform") {
-			edgeweights = new int[graph.local_edge_count()];
-			for (int i = 0; i < graph.local_edge_count(); ++i) {
+			edgeweights = new int[graph.localEdgeCount()];
+			for (int i = 0; i < graph.localEdgeCount(); ++i) {
 				edgeweights[i] = 1;
 			}
 		}
 		else if (edgeweightsetting == "random") {
-			edgeweights = new int[graph.local_edge_count()];
+			edgeweights = new int[graph.localEdgeCount()];
 			std::default_random_engine gen(123);
 			std::uniform_int_distribution<int> distribution(1,1000);
-			for (int i = 0; i < graph.local_edge_count(); ++i) {
+			for (int i = 0; i < graph.localEdgeCount(); ++i) {
 				edgeweights[i] = distribution(gen);
 			}
 		}
 		else if (edgeweightsetting == "increasing") {
-			edgeweights = new int[graph.local_edge_count()];
-			for (int i = 0; i < graph.local_edge_count(); ++i) {
+			edgeweights = new int[graph.localEdgeCount()];
+			for (int i = 0; i < graph.localEdgeCount(); ++i) {
 				edgeweights[i] = i + 1;
 			}
 		}
@@ -276,27 +276,27 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		graph.set_vertex_weights(vertexweights, 1);
-		graph.set_edge_weights(edgeweights);
+		graph.setVertexWeights(vertexweights, 1);
+		graph.set_edgeWeights(edgeweights);
 		double imbalance = readsetting<double>(settings, "imbalance");
 		int seed = readsetting<int>(settings, "seed");
 
 		PUML::PartitionTarget target;
-		target.set_imbalance(imbalance);
+		target.setImbalance(imbalance);
 		if (nodeweights == nullptr) {
-			target.set_vertex_weights_uniform(nparts);
+			target.setVertexWeightsUniform(nparts);
 		}
 		else {
-			target.set_vertex_weights(nparts, nodeweights);
+			target.setVertexWeights(nparts, nodeweights);
 		}
 
-		logDebug() << "Initial stats" << rank << graph.local_vertex_count() << graph.local_edge_count();
+		logDebug() << "Initial stats" << rank << graph.localVertexCount() << graph.localEdgeCount();
 
 		logInfo(rank) << "Starting the actual partitioning.";
 		struct rusage startm;
 		getrusage(RUSAGE_SELF, &startm);
 		double startt = MPI_Wtime();
-		partition_invoker->partition(partition.data(), graph, target, seed);
+		partitionInvoker->partition(partition.data(), graph, target, seed);
 		MPI_Barrier(comm);
 		double endt = MPI_Wtime();
 		struct rusage endm;
@@ -304,46 +304,46 @@ int main(int argc, char* argv[])
 		logInfo(rank) << "Actual partitioning done. Now saving stats";
 
 		// counts weighted and unweighted sizes
-		std::vector<int> partition_size(nparts*4);
-		std::vector<int> partition_size_local(nparts*4);
+		std::vector<int> partitionSize(nparts*4);
+		std::vector<int> partitionSizeLocal(nparts*4);
 		for (int i = 0; i < puml->cells().size(); ++i) {
 			assert(partition[i] >= 0);
 			assert(partition[i] < nparts);
-			++partition_size_local[partition[i]];
+			++partitionSizeLocal[partition[i]];
 		}
 		if (vertexweights == nullptr) {
 			for (int i = 0; i < nparts; ++i) {
-				partition_size_local[i + nparts] = partition_size_local[i];
+				partitionSizeLocal[i + nparts] = partitionSizeLocal[i];
 			}
 		}
 		else {
 			for (int i = 0; i < puml->cells().size(); ++i) {
-				partition_size_local[partition[i] + nparts] += vertexweights[i];
+				partitionSizeLocal[partition[i] + nparts] += vertexweights[i];
 			}
 		}
 
 		std::vector<int> detail_partition(nparts*nparts);
-		std::vector<int> local_detail_partition(nparts*nparts);
+		std::vector<int> localDetailPartition(nparts*nparts);
 
-		graph.forall_local_edges<int>(
+		graph.forallLocalEdges<int>(
 			partition,
 			[&](int fid, int lid, const int& g, const int& l, int id) {
 				if (g != l) {
-					++partition_size_local[g + nparts * 2];
+					++partitionSizeLocal[g + nparts * 2];
 					if (edgeweights == nullptr) {
-						++partition_size_local[g + nparts * 3];
-						++local_detail_partition[g * nparts + l];
+						++partitionSizeLocal[g + nparts * 3];
+						++localDetailPartition[g * nparts + l];
 					}
 					else {
-						partition_size_local[g + nparts * 3] += edgeweights[id];
-						local_detail_partition[g * nparts + l] += edgeweights[id];
+						partitionSizeLocal[g + nparts * 3] += edgeweights[id];
+						localDetailPartition[g * nparts + l] += edgeweights[id];
 					}
 				}
 			}
 		);
 
-		MPI_Reduce(partition_size_local.data(), partition_size.data(), partition_size_local.size(), MPI_INT, MPI_SUM, 0, comm);
-		MPI_Reduce(local_detail_partition.data(), detail_partition.data(), local_detail_partition.size(), MPI_INT, MPI_SUM, 0, comm);
+		MPI_Reduce(partitionSizeLocal.data(), partitionSize.data(), partitionSizeLocal.size(), MPI_INT, MPI_SUM, 0, comm);
+		MPI_Reduce(localDetailPartition.data(), detail_partition.data(), localDetailPartition.size(), MPI_INT, MPI_SUM, 0, comm);
 
 		long peakmemstart = startm.ru_maxrss;
 		long peakmemend = endm.ru_maxrss;
@@ -373,20 +373,20 @@ int main(int argc, char* argv[])
 			size_t pss = 0;
 			size_t psws = 0;
 			for (int i = 0; i < nparts; ++i) {
-				node_data[i]["size"] = partition_size[i];
-				node_data[i]["size_weighted"] = partition_size[i + nparts];
-				node_data[i]["cut"] = partition_size[i + nparts * 2];
-				node_data[i]["cut_weighted"] = partition_size[i + nparts * 3];
+				node_data[i]["size"] = partitionSize[i];
+				node_data[i]["size_weighted"] = partitionSize[i + nparts];
+				node_data[i]["cut"] = partitionSize[i + nparts * 2];
+				node_data[i]["cut_weighted"] = partitionSize[i + nparts * 3];
 
 				std::vector<int> detail(detail_partition.begin() + nparts * i, detail_partition.begin() + nparts * (i+1));
 				node_data[i]["cut_weighted_detail"] = detail;
 
-				ec += partition_size[i + nparts*2];
-				ecw += partition_size[i + nparts*3];
-				ps = std::max(ps, (size_t)partition_size[i]);
-				psw = std::max(psw, (size_t)partition_size[i + nparts]);
-				pss += partition_size[i];
-				psws += partition_size[i + nparts];
+				ec += partitionSize[i + nparts*2];
+				ecw += partitionSize[i + nparts*3];
+				ps = std::max(ps, (size_t)partitionSize[i]);
+				psw = std::max(psw, (size_t)partitionSize[i + nparts]);
+				pss += partitionSize[i];
+				psws += partitionSize[i + nparts];
 			}
 			ec /= 2; ecw /= 2;
 			double mi = (double)ps / ((double)pss / (double)nparts);
@@ -399,8 +399,8 @@ int main(int argc, char* argv[])
 			output["cut_weighted"] = ecw;
 			output["imbalance"] = mi;
 			output["imbalance_weighted"] = miw;
-			output["total_vertices"] = graph.global_vertex_count();
-			output["total_edges"] = graph.global_edge_count();
+			output["total_vertices"] = graph.globalVertexCount();
+			output["total_edges"] = graph.globalEdgeCount();
 			output["mpi_size"] = size;
 			output["partition_stats"] = node_data;
 			output["time"] = endt-startt;
@@ -428,8 +428,8 @@ int main(int argc, char* argv[])
 				size_t hash = std::hash<nlohmann::json>()(output);
 
 				// this is not ideal, but it avoids the dependency on std::filesystem
-				std::ofstream output_file(odir + "/" + std::to_string(hash) + ".json");
-				output_file << output;
+				std::ofstream outputFile(odir + "/" + std::to_string(hash) + ".json");
+				outputFile << output;
 			}
 		}
 

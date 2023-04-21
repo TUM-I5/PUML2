@@ -38,7 +38,7 @@ public:
 
 		int rank;
 		MPI_Comm_rank(graph.comm(), &rank);
-		for (unsigned long i = 0; i < graph.local_vertex_count(); ++i) {
+		for (unsigned long i = 0; i < graph.localVertexCount(); ++i) {
 			partition[i] = rank;
 		}
 		return PartitioningResult::SUCCESS;
