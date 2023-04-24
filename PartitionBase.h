@@ -23,6 +23,7 @@
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 #include <vector>
+#include <stdexcept>
 
 namespace PUML
 {
@@ -44,7 +45,7 @@ public:
 		std::vector<int> part(graph.localVertexCount());
 		auto result = partition(part, graph, target, seed);
 		if (result != PartitioningResult::SUCCESS) {
-			throw std::exception("Partitioning failed.");
+			throw std::runtime_error("Partitioning failed.");
 		}
 		return part;
 	}
