@@ -35,10 +35,6 @@
 #include "PartitionParhip.h"
 #endif
 
-#ifdef USE_DKAMINPAR
-#include "PartitionDKaMinPar.h"
-#endif
-
 namespace PUML
 {
 
@@ -96,11 +92,6 @@ static std::unique_ptr<PartitionBase<Topo>> get_partitioner(const std::string& n
 	}
 	else if (name == "parhip-ecosocial") {
 		partition = new PartitionParhip<Topo>(ECOSOCIAL);
-	}
-#endif
-#ifdef USE_DKAMINPAR
-	else if (name == "dkaminpar") {
-		partition = new PartitionDKaMinPar<Topo>();
 	}
 #endif
 
