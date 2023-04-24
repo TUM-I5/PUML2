@@ -49,13 +49,12 @@ public:
 		return part;
 	}
 
-	PartitioningResult partition(std::vector<int>& partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
+	PartitioningResult partition(std::vector<int>& part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
 	{
-		return partition(partition.data(), graph, target, seed);
+		return partition(part.data(), graph, target, seed);
 	}
 
-	virtual PartitioningResult partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
-
+	virtual PartitioningResult partition(int* part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
 #endif // USE_MPI
 };
 
