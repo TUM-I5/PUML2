@@ -6,7 +6,7 @@
  *  notice in the file 'COPYING' at the root directory of this package
  *  and the copyright notice at https://github.com/TUM-I5/PUMGen
  *
- * @copyright 2019 Technische Universitaet Muenchen
+ * @copyright 2019-2023 Technische Universitaet Muenchen
  * @author David Schneller <david.schneller@tum.de>
  */
 
@@ -103,73 +103,73 @@ public:
     }
     
     template<typename T>
-    void iterate(const std::vector<T>& cellData,
+    void forEach(const std::vector<T>& cellData,
                         const std::function<void(int,int,const T&,const T&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         const auto& cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
-        iterate(cellHandler, faceHandler, boundaryFaceHandler, mpit);
+        forEach(cellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T, typename S>
-    void iterate(const std::vector<T>& external_cellData,
+    void forEach(const std::vector<T>& external_cellData,
                 const std::vector<S>& internal_cellData,
                         const std::function<void(int,int,const T&,const S&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
         const auto& internalCellHandler = [&internal_cellData](int fid, int cid){return internal_cellData[cid];};
-        iterate(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+        forEach(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T>
-    void iterate(const std::vector<T>& external_cellData,
+    void forEach(const std::vector<T>& external_cellData,
                         const std::function<void(int,int,const T&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
-        iterate_internal(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+        internalforEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T>
-    void iterate(const T* cellData,
+    void forEach(const T* cellData,
                         const std::function<void(int,int,const T&,const T&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         const auto& cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
-        iterate(cellHandler, faceHandler, boundaryFaceHandler, mpit);
+        forEach(cellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T, typename S>
-    void iterate(const T* external_cellData,
+    void forEach(const T* external_cellData,
                 const S* internal_cellData,
                         const std::function<void(int,int,const T&,const S&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
         const auto& internalCellHandler = [&internal_cellData](int fid, int cid){return internal_cellData[cid];};
-        iterate(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+        forEach(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T>
-    void iterate(const T* external_cellData,
+    void forEach(const T* external_cellData,
                         const std::function<void(int,int,const T&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
-        iterate_internal(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+        internalforEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T>
-    void iterate(const std::function<T(int,int)>& cellHandler,
+    void forEach(const std::function<T(int,int)>& cellHandler,
                         const std::function<void(int,int,const T&,const T&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        iterate(cellHandler, cellHandler, faceHandler, boundaryFaceHandler, mpit);
+        forEach(cellHandler, cellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T, typename S>
-    void iterate(const std::function<T(int,int)>& externalCellHandler,
+    void forEach(const std::function<T(int,int)>& externalCellHandler,
                 const std::function<S(int,int)>& internalCellHandler,
                         const std::function<void(int,int,const T&,const S&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
@@ -177,15 +177,15 @@ public:
         const auto& realFaceHandler = [&faceHandler, &internalCellHandler](int fid, int cid, const T& tv) {
             faceHandler(fid, cid, tv, internalCellHandler(fid, cid));
         };
-        iterate(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+        forEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     template<typename T>
-    void iterate(const std::function<T(int,int)>& externalCellHandler,
+    void forEach(const std::function<T(int,int)>& externalCellHandler,
                         const std::function<void(int,int,const T&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        iterate_internal(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+        internalforEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     const PUML<Topo>& puml() const {
@@ -194,7 +194,7 @@ public:
 
 private:
     template<typename T>
-    void iterate_internal(const std::function<T(int,int)>& externalCellHandler,
+    void internalforEach(const std::function<T(int,int)>& externalCellHandler,
                         const std::function<void(int,int,const T&)>& faceHandler,
                         const std::function<void(int,int)>& boundaryFaceHandler,
                         MPI_Datatype mpit) {

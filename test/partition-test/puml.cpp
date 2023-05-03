@@ -6,7 +6,7 @@
  *  notice in the file 'COPYING' at the root directory of this package
  *  and the copyright notice at https://github.com/TUM-I5/PUMGen
  *
- * @copyright 2019 Technische Universitaet Muenchen
+ * @copyright 2019-2023 Technische Universitaet Muenchen
  * @author Sebastian Rettenberger <sebastian.rettenberger@tum.de>
  * @author David Schneller <david.schneller@tum.de>
  */
@@ -91,7 +91,7 @@ std::vector<nlohmann::json> argparse(int argc, char* argv[]) {
 }
 
 template<typename T>
-T readsetting(const nlohmann::json& settings, const std::string& arg)
+T readSetting(const nlohmann::json& settings, const std::string& arg)
 {
 	if (settings.find(arg) != settings.end()) {
 		try {
@@ -147,10 +147,10 @@ int main(int argc, char* argv[])
 			break;
 		}
 
-		if (puml == nullptr || readsetting<std::string>(settings, "meshfile") != lastmesh) {
+		if (puml == nullptr || readSetting<std::string>(settings, "meshfile") != lastmesh) {
 			delete puml;
 			puml = new PUML::TETPUML();
-			std::string infile = readsetting<std::string>(settings, "meshfile");
+			std::string infile = readSetting<std::string>(settings, "meshfile");
 			logInfo(rank) << "Reading mesh" << infile;
 			puml->open((infile + ":/connect").c_str(), (infile + ":/geometry").c_str());
 
@@ -161,11 +161,34 @@ int main(int argc, char* argv[])
 			logInfo(rank) << "Generating mesh information";
 			puml->generateMesh();
 
-			lastmesh = readsetting<std::string>(settings, "meshfile");
+			lastmesh = readSetting<std::string>(settings, "meshfile");
 		}
 
-		std::string partitionerName = readsetting<std::string>(settings, "name");
-		auto partitionInvoker = PUML::TETPartition::get_partitioner(partitionerName);
+		std::string partitionerName = readSetting<std::string>(settings, "name");
+		PUML::PartitionerType partitionerType = PUML::PartitionerType::None;
+
+		if (partitionerName == "none") {partitionerType = PUML::PartitionerType::None;}
+		else if (partitionerName == "parmetis") {partitionerType = PUML::PartitionerType::Parmetis;}
+		else if (partitionerName == "parmetis-geo") {partitionerType = PUML::PartitionerType::ParmetisGeometric;}
+		else if (partitionerName == "ptscotch") {partitionerType = PUML::PartitionerType::PtScotch;}
+		else if (partitionerName == "ptscotch-b") {partitionerType = PUML::PartitionerType::PtScotchBalance;}
+		else if (partitionerName == "ptscotch-q") {partitionerType = PUML::PartitionerType::PtScotchQuality;}
+		else if (partitionerName == "ptscotch-bq") {partitionerType = PUML::PartitionerType::PtScotchBalanceQuality;}
+		else if (partitionerName == "ptscotch-s") {partitionerType = PUML::PartitionerType::PtScotchSpeed;}
+		else if (partitionerName == "ptscotch-sb") {partitionerType = PUML::PartitionerType::PtScotchBalanceSpeed;}
+		else if (partitionerName == "parhip-ultrafast") {partitionerType = PUML::PartitionerType::ParHIPUltrafastMesh;}
+		else if (partitionerName == "parhip-fast") {partitionerType = PUML::PartitionerType::ParHIPFastMesh;}
+		else if (partitionerName == "parhip-eco") {partitionerType = PUML::PartitionerType::ParHIPEcoMesh;}
+		else if (partitionerName == "parhip-ultrafastsocial") {partitionerType = PUML::PartitionerType::ParHIPUltrafastSocial;}
+		else if (partitionerName == "parhip-fastsocial") {partitionerType = PUML::PartitionerType::ParHIPFastSocial;}
+		else if (partitionerName == "parhip-ecosocial") {partitionerType = PUML::PartitionerType::ParHIPEcoSocial;}
+		else {
+			logInfo(rank) << "Partitioner name not recognized. Aborting...";
+			MPI_Finalize();
+			return 1;
+		}
+
+		auto partitionInvoker = PUML::TETPartition::getPartitioner(partitionerType);
 		if (partitionInvoker == nullptr) {
 			logInfo(rank) << "Partitioner name not recognized. Aborting...";
 			MPI_Finalize();
@@ -176,9 +199,9 @@ int main(int argc, char* argv[])
 		std::vector<int> partition(puml->numOriginalCells());
 		PUML::TETPartitionGraph graph(*puml);
 
-		std::string vertexweightsetting = readsetting<std::string>(settings, "vw");
-		std::string edgeweightsetting = readsetting<std::string>(settings, "ew");
-		std::string nodeweightsetting = readsetting<std::string>(settings, "nw");
+		std::string vertexweightsetting = readSetting<std::string>(settings, "vw");
+		std::string edgeweightsetting = readSetting<std::string>(settings, "ew");
+		std::string nodeweightsetting = readSetting<std::string>(settings, "nw");
 
 		int * vertexweights = nullptr;
 		int * edgeweights = nullptr;
@@ -241,7 +264,7 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 
-		int nparts = readsetting<int>(settings, "nparts");
+		int nparts = readSetting<int>(settings, "nparts");
 
 		if (nodeweightsetting == "none") {
 			// empty
@@ -277,9 +300,9 @@ int main(int argc, char* argv[])
 		}
 
 		graph.setVertexWeights(vertexweights, 1);
-		graph.set_edgeWeights(edgeweights);
-		double imbalance = readsetting<double>(settings, "imbalance");
-		int seed = readsetting<int>(settings, "seed");
+		graph.setEdgeWeights(edgeweights);
+		double imbalance = readSetting<double>(settings, "imbalance");
+		int seed = readSetting<int>(settings, "seed");
 
 		PUML::PartitionTarget target;
 		target.setImbalance(imbalance);
@@ -293,14 +316,14 @@ int main(int argc, char* argv[])
 		logDebug() << "Initial stats" << rank << graph.localVertexCount() << graph.localEdgeCount();
 
 		logInfo(rank) << "Starting the actual partitioning.";
-		struct rusage startm;
-		getrusage(RUSAGE_SELF, &startm);
+		struct rusage memoryStatsBegin;
+		getrusage(RUSAGE_SELF, &memoryStatsBegin);
 		double startt = MPI_Wtime();
 		partitionInvoker->partition(partition.data(), graph, target, seed);
 		MPI_Barrier(comm);
 		double endt = MPI_Wtime();
-		struct rusage endm;
-		getrusage(RUSAGE_SELF, &endm);
+		struct rusage memoryStatsEnd;
+		getrusage(RUSAGE_SELF, &memoryStatsEnd);
 		logInfo(rank) << "Actual partitioning done. Now saving stats";
 
 		// counts weighted and unweighted sizes
@@ -322,10 +345,10 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		std::vector<int> detail_partition(nparts*nparts);
+		std::vector<int> detailPartition(nparts*nparts);
 		std::vector<int> localDetailPartition(nparts*nparts);
 
-		graph.forallLocalEdges<int>(
+		graph.forEachLocalEdges<int>(
 			partition,
 			[&](int fid, int lid, const int& g, const int& l, int id) {
 				if (g != l) {
@@ -343,10 +366,10 @@ int main(int argc, char* argv[])
 		);
 
 		MPI_Reduce(partitionSizeLocal.data(), partitionSize.data(), partitionSizeLocal.size(), MPI_INT, MPI_SUM, 0, comm);
-		MPI_Reduce(localDetailPartition.data(), detail_partition.data(), localDetailPartition.size(), MPI_INT, MPI_SUM, 0, comm);
+		MPI_Reduce(localDetailPartition.data(), detailPartition.data(), localDetailPartition.size(), MPI_INT, MPI_SUM, 0, comm);
 
-		long peakmemstart = startm.ru_maxrss;
-		long peakmemend = endm.ru_maxrss;
+		long peakmemstart = memoryStatsBegin.ru_maxrss;
+		long peakmemend = memoryStatsEnd.ru_maxrss;
 
 		long peakmemlocal[] = {peakmemstart, peakmemend};
 		long peakmem[2];
@@ -361,8 +384,8 @@ int main(int argc, char* argv[])
 		std::vector<long> peakmemrankstart(size);
 		std::vector<long> peakmemrankend(size);
 
-		MPI_Gather(&startm.ru_maxrss, 1, MPI_LONG, peakmemrankstart.data(), 1, MPI_LONG, 0, comm);
-		MPI_Gather(&endm.ru_maxrss, 1, MPI_LONG, peakmemrankend.data(), 1, MPI_LONG, 0, comm);
+		MPI_Gather(&memoryStatsBegin.ru_maxrss, 1, MPI_LONG, peakmemrankstart.data(), 1, MPI_LONG, 0, comm);
+		MPI_Gather(&memoryStatsEnd.ru_maxrss, 1, MPI_LONG, peakmemrankend.data(), 1, MPI_LONG, 0, comm);
 
 		if (rank == 0) {
 			std::vector<nlohmann::json> node_data(nparts);
@@ -378,7 +401,7 @@ int main(int argc, char* argv[])
 				node_data[i]["cut"] = partitionSize[i + nparts * 2];
 				node_data[i]["cut_weighted"] = partitionSize[i + nparts * 3];
 
-				std::vector<int> detail(detail_partition.begin() + nparts * i, detail_partition.begin() + nparts * (i+1));
+				std::vector<int> detail(detailPartition.begin() + nparts * i, detailPartition.begin() + nparts * (i+1));
 				node_data[i]["cut_weighted_detail"] = detail;
 
 				ec += partitionSize[i + nparts*2];
@@ -419,7 +442,7 @@ int main(int argc, char* argv[])
 
 			output["rank_stats"] = rankdata;
 
-			std::string odir = readsetting<std::string>(settings, "output");
+			std::string odir = readSetting<std::string>(settings, "output");
 			if (odir == "-") {
 				// use stdout
 				logInfo(rank) << "Results: " << output.dump(4);

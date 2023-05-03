@@ -6,7 +6,7 @@
  *  notice in the file 'COPYING' at the root directory of this package
  *  and the copyright notice at https://github.com/TUM-I5/PUMGen
  *
- * @copyright 2019 Technische Universitaet Muenchen
+ * @copyright 2019-2023 Technische Universitaet Muenchen
  * @author Sebastian Rettenberger <sebastian.rettenberger@tum.de>
  * @author David Schneller <david.schneller@tum.de>
  */
@@ -34,13 +34,17 @@
 namespace PUML
 {
 
+enum class ParmetisPartitionMode {
+	Default,
+	Geometric
+};
+
 template<TopoType Topo>
 class PartitionParmetis : public PartitionBase<Topo>
 {
 
 public:
-	PartitionParmetis(int mode) :mode(mode) {
-
+	PartitionParmetis(ParmetisPartitionMode mode) :mode(mode) {
 	}
 #ifdef USE_MPI
 	virtual PartitioningResult partition(int* partition, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
@@ -75,17 +79,18 @@ public:
 		idx_t edgecut;
 		std::vector<idx_t> part(cell_count);
 
-		if (mode == 0) {
+		if (mode == ParmetisPartitionMode::Default) {
 			ParMETIS_V3_PartKway(vtxdist.data(), xadj.data(), adjncy.data(), vwgt.empty() ? nullptr : vwgt.data(), adjwgt.empty() ? nullptr : adjwgt.data(), &wgtflag, &numflag, &ncon, &nparts, tpwgts.data(), ubvec.data(), options, &edgecut, part.data(), &comm);
 		}
-		else if (mode == 1) {
+		else if (mode == ParmetisPartitionMode::Geometric) {
 			idx_t ndims = 3;
 			std::vector<real_t> xyz;
 			graph.geometricCoordinates(xyz);
 			ParMETIS_V3_PartGeomKway(vtxdist.data(), xadj.data(), adjncy.data(), vwgt.empty() ? nullptr : vwgt.data(), adjwgt.empty() ? nullptr : adjwgt.data(), &wgtflag, &numflag, &ndims, xyz.data(), &ncon, &nparts, tpwgts.data(), ubvec.data(), options, &edgecut, part.data(), &comm);
 		}
 		else {
-			assert(false);
+			logError() << "Unknown partitioning mode for ParMETIS";
+			return PartitioningResult::ERROR;
 		}
 
 		for (int i = 0; i < cell_count; i++) {
@@ -97,7 +102,7 @@ public:
 #endif // USE_MPI
 
 private:
-	int mode;
+	ParmetisPartitionMode mode;
 };
 
 }

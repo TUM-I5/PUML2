@@ -5,25 +5,12 @@ find_path(PARHIP_INCLUDE_DIR parhip_interface.h
         DOC "Directory where the ParHIP header files are located"
         )
 
-# find_path(KAHIP_INCLUDE_DIR kaHIP_interface.h
-#         HINTS ${KAHIP_INCLUDE_DIR} ENV KAHIP_INCLUDE_DIR ${KAHIP_DIR} ENV KAHIP_DIR ${PARHIP_INCLUDE_DIR} ENV PARHIP_INCLUDE_DIR ${PARHIP_DIR} ENV PARHIP_DIR
-#         PATH_SUFFIXES include
-#         DOC "Directory where the KaHIP header files are located"
-#         )
-
 find_library(PARHIP_LIBRARY
         NAMES parhip_interface parhip_interface${PARHIP_LIB_SUFFIX} parhip parhip${PARHIP_LIB_SUFFIX}
         HINTS ${PARHIP_LIB_DIR} ENV PARHIP_LIB_DIR ${PARHIP_DIR} ENV PARHIP_DIR
         PATH_SUFFIXES lib
         DOC "Directory where the ParHIP library is located"
         )
-
-# find_library(KAHIP_LIBRARY
-#         NAMES kahip kahip${PARHIP_LIB_SUFFIX}
-#         HINTS ${PARHIP_LIB_DIR} ENV PARHIP_LIB_DIR ${PARHIP_DIR} ENV PARHIP_DIR
-#         PATH_SUFFIXES lib
-#         DOC "Directory where the KaHIP library is located"
-#         )
 
 # Try compiling and running test program
 if (PARHIP_INCLUDE_DIR AND PARHIP_LIBRARY)

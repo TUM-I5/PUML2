@@ -60,7 +60,7 @@ int main(int argc, char* argv[])
 	int* partition = new int[puml.numOriginalCells()];
 
 	PUML::TETPartitionGraph graph(puml);
-	auto partitioner = PUML::Partition::get_partitioner("parmetis");
+	auto partitioner = PUML::Partition::getPartitioner(PUML::PartitionerType::Parmetis);
 	PUML::PartitionTarget target;
 	target.setVertexWeightsUniform();
 	target.setImbalance(1.01);

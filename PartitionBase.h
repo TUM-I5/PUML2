@@ -6,7 +6,7 @@
  *  notice in the file 'COPYING' at the root directory of this package
  *  and the copyright notice at https://github.com/TUM-I5/PUMGen
  *
- * @copyright 2019 Technische Universitaet Muenchen
+ * @copyright 2019-2023 Technische Universitaet Muenchen
  * @author Sebastian Rettenberger <sebastian.rettenberger@tum.de>
  * @author David Schneller <david.schneller@tum.de>
  */
@@ -44,7 +44,7 @@ public:
 		std::vector<int> part(graph.localVertexCount());
 		auto result = partition(part, graph, target, seed);
 		if (result != PartitioningResult::SUCCESS) {
-			throw std::exception("Partitioning failed.");
+			logError() << "Partitioning failed.";
 		}
 		return part;
 	}
