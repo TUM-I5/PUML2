@@ -67,6 +67,9 @@ public:
 
 		std::vector<SCOTCH_Num> weights(nparts, 1);
 		if (!target.vertexWeightsUniform()) {
+			// we need to convert from double node weights to integer node weights
+			// (that is due to the interface still being oriented at ParMETIS right now)
+
 			double scale = (double)(1ULL<<24); // if this is not enough (or too much), adjust it
 			for (int i = 0; i < nparts; ++i) {
 				// important: the weights should be non-negative
