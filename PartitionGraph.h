@@ -51,7 +51,7 @@ public:
         std::vector<unsigned long> adjRaw(vertexCount * cellfaces);
 
         FaceIterator<Topo> iterator(m_puml);
-        iterator.template forEach<unsigned long>(
+        iterator.template forEachExtCell<unsigned long>(
             [&cells] (int fid, int cid) {
                 return cells[cid].gid();
             },
@@ -80,7 +80,7 @@ public:
 #ifdef USE_MPI
         MPI_Allgather(&vertexCount, 1, MPI_UNSIGNED_LONG, (unsigned long*)m_vertexDistribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
         MPI_Allgather(&m_adjDisp[vertexCount], 1, MPI_UNSIGNED_LONG, (unsigned long*)m_edgeDistribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
-        
+
         for (unsigned long i = 2; i <= m_processCount; ++i)
         {
             m_vertexDistribution[i] += m_vertexDistribution[i - 1];
@@ -92,44 +92,50 @@ public:
 #endif
     }
 
-    template<typename T>
+    // FaceHandlerFunc: void(int,int,const T&,const T&,int)
+    template<typename T, typename FaceHandlerFunc>
     void forEachLocalEdges(const T* cellData,
-                        const std::function<void(int,int,const T&,const T&,int)>& faceHandler,
+                        FaceHandlerFunc faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& handler = [&cellData] (int fid, int id) -> const T& {return cellData[id];};
+        auto handler = [&cellData] (int fid, int id){return cellData[id];};
         forEachLocalEdges<T>(handler, faceHandler, mpit);
     }
 
-    template<typename T>
+    // FaceHandlerFunc: void(int,int,const T&,const T&,int)
+    template<typename T, typename FaceHandlerFunc>
     void forEachLocalEdges(const std::vector<T>& cellData,
-                        const std::function<void(int,int,const T&,const T&,int)>& faceHandler,
+                        FaceHandlerFunc faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& handler = [&cellData] (int fid, int id) -> const T& {return cellData[id];};
+        auto handler = [&cellData] (int fid, int id){return cellData[id];};
         forEachLocalEdges<T>(handler, faceHandler, mpit);
     }
 
-    template<typename T>
-    void forEachLocalEdges(const std::function<T(int,int)>& cellHandler,
-                        const std::function<void(int,int,const T&,const T&,int)>& faceHandler,
+    // CellHandlerFunc: T(int,int)
+    // FaceHandlerFunc: void(int,int,const T&,const T&,int)
+    template<typename T, typename CellHandlerFunc, typename FaceHandlerFunc>
+    void forEachLocalEdges(CellHandlerFunc cellHandler,
+                        FaceHandlerFunc faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& realFaceHandler = [&faceHandler, &cellHandler](int fid,int lid,const T& a, int eid) {
+        auto realFaceHandler = [&faceHandler, &cellHandler](int fid,int lid,const T& a, int eid) {
             faceHandler(fid, lid, a, cellHandler(fid,lid), eid);
         };
-        forEachLocalEdges<T>(cellHandler, realFaceHandler, mpit);
+        forEachLocalEdgesExt<T>(cellHandler, realFaceHandler, mpit);
     }
 
-    template<typename T>
-    void forEachLocalEdges(const std::function<T(int,int)>& externalCellHandler,
-                        const std::function<void(int,int,const T&,int)>& faceHandler,
+    // ExternalCellHandlerFunc: T(int,int)
+    // FaceHandlerFunc: void(int,int,const T&,int)
+    template<typename T, typename ExternalCellHandlerFunc, typename FaceHandlerFunc>
+    void forEachLocalEdgesExt(ExternalCellHandlerFunc externalCellHandler,
+                        FaceHandlerFunc faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         
         std::vector<unsigned long> adjRawCount(localVertexCount());
         const auto& adjDisp = m_adjDisp;
-        const auto& realFaceHandler = [&adjDisp, &adjRawCount, &faceHandler](int fid,int lid,const T& a) {
+        auto realFaceHandler = [&adjDisp, &adjRawCount, &faceHandler](int fid,int lid,const T& a) {
             faceHandler(fid, lid, a, adjDisp[lid] + adjRawCount[lid]++);
         };
         FaceIterator<Topo> iterator(m_puml);
-        iterator.template forEach<T>(externalCellHandler, realFaceHandler, [](int a, int b){}, mpit);
+        iterator.template forEachExtCell<T>(externalCellHandler, realFaceHandler, [](int a, int b){}, mpit);
     }
 
     unsigned long localVertexCount() const {

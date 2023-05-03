@@ -102,90 +102,202 @@ public:
 #endif
     }
     
-    template<typename T>
-    void forEach(const std::vector<T>& cellData,
-                        const std::function<void(int,int,const T&,const T&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
-        forEach(cellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    template<typename T, typename FaceHandlerFunc>
+    void forEachCell(const std::vector<T>& cellData,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
+        forEachIntExtCell<T, T>(cellHandler, faceHandler, [](int a, int b){}, mpit);
     }
 
-    template<typename T, typename S>
-    void forEach(const std::vector<T>& external_cellData,
-                const std::vector<S>& internal_cellData,
-                        const std::function<void(int,int,const T&,const S&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
-        const auto& internalCellHandler = [&internal_cellData](int fid, int cid){return internal_cellData[cid];};
-        forEach(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachCell(const std::vector<T>& cellData,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
+        forEachIntExtCell<T, T>(cellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
-    template<typename T>
-    void forEach(const std::vector<T>& external_cellData,
-                        const std::function<void(int,int,const T&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
-        internalforEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // FaceHandlerFunc: void(int,int,const T&,const S&)
+    template<typename T, typename S, typename FaceHandlerFunc>
+    void forEachIntExtCell(const std::vector<T>& externalCellData,
+                    const std::vector<S>& internalCellData,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
+        forEachIntExtCell<T, S>(externalCellHandler, internalCellHandler, faceHandler, [](int a, int b){}, mpit);
     }
 
-    template<typename T>
-    void forEach(const T* cellData,
-                        const std::function<void(int,int,const T&,const T&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
-        forEach(cellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // FaceHandlerFunc: void(int,int,const T&,const S&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename S, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachIntExtCell(const std::vector<T>& externalCellData,
+                    const std::vector<S>& internalCellData,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
+        forEachIntExtCell<T, S>(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
-    template<typename T, typename S>
-    void forEach(const T* external_cellData,
-                const S* internal_cellData,
-                        const std::function<void(int,int,const T&,const S&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
-        const auto& internalCellHandler = [&internal_cellData](int fid, int cid){return internal_cellData[cid];};
-        forEach(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    template<typename T, typename FaceHandlerFunc>
+    void forEachExtCell(const std::vector<T>& externalCellData,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        internalforEach<T>(externalCellHandler, faceHandler, [](int a, int b){}, mpit);
     }
 
-    template<typename T>
-    void forEach(const T* external_cellData,
-                        const std::function<void(int,int,const T&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& externalCellHandler = [&external_cellData](int fid, int cid){return external_cellData[cid];};
-        internalforEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachExtCell(const std::vector<T>& externalCellData,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        internalforEach<T>(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
-    template<typename T>
-    void forEach(const std::function<T(int,int)>& cellHandler,
-                        const std::function<void(int,int,const T&,const T&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        forEach(cellHandler, cellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    template<typename T, typename FaceHandlerFunc>
+    void forEachCell(const T* cellData,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
+        forEachIntExtCell<T, T>(cellHandler, faceHandler, [](int a, int b){}, mpit);
     }
 
-    template<typename T, typename S>
-    void forEach(const std::function<T(int,int)>& externalCellHandler,
-                const std::function<S(int,int)>& internalCellHandler,
-                        const std::function<void(int,int,const T&,const S&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachCell(const T* cellData,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
+        forEachIntExtCell<T, T>(cellHandler, faceHandler, boundaryFaceHandler, mpit);
+    }
+
+    // FaceHandlerFunc: void(int,int,const T&,const S&)
+    template<typename T, typename S, typename FaceHandlerFunc>
+    void forEachIntExtCell(const T* externalCellData,
+                    const S* internalCellData,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
+        forEachIntExtCell<T, S>(externalCellHandler, internalCellHandler, faceHandler, [](int a, int b){}, mpit);
+    }
+
+    // FaceHandlerFunc: void(int,int,const T&,const S&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename S, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachIntExtCell(const T* externalCellData,
+                    const S* internalCellData,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
+        forEachIntExtCell<T, S>(externalCellHandler, internalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+    }
+
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    template<typename T, typename FaceHandlerFunc>
+    void forEachExtCell(const T* externalCellData,
+                        FaceHandlerFunc faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        const auto& realFaceHandler = [&faceHandler, &internalCellHandler](int fid, int cid, const T& tv) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        internalforEach<T>(externalCellHandler, faceHandler, [](int a, int b){}, mpit);
+    }
+
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachExtCell(const T* externalCellData,
+                        FaceHandlerFunc faceHandler,
+                        BoundaryFaceHandlerFunc boundaryFaceHandler,
+                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
+        internalforEach<T>(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+    }
+
+    // CellHandlerFunc: T(int,int)
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    template<typename T, typename CellHandlerFunc, typename FaceHandlerFunc>
+    void forEachCell(CellHandlerFunc cellHandler,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        forEachIntExtCell<T, T>(cellHandler, cellHandler, faceHandler, [](int a, int b){}, mpit);
+    }
+
+    // CellHandlerFunc: T(int,int)
+    // FaceHandlerFunc: void(int,int,const T&,const T&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename CellHandlerFunc, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachCell(CellHandlerFunc cellHandler,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        forEachIntExtCell<T, T>(cellHandler, cellHandler, faceHandler, boundaryFaceHandler, mpit);
+    }
+
+    // ExternalCellHandlerFunc: T(int,int)
+    // InternalCellHandlerFunc: S(int,int)
+    // FaceHandlerFunc: void(int,int,const T&,const S&)
+    template<typename T, typename S, typename ExternalCellHandlerFunc, typename InternalCellHandlerFunc, typename FaceHandlerFunc>
+    void forEachIntExtCell(ExternalCellHandlerFunc externalCellHandler,
+                    InternalCellHandlerFunc internalCellHandler,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto realFaceHandler = [&faceHandler, &internalCellHandler](int fid, int cid, const T& tv) {
             faceHandler(fid, cid, tv, internalCellHandler(fid, cid));
         };
-        forEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+        forEachExtCell<T>(externalCellHandler, realFaceHandler, [](int a, int b){}, mpit);
     }
 
-    template<typename T>
-    void forEach(const std::function<T(int,int)>& externalCellHandler,
-                        const std::function<void(int,int,const T&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler = [](int a, int b){},
-                        MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        internalforEach(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
+    // ExternalCellHandlerFunc: T(int,int)
+    // InternalCellHandlerFunc: S(int,int)
+    // FaceHandlerFunc: void(int,int,const T&,const S&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename S, typename ExternalCellHandlerFunc, typename InternalCellHandlerFunc, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachIntExtCell(ExternalCellHandlerFunc externalCellHandler,
+                    InternalCellHandlerFunc internalCellHandler,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        auto realFaceHandler = [&faceHandler, &internalCellHandler](int fid, int cid, const T& tv) {
+            faceHandler(fid, cid, tv, internalCellHandler(fid, cid));
+        };
+        forEachExtCell<T>(externalCellHandler, realFaceHandler, boundaryFaceHandler, mpit);
+    }
+
+    // ExternalCellHandlerFunc: T(int,int)
+    // FaceHandlerFunc: void(int,int,const T&)
+    template<typename T, typename ExternalCellHandlerFunc, typename FaceHandlerFunc>
+    void forEachExtCell(ExternalCellHandlerFunc externalCellHandler,
+                    FaceHandlerFunc faceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        internalforEach<T>(externalCellHandler, faceHandler, [](int a, int b){}, mpit);
+    }
+
+    // ExternalCellHandlerFunc: T(int,int)
+    // FaceHandlerFunc: void(int,int,const T&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename ExternalCellHandlerFunc, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void forEachExtCell(ExternalCellHandlerFunc externalCellHandler,
+                    FaceHandlerFunc faceHandler,
+                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+        internalforEach<T>(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
 
     const PUML<Topo>& puml() const {
@@ -193,11 +305,14 @@ public:
     }
 
 private:
-    template<typename T>
-    void internalforEach(const std::function<T(int,int)>& externalCellHandler,
-                        const std::function<void(int,int,const T&)>& faceHandler,
-                        const std::function<void(int,int)>& boundaryFaceHandler,
-                        MPI_Datatype mpit) {
+    // ExternalCellHandlerFunc: T(int,int)
+    // FaceHandlerFunc: void(int,int,const T&)
+    // BoundaryFaceHandlerFunc: void(int,int)
+    template<typename T, typename ExternalCellHandlerFunc, typename FaceHandlerFunc, typename BoundaryFaceHandlerFunc>
+    void internalforEach(ExternalCellHandlerFunc externalCellHandler,
+                            FaceHandlerFunc faceHandler,
+                            BoundaryFaceHandlerFunc boundaryFaceHandler,
+                            MPI_Datatype mpit) {
         int rank = 0, commSize = 1;
 
         for (int i = 0; i < m_puml.faces().size(); ++i) {
