@@ -97,7 +97,7 @@ public:
     template<typename T, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&, int>, bool> = true>
     void forEachLocalEdges(const T* cellData,
-                        FaceHandlerFunc faceHandler,
+                        FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto handler = [&cellData] (int fid, int id){return cellData[id];};
         forEachLocalEdges<T>(handler, faceHandler, mpit);
@@ -107,7 +107,7 @@ public:
     template<typename T, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&, int>, bool> = true>
     void forEachLocalEdges(const std::vector<T>& cellData,
-                        FaceHandlerFunc faceHandler,
+                        FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto handler = [&cellData] (int fid, int id){return cellData[id];};
         forEachLocalEdges<T>(handler, faceHandler, mpit);
@@ -118,8 +118,8 @@ public:
     template<typename T, typename CellHandlerFunc, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_r_v<T, CellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&, int>, bool> = true>
-    void forEachLocalEdges(CellHandlerFunc cellHandler,
-                        FaceHandlerFunc faceHandler,
+    void forEachLocalEdges(CellHandlerFunc&& cellHandler,
+                        FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto realFaceHandler = [&faceHandler, &cellHandler](int fid,int lid,const T& a, int eid) {
             faceHandler(fid, lid, a, cellHandler(fid,lid), eid);
@@ -132,8 +132,8 @@ public:
     template<typename T, typename ExternalCellHandlerFunc, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, int>, bool> = true>
-    void forEachLocalEdges(ExternalCellHandlerFunc externalCellHandler,
-                        FaceHandlerFunc faceHandler,
+    void forEachLocalEdges(ExternalCellHandlerFunc&& externalCellHandler,
+                        FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         
         std::vector<unsigned long> adjRawCount(localVertexCount());

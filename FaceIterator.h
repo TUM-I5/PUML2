@@ -106,7 +106,7 @@ public:
     template<typename T, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>, bool> = true>
     void forEach(const std::vector<T>& cellData,
-                    FaceHandlerFunc faceHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
         forEach<T, T>(cellHandler, faceHandler, [](int a, int b){}, mpit);
@@ -118,8 +118,8 @@ public:
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
     void forEach(const std::vector<T>& cellData,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
         forEach<T, T>(cellHandler, faceHandler, boundaryFaceHandler, mpit);
@@ -130,7 +130,7 @@ public:
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const S&>, bool> = true>
     void forEach(const std::vector<T>& externalCellData,
                     const std::vector<S>& internalCellData,
-                    FaceHandlerFunc faceHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
@@ -144,8 +144,8 @@ public:
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
     void forEach(const std::vector<T>& externalCellData,
                     const std::vector<S>& internalCellData,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
@@ -156,7 +156,7 @@ public:
     template<typename T, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true>
     void forEach(const std::vector<T>& externalCellData,
-                    FaceHandlerFunc faceHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         internalforEach<T>(externalCellHandler, faceHandler, [](int a, int b){}, mpit);
@@ -168,8 +168,8 @@ public:
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
     void forEach(const std::vector<T>& externalCellData,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         internalforEach<T>(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
@@ -179,7 +179,7 @@ public:
     template<typename T, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>, bool> = true>
     void forEach(const T* cellData,
-                    FaceHandlerFunc faceHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
         forEach<T, T>(cellHandler, faceHandler, [](int a, int b){}, mpit);
@@ -191,8 +191,8 @@ public:
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
     void forEach(const T* cellData,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto cellHandler = [&cellData](int fid, int cid){return cellData[cid];};
         forEach<T, T>(cellHandler, faceHandler, boundaryFaceHandler, mpit);
@@ -203,7 +203,7 @@ public:
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const S&>, bool> = true>
     void forEach(const T* externalCellData,
                     const S* internalCellData,
-                    FaceHandlerFunc faceHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
@@ -217,8 +217,8 @@ public:
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
     void forEach(const T* externalCellData,
                     const S* internalCellData,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         auto internalCellHandler = [&internalCellData](int fid, int cid){return internalCellData[cid];};
@@ -229,7 +229,7 @@ public:
     template<typename T, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true>
     void forEach(const T* externalCellData,
-                        FaceHandlerFunc faceHandler,
+                        FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         internalforEach<T>(externalCellHandler, faceHandler, [](int a, int b){}, mpit);
@@ -241,8 +241,8 @@ public:
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
     void forEach(const T* externalCellData,
-                        FaceHandlerFunc faceHandler,
-                        BoundaryFaceHandlerFunc boundaryFaceHandler,
+                        FaceHandlerFunc&& faceHandler,
+                        BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto externalCellHandler = [&externalCellData](int fid, int cid){return externalCellData[cid];};
         internalforEach<T>(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
@@ -253,8 +253,8 @@ public:
     template<typename T, typename CellHandlerFunc, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_r_v<T, CellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>, bool> = true>
-    void forEach(CellHandlerFunc cellHandler,
-                    FaceHandlerFunc faceHandler,
+    void forEach(CellHandlerFunc&& cellHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         forEach<T, T>(cellHandler, cellHandler, faceHandler, [](int a, int b){}, mpit);
     }
@@ -266,9 +266,9 @@ public:
         std::enable_if_t<std::is_invocable_r_v<T, CellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
-    void forEach(CellHandlerFunc cellHandler,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+    void forEach(CellHandlerFunc&& cellHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         forEach<T, T>(cellHandler, cellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
@@ -280,9 +280,9 @@ public:
         std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_r_v<S, InternalCellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const S&>, bool> = true>
-    void forEach(ExternalCellHandlerFunc externalCellHandler,
-                    InternalCellHandlerFunc internalCellHandler,
-                    FaceHandlerFunc faceHandler,
+    void forEach(ExternalCellHandlerFunc&& externalCellHandler,
+                    InternalCellHandlerFunc&& internalCellHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto realFaceHandler = [&faceHandler, &internalCellHandler](int fid, int cid, const T& tv) {
             faceHandler(fid, cid, tv, internalCellHandler(fid, cid));
@@ -299,10 +299,10 @@ public:
         std::enable_if_t<std::is_invocable_r_v<S, InternalCellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const S&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
-    void forEach(ExternalCellHandlerFunc externalCellHandler,
-                    InternalCellHandlerFunc internalCellHandler,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+    void forEach(ExternalCellHandlerFunc&& externalCellHandler,
+                    InternalCellHandlerFunc&& internalCellHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto realFaceHandler = [&faceHandler, &internalCellHandler](int fid, int cid, const T& tv) {
             faceHandler(fid, cid, tv, internalCellHandler(fid, cid));
@@ -315,8 +315,8 @@ public:
     template<typename T, typename ExternalCellHandlerFunc, typename FaceHandlerFunc,
         std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true>
-    void forEach(ExternalCellHandlerFunc externalCellHandler,
-                    FaceHandlerFunc faceHandler,
+    void forEach(ExternalCellHandlerFunc&& externalCellHandler,
+                    FaceHandlerFunc&& faceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         internalforEach<T>(externalCellHandler, faceHandler, [](int a, int b){}, mpit);
     }
@@ -328,9 +328,9 @@ public:
         std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
-    void forEach(ExternalCellHandlerFunc externalCellHandler,
-                    FaceHandlerFunc faceHandler,
-                    BoundaryFaceHandlerFunc boundaryFaceHandler,
+    void forEach(ExternalCellHandlerFunc&& externalCellHandler,
+                    FaceHandlerFunc&& faceHandler,
+                    BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                     MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         internalforEach<T>(externalCellHandler, faceHandler, boundaryFaceHandler, mpit);
     }
@@ -347,9 +347,9 @@ private:
         std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
         std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true,
         std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
-    void internalforEach(ExternalCellHandlerFunc externalCellHandler,
-                            FaceHandlerFunc faceHandler,
-                            BoundaryFaceHandlerFunc boundaryFaceHandler,
+    void internalforEach(ExternalCellHandlerFunc&& externalCellHandler,
+                            FaceHandlerFunc&& faceHandler,
+                            BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                             MPI_Datatype mpit) {
         int rank = 0, commSize = 1;
 
