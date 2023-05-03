@@ -23,6 +23,7 @@
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 #include <vector>
+#include <stdexcept>
 
 namespace PUML
 {
