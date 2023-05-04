@@ -1,0 +1,29 @@
+[
+    {
+        "name": "parmetis"
+    },
+    {
+        "name": "parhip-fast"
+    },
+    {
+        "name": "parhip-ultrafast"
+    },
+    {
+        "name": "parhip-fastsocial"
+    },
+    {
+        "name": "parhip-ultrafastsocial"
+    },
+    {
+        "name": "ptscotch",
+        "ew": "none"
+    },
+    {
+        "name": "ptscotch-b",
+        "ew": "none"
+    },
+    {
+        "name": "ptscotch-s",
+        "ew": "none"
+    }
+]

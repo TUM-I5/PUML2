@@ -1033,6 +1033,16 @@ public:
 		return m_v2f.find(vertexIds);
 	}
 
+#ifdef USE_MPI
+	/**
+	 * @return The MPI communicator used by this class. (this field only exists, if MPI is enabled)
+	 */
+	const MPI_Comm& comm() const
+	{
+		return m_comm;
+	}
+#endif
+
 private:
 	/**
 	 * Add a face but only if it does not exist yet

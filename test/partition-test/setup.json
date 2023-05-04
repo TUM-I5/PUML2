@@ -1,0 +1,7 @@
+{
+    "nparts": 10,
+    "meshfile": "../../base-test/test_data/mesh.h5",
+    "imbalance": 0.01,
+    "seed": 1,
+    "output": "-"
+}
