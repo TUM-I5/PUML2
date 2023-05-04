@@ -20,7 +20,9 @@
 #include <algorithm>
 #include <vector>
 #include <cassert>
+#include <functional>
 #include <type_traits>
+#include <utility>
 #include "Topology.h"
 #include "PUML.h"
 #include "FaceIterator.h"
@@ -79,8 +81,8 @@ public:
         m_edgeDistribution[0] = 0;
 
 #ifdef USE_MPI
-        MPI_Allgather(&vertexCount, 1, MPI_UNSIGNED_LONG, (unsigned long*)m_vertexDistribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
-        MPI_Allgather(&m_adjDisp[vertexCount], 1, MPI_UNSIGNED_LONG, (unsigned long*)m_edgeDistribution.data() + 1, 1, MPI_UNSIGNED_LONG, m_comm);
+        MPI_Allgather(&vertexCount, 1, MPI_UNSIGNED_LONG, static_cast<unsigned long*>(m_vertexDistribution.data()) + 1, 1, MPI_UNSIGNED_LONG, m_comm);
+        MPI_Allgather(&m_adjDisp[vertexCount], 1, MPI_UNSIGNED_LONG, static_cast<unsigned long*>(m_edgeDistribution.data()) + 1, 1, MPI_UNSIGNED_LONG, m_comm);
 
         for (unsigned long i = 2; i <= m_processCount; ++i)
         {
@@ -100,7 +102,7 @@ public:
                         FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto handler = [&cellData] (int fid, int id){return cellData[id];};
-        forEachLocalEdges<T>(handler, faceHandler, mpit);
+        forEachLocalEdges<T>(std::move(handler), std::forward<FaceHandlerFunc>(faceHandler), mpit);
     }
 
     // FaceHandlerFunc: void(int,int,const T&,const T&,int)
@@ -110,7 +112,7 @@ public:
                         FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
         auto handler = [&cellData] (int fid, int id){return cellData[id];};
-        forEachLocalEdges<T>(handler, faceHandler, mpit);
+        forEachLocalEdges<T>(std::move(handler), std::forward<FaceHandlerFunc>(faceHandler), mpit);
     }
 
     // CellHandlerFunc: T(int,int)
@@ -121,10 +123,12 @@ public:
     void forEachLocalEdges(CellHandlerFunc&& cellHandler,
                         FaceHandlerFunc&& faceHandler,
                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-        auto realFaceHandler = [&faceHandler, &cellHandler](int fid,int lid,const T& a, int eid) {
-            faceHandler(fid, lid, a, cellHandler(fid,lid), eid);
-        };
-        forEachLocalEdges<T>(cellHandler, realFaceHandler, mpit);
+        auto realFaceHandler = [faceHandler = std::forward<FaceHandlerFunc>(faceHandler), cellHandler = std::forward<CellHandlerFunc>(cellHandler)]
+            (int fid,int lid,const T& a, int eid) {
+                auto b = std::invoke(cellHandler, fid, lid);
+                std::invoke(faceHandler, fid, lid, a, b, eid);
+            };
+        forEachLocalEdges<T>(std::forward<CellHandlerFunc>(cellHandler), std::move(realFaceHandler), mpit);
     }
 
     // ExternalCellHandlerFunc: T(int,int)
@@ -138,11 +142,11 @@ public:
         
         std::vector<unsigned long> adjRawCount(localVertexCount());
         const auto& adjDisp = m_adjDisp;
-        auto realFaceHandler = [&adjDisp, &adjRawCount, &faceHandler](int fid,int lid,const T& a) {
-            faceHandler(fid, lid, a, adjDisp[lid] + adjRawCount[lid]++);
+        auto realFaceHandler = [&adjDisp, &adjRawCount, faceHandler = std::forward<FaceHandlerFunc>(faceHandler)](int fid,int lid,const T& a) {
+            std::invoke(faceHandler, fid, lid, a, adjDisp[lid] + adjRawCount[lid]++);
         };
         FaceIterator<Topo> iterator(m_puml);
-        iterator.template forEach<T>(externalCellHandler, realFaceHandler, [](int a, int b){}, mpit);
+        iterator.template forEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler), std::move(realFaceHandler), std::move([](int a, int b){}), mpit);
     }
 
     unsigned long localVertexCount() const {
