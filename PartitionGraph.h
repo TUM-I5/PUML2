@@ -18,6 +18,7 @@
 #endif // USE_MPI
 
 #include <algorithm>
+#include <numeric>
 #include <vector>
 #include <cassert>
 #include <functional>
