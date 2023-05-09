@@ -67,7 +67,12 @@ public:
 
         m_adjDisp.resize(vertexCount+1);
         m_adjDisp[0] = 0;
-        std::inclusive_scan(adjRawCount.begin(), adjRawCount.end(), m_adjDisp.begin() + 1);
+        //Note: std::inclusive_scan can be used here but some compilers
+        // haven't provided support for it e.g., libc++@15.0.0
+        m_adjDisp[1] = adjRawCount[0];
+        for (std::size_t i = 1; i < adjRawCount.size(); ++i) {
+	        m_adjDisp[i + 1] = m_adjDisp[i] + adjRawCount[i];
+        }
 
         m_adj.resize(m_adjDisp[vertexCount]);
         for (unsigned long i = 0, j = 0; i < vertexCount; ++i) {
