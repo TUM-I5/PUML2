@@ -11,9 +11,14 @@
  */
 
 #include <mpi.h>
+#include <omp.h>
+#include <string>
 
 #include "utils/args.h"
 #include "utils/logger.h"
+
+#define LOCK_SIZE 512
+#define CONTAINER_SIZE 8
 
 #include "PUML.h"
 #include "Downward.h"
@@ -25,9 +30,12 @@
 
 int main(int argc, char* argv[])
 {
+
 	MPI_Init(&argc, &argv);
 
 	int rank;
+	int ranks;
+    MPI_Comm_size(MPI_COMM_WORLD, &ranks);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 	utils::Args args;
@@ -43,10 +51,10 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	PUML::TETPUML puml;
-
 	std::string infile = args.getAdditionalArgument<const char*>("in");
 	std::string outfile = args.getAdditionalArgument<const char*>("out");
+
+	PUML::TETPUML puml;
 
 	// Read the mesh
 	logInfo(rank) << "Reading mesh";
@@ -69,6 +77,7 @@ int main(int argc, char* argv[])
 	// Redistribute the cells
 	logInfo(rank) << "Redistributing cells";
 	puml.partition(partition);
+
 	delete [] partition;
 
 	// Generate the mesh information
@@ -113,7 +122,6 @@ int main(int argc, char* argv[])
 
 	writer.close();
 
-	logInfo(rank) << "Done";
 
 	MPI_Finalize();
 
