@@ -25,7 +25,9 @@
 #include <unordered_set>
 #include <vector>
 
+#ifdef USE_HDF
 #include <hdf5.h>
+#endif
 
 #include "utils/logger.h"
 #include "utils/stringutils.h"
