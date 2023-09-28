@@ -369,7 +369,7 @@ public:
 	}
 
     template<typename T>
-	void addData(const T* rawData, unsigned long dataSize, DataType type
+	void addDataArray(const T* rawData, DataType type
 #ifdef USE_MPI
 		, MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
@@ -387,13 +387,8 @@ public:
 		auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
 		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
 
-		unsigned long totalSize = m_originalTotalSize[type];
-		if (dataSize != totalSize) {
-			logError() << "Data has the wrong size, expected" << totalSize << ", but got" << dataSize;
-		}
-
 		void* data = std::malloc(sizeof(T) * localSize);
-        std::memcpy(data, rawData + offset, sizeof(T) * localSize);
+        std::memcpy(data, rawData, sizeof(T) * localSize);
 		switch (type) {
 		case CELL:
 			m_cellData.push_back(data);

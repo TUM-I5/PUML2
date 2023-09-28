@@ -120,7 +120,7 @@ int main(int argc, char* argv[])
 	puml.addData((infile  + ":/boundary").c_str(), PUML::CELL);
 
 	std::vector<unsigned long long> test(puml.numOriginalCells(), 0x5555555555555555ULL);
-	puml.addData(test.data(), puml.numOriginalCells(), PUML::CELL);
+	puml.addDataArray(test.data(), PUML::CELL);
 
 	// Generate the mesh information
 	logInfo(rank) << "Generating mesh information";
