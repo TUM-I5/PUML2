@@ -602,8 +602,8 @@ public:
 		// Exchange cell data
 		for (std::size_t j = 0; j < m_cellData.size(); ++j) {
 			void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
-			MPI_Alltoallv(m_cellData[j], sendCount, sDispls, MPI_INT,
-				newData, recvCount, rDispls, MPI_INT,
+			MPI_Alltoallv(m_cellData[j], sendCount, sDispls, m_cellDataType[j],
+				newData, recvCount, rDispls, m_cellDataType[j],
 				m_comm);
 
 			std::free(m_cellData[j]);
@@ -734,8 +734,8 @@ public:
 		MPI_Type_free(&vertexType);
 
 		for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
-			MPI_Alltoallv(distribData[i], recvCount, rDispls, MPI_INT,
-				m_vertexData[i], sendCount, sDispls, MPI_INT,
+			MPI_Alltoallv(distribData[i], recvCount, rDispls, m_vertexDataType[i],
+				m_vertexData[i], sendCount, sDispls, m_vertexDataType[i],
 				m_comm);
 		}
 #endif // USE_MPI
