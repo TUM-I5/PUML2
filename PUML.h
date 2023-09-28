@@ -13,6 +13,9 @@
 #ifndef PUML_PUML_H
 #define PUML_PUML_H
 
+#include "TypeInference.h"
+#include <cstddef>
+#include <type_traits>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
@@ -24,6 +27,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <cstdlib>
 
 #include <hdf5.h>
 
@@ -183,13 +187,25 @@ private:
 	internal::VertexElementMap<2> m_v2e;
 
 	/** User cell data */
-	std::vector<int*> m_cellData;
+	std::vector<void*> m_cellData;
 
 	/** User vertex data */
-	std::vector<int*> m_vertexData;
+	std::vector<void*> m_vertexData;
 
 	/** Original user vertex data */
-	std::vector<int*> m_originalVertexData;
+	std::vector<void*> m_originalVertexData;
+
+	std::vector<std::size_t> m_cellDataSize;
+
+	std::vector<std::size_t> m_vertexDataSize;
+
+#ifdef USE_MPI
+
+	std::vector<MPI_Datatype> m_cellDataType;
+
+	std::vector<MPI_Datatype> m_vertexDataType;
+#endif
+
 public:
 	PUML() :
 #ifdef USE_MPI
@@ -204,19 +220,19 @@ public:
 		delete [] m_originalCells;
 		delete [] m_originalVertices;
 
-		for (std::vector<int*>::const_iterator it = m_cellData.begin();
+		for (std::vector<void*>::const_iterator it = m_cellData.begin();
 				it != m_cellData.end(); ++it) {
-			delete [] *it;
+			std::free(*it);
 		}
 
-		for (std::vector<int*>::const_iterator it = m_vertexData.begin();
+		for (std::vector<void*>::const_iterator it = m_vertexData.begin();
 				it != m_vertexData.end(); ++it) {
-			delete [] *it;
+			std::free(*it);
 		}
 
-		for (std::vector<int*>::const_iterator it = m_originalVertexData.begin();
+		for (std::vector<void*>::const_iterator it = m_originalVertexData.begin();
 				it != m_originalVertexData.end(); ++it) {
-			delete [] *it;
+			std::free(*it);
 		}
 	}
 
@@ -237,12 +253,14 @@ public:
 #endif // USE_MPI
 
 		std::vector<std::string> cellNames = utils::StringUtils::split(cellName, ':');
-		if (cellNames.size() != 2)
+		if (cellNames.size() != 2) {
 			logError() << "Cells name must have the form \"filename:/dataset\"";
+		}
 
 		std::vector<std::string> vertexNames = utils::StringUtils::split(vertexName, ':');
-		if (vertexNames.size() != 2)
+		if (vertexNames.size() != 2) {
 			logError() << "Vertices name must have the form \"filename:/dataset\"";
+		}
 
 		// Open the cell file
 		hid_t h5plist = H5Pcreate(H5P_FILE_ACCESS);
@@ -261,12 +279,14 @@ public:
 		// Check the size of cell dataset
 		hid_t h5space = H5Dget_space(h5dataset);
 		checkH5Err(h5space);
-		if (H5Sget_simple_extent_ndims(h5space) != 2)
+		if (H5Sget_simple_extent_ndims(h5space) != 2) {
 			logError() << "Cell dataset must have 2 dimensions";
+		}
 		hsize_t dims[2];
 		checkH5Err(H5Sget_simple_extent_dims(h5space, dims, 0L));
-		if (dims[1] != internal::Topology<Topo>::cellvertices())
+		if (dims[1] != internal::Topology<Topo>::cellvertices()) {
 			logError() << "Each cell must have" << internal::Topology<Topo>::cellvertices() << "vertices";
+		}
 
 		logInfo(rank) << "Found" << dims[0] << "cells";
 		auto cellDistributor = Distributor(dims[0], procs);
@@ -310,11 +330,13 @@ public:
 		// Check the size of vertex dataset
 		h5space = H5Dget_space(h5dataset);
 		checkH5Err(h5space);
-		if (H5Sget_simple_extent_ndims(h5space) != 2)
+		if (H5Sget_simple_extent_ndims(h5space) != 2) {
 			logError() << "Vertex dataset must have 2 dimensions";
+		}
 		checkH5Err(H5Sget_simple_extent_dims(h5space, dims, 0L));
-		if (dims[1] != 3)
+		if (dims[1] != 3) {
 			logError() << "Each vertex must have xyz coordinate";
+		}
 
 		logInfo(rank) << "Found" << dims[0] << "vertices";
 		auto vertexDistributor = Distributor(dims[0], procs);
@@ -346,9 +368,15 @@ public:
 		checkH5Err(H5Pclose(h5alist));
 	}
 
-        template<typename T>
-	void addData(const T* rawData, unsigned long dataSize, DataType type)
+    template<typename T>
+	void addData(const T* rawData, unsigned long dataSize, DataType type
+#ifdef USE_MPI
+		, MPI_Datatype mpiType = MPITypeInfer<T>::type()
+#endif
+	)
 	{
+		static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
+		static_assert(std::is_trivially_default_constructible_v<T>, "T needs to be trivially default constructible");
 		int rank = 0;
 		int procs = 1;
 #ifdef USE_MPI
@@ -361,23 +389,39 @@ public:
 
 		unsigned long totalSize = m_originalTotalSize[type];
 		if (dataSize != totalSize) {
-                  logError() << "Data has the wrong size, expected" << totalSize << ", but got" << dataSize;
-                }
+			logError() << "Data has the wrong size, expected" << totalSize << ", but got" << dataSize;
+		}
 
-		T* data = new T[localSize];
-                std::copy(&rawData[offset], &rawData[offset + localSize], &data[0]);
+		void* data = std::malloc(sizeof(T) * localSize);
+        std::memcpy(data, rawData + offset, sizeof(T) * localSize);
 		switch (type) {
 		case CELL:
 			m_cellData.push_back(data);
+			m_cellDataSize.push_back(sizeof(T));
+#ifdef USE_MPI
+			m_cellDataType.push_back(mpiType);
+#endif
 			break;
 		case VERTEX:
 			m_originalVertexData.push_back(data);
+			m_vertexDataSize.push_back(sizeof(T));
+#ifdef USE_MPI
+			m_vertexDataType.push_back(mpiType);
+#endif
 			break;
 		}
 	}
 
-	void addData(const char* dataName, DataType type)
+	template<typename T = int>
+	void addData(const char* dataName, DataType type
+#ifdef USE_MPI
+		, MPI_Datatype mpiType = MPITypeInfer<T>::type()
+#endif
+		, hid_t hdf5Type = HDF5TypeInfer<T>::type()
+	)
 	{
+		static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
+		static_assert(std::is_trivially_default_constructible_v<T>, "T needs to be trivially default constructible");
 		int rank = 0;
 		int procs = 1;
 #ifdef USE_MPI
@@ -387,8 +431,9 @@ public:
 
 		auto cellDistributor = Distributor(m_originalTotalSize[0], procs);
 		std::vector<std::string> dataNames = utils::StringUtils::split(dataName, ':');
-		if (dataNames.size() != 2)
+		if (dataNames.size() != 2) {
 			logError() << "Data name must have the form \"filename:/dataset\"";
+		}
 
 		// Open the cell file
 		hid_t h5plist = H5Pcreate(H5P_FILE_ACCESS);
@@ -409,12 +454,14 @@ public:
 		// Check the size of cell dataset
 		hid_t h5space = H5Dget_space(h5dataset);
 		checkH5Err(h5space);
-		if (H5Sget_simple_extent_ndims(h5space) != 1)
+		if (H5Sget_simple_extent_ndims(h5space) != 1) {
 			logError() << "Dataset must have 1 dimension";
+		}
 		hsize_t dim;
 		checkH5Err(H5Sget_simple_extent_dims(h5space, &dim, 0L));
-		if (dim != totalSize)
+		if (dim != totalSize) {
 			logError() << "Dataset has the wrong size";
+		}
 
 		// Read the cells
 		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
@@ -433,8 +480,8 @@ public:
 		checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-		int* data = new int[localSize];
-		checkH5Err(H5Dread(h5dataset, H5T_NATIVE_INT, h5memspace, h5space, h5alist, data));
+		void* data = std::malloc(sizeof(T) * localSize);
+		checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, data));
 
 		// Close data
 		checkH5Err(H5Sclose(h5space));
@@ -449,9 +496,17 @@ public:
 		switch (type) {
 		case CELL:
 			m_cellData.push_back(data);
+			m_cellDataSize.push_back(sizeof(T));
+#ifdef USE_MPI
+			m_cellDataType.push_back(mpiType);
+#endif
 			break;
 		case VERTEX:
 			m_originalVertexData.push_back(data);
+			m_vertexDataSize.push_back(sizeof(T));
+#ifdef USE_MPI
+			m_vertexDataType.push_back(mpiType);
+#endif
 			break;
 		}
 	}
@@ -467,8 +522,9 @@ public:
 
 		// Create sorting indices
 		unsigned int* indices = new unsigned int[m_originalSize[0]];
-		for (unsigned int i = 0; i < m_originalSize[0]; i++)
+		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			indices[i] = i;
+		}
 
 		struct PSort
 		{
@@ -493,15 +549,14 @@ public:
 		m_originalCells = newCells;
 
 		// Sort other data
-		for (std::vector<int*>::iterator it = m_cellData.begin();
-				it != m_cellData.end(); ++it) {
-			int* newData = new int[m_originalSize[0]];
+		for (std::size_t j = 0; j < m_cellData.size(); ++j) {
+			void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
 			for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-				newData[i] = (*it)[indices[i]];
+				std::memcpy(reinterpret_cast<std::byte*>(newData) + m_cellDataSize[j] * i, reinterpret_cast<std::byte*>(m_cellData[j]) + m_cellDataSize[j] * indices[i], m_cellDataSize[j]);
 			}
 
-			delete [] *it;
-			*it = newData;
+			std::free(m_cellData[j]);
+			m_cellData[j] = newData;
 		}
 
 		delete [] indices;
@@ -550,15 +605,14 @@ public:
 		MPI_Type_free(&cellType);
 
 		// Exchange cell data
-		for (std::vector<int*>::iterator it = m_cellData.begin();
-				it != m_cellData.end(); ++it) {
-			int* newData = new int[m_originalSize[0]];
-			MPI_Alltoallv(*it, sendCount, sDispls, MPI_INT,
+		for (std::size_t j = 0; j < m_cellData.size(); ++j) {
+			void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
+			MPI_Alltoallv(m_cellData[j], sendCount, sDispls, MPI_INT,
 				newData, recvCount, rDispls, MPI_INT,
 				m_comm);
 
-			delete [] *it;
-			*it = newData;
+			std::free(m_cellData[j]);
+			m_cellData[j] = newData;
 		}
 #endif // USE_MPI
 
@@ -638,10 +692,10 @@ public:
 
 		// Send back vertex coordinates (an other data)
 		overtex_t* distribVertices = new overtex_t[totalRecv];
-		std::vector<int*> distribData;
+		std::vector<void*> distribData;
 		distribData.resize(m_originalVertexData.size());
 		for (unsigned int i = 0; i < m_originalVertexData.size(); i++)
-			distribData[i] = new int[totalRecv];
+			distribData[i] = std::malloc(totalRecv * m_vertexDataSize[i]);
 		std::vector<int>* sharedRanks = new std::vector<int>[m_originalSize[1]];
 		k = 0;
 		for (int i = 0; i < procs; i++) {
@@ -650,11 +704,12 @@ public:
 				distribVertexIds[k] = vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
 
 				assert(distribVertexIds[k] < m_originalSize[1]);
-				memcpy(distribVertices[k], m_originalVertices[distribVertexIds[k]], sizeof(overtex_t));
+				std::memcpy(distribVertices[k], m_originalVertices[distribVertexIds[k]], sizeof(overtex_t));
 
 				// Handle other vertex data
-				for (unsigned int l = 0; l < m_originalVertexData.size(); l++)
-					distribData[l][k] = m_originalVertexData[l][distribVertexIds[k]];
+				for (unsigned int l = 0; l < m_originalVertexData.size(); l++) {
+					std::memcpy(reinterpret_cast<std::byte*>(distribData[l]) + m_vertexDataSize[l] * k, reinterpret_cast<std::byte*>(m_originalVertexData[l]) + m_vertexDataSize[l] * distribVertexIds[k], m_vertexDataSize[l]);
+				}
 
 				// Save all ranks for each vertex
 				sharedRanks[distribVertexIds[k]].push_back(i);
@@ -665,14 +720,12 @@ public:
 
 		overtex_t* recvVertices = new overtex_t[totalVertices];
 
-		for (std::vector<int*>::iterator it = m_vertexData.begin();
-				it != m_vertexData.end(); ++it) {
-			delete [] *it;
+		for (auto& it : m_vertexData) {
+			std::free(it);
 		}
 		m_vertexData.resize(m_originalVertexData.size());
-		for (std::vector<int*>::iterator it = m_vertexData.begin();
-				it != m_vertexData.end(); ++it) {
-			*it = new int[totalVertices];
+		for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
+			m_vertexData[i] = std::malloc(totalVertices * m_vertexDataSize[i]);
 		}
 #ifdef USE_MPI
 		MPI_Datatype vertexType;
@@ -693,9 +746,8 @@ public:
 #endif // USE_MPI
 
 		delete [] distribVertices;
-		for (std::vector<int*>::iterator it = distribData.begin();
-				it != distribData.end(); ++it) {
-			delete [] *it;
+		for (auto& it : distribData) {
+			std::free(it);
 		}
 		distribData.clear();
 
@@ -962,7 +1014,7 @@ public:
 	/**
 	 * @return Original user cell data
 	 */
-	const int* originalCellData(unsigned int index) const
+	const void* originalCellData(unsigned int index) const
 	{
 		return cellData(index); // This is the same
 	}
@@ -970,7 +1022,7 @@ public:
 	/**
 	 * @return Original user vertex data
 	 */
-	const int* originalVertexData(unsigned int index) const
+	const void* originalVertexData(unsigned int index) const
 	{
 		return m_originalVertexData[index];
 	}
@@ -1010,7 +1062,7 @@ public:
 	/**
 	 * @return User cell data
 	 */
-	const int* cellData(unsigned int index) const
+	const void* cellData(unsigned int index) const
 	{
 		return m_cellData[index];
 	}
@@ -1018,7 +1070,7 @@ public:
 	/**
 	 * @return User vertex data
 	 */
-	const int* vertexData(unsigned int index) const
+	const void* vertexData(unsigned int index) const
 	{
 		return m_vertexData[index];
 	}
