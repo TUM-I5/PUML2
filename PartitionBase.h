@@ -38,6 +38,7 @@ class PartitionBase
 {
 public:
 	PartitionBase() { }
+        virtual ~PartitionBase() = default;
 
 #ifdef USE_MPI
 	std::vector<int> partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
