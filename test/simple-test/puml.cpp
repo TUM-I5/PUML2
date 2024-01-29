@@ -116,11 +116,11 @@ int main(int argc, char* argv[])
 	puml.open((infile + ":/connect").c_str(), (infile + ":/geometry").c_str());
 
 	logInfo(rank) << "Reading other data (i.e. groups, boundaries)";
-	puml.addData((infile  + ":/group").c_str(), PUML::CELL);
-	puml.addData((infile  + ":/boundary").c_str(), PUML::CELL);
+	puml.addData<int>((infile  + ":/group").c_str(), PUML::CELL, {});
+	puml.addData<int>((infile  + ":/boundary").c_str(), PUML::CELL, {});
 
 	std::vector<unsigned long long> test(puml.numOriginalCells(), 0x5555555555555555ULL);
-	puml.addDataArray(test.data(), PUML::CELL);
+	puml.addDataArray<unsigned long long>(test.data(), PUML::CELL, {});
 
 	// Generate the mesh information
 	logInfo(rank) << "Generating mesh information";

@@ -202,9 +202,21 @@ private:
 #ifdef USE_MPI
 
 	std::vector<MPI_Datatype> m_cellDataType;
+	std::vector<bool> m_cellDataTypeDerived;
 
 	std::vector<MPI_Datatype> m_vertexDataType;
+	std::vector<bool> m_vertexDataTypeDerived;
 #endif
+
+	std::pair<MPI_Datatype, bool> createDatatypeArray(MPI_Datatype baseType, std::size_t elemSize) {
+		if (elemSize == 1) {
+			return {baseType, false};
+		}
+		MPI_Datatype newType;
+		MPI_Type_contiguous(elemSize, baseType, &newType);
+		MPI_Type_commit(&newType);
+		return {newType, true};
+	}
 
 public:
 	PUML() :
@@ -220,20 +232,31 @@ public:
 		delete [] m_originalCells;
 		delete [] m_originalVertices;
 
-		for (std::vector<void*>::const_iterator it = m_cellData.begin();
-				it != m_cellData.end(); ++it) {
-			std::free(*it);
+		for (const auto& i : m_cellData) {
+			std::free(i);
 		}
 
-		for (std::vector<void*>::const_iterator it = m_vertexData.begin();
-				it != m_vertexData.end(); ++it) {
-			std::free(*it);
+		for (const auto& i : m_vertexData) {
+			std::free(i);
 		}
 
-		for (std::vector<void*>::const_iterator it = m_originalVertexData.begin();
-				it != m_originalVertexData.end(); ++it) {
-			std::free(*it);
+		for (const auto& i : m_originalVertexData) {
+			std::free(i);
 		}
+
+#ifdef USE_MPI
+		for (size_t i = 0; i < m_cellDataType.size(); ++i) {
+			if (m_cellDataTypeDerived[i]) {
+				MPI_Type_free(&m_cellDataType[i]);
+			}
+		}
+
+		for (size_t i = 0; i < m_vertexDataType.size(); ++i) {
+			if (m_vertexDataTypeDerived[i]) {
+				MPI_Type_free(&m_vertexDataType[i]);
+			}
+		}
+#endif
 	}
 
 #ifdef USE_MPI
@@ -369,7 +392,7 @@ public:
 	}
 
     template<typename T>
-	void addDataArray(const T* rawData, DataType type
+	void addDataArray(const T* rawData, DataType type, const std::vector<size_t>& sizes
 #ifdef USE_MPI
 		, MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
@@ -387,28 +410,41 @@ public:
 		auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
 		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
 
-		void* data = std::malloc(sizeof(T) * localSize);
-        std::memcpy(data, rawData, sizeof(T) * localSize);
+		size_t elemSize = 1;
+		for (auto size : sizes) {
+			elemSize *= size;
+		}
+
+		void* data = std::malloc(sizeof(T) * localSize * elemSize);
+        std::memcpy(data, rawData, sizeof(T) * localSize * elemSize);
 		switch (type) {
 		case CELL:
+		{
 			m_cellData.push_back(data);
-			m_cellDataSize.push_back(sizeof(T));
+			m_cellDataSize.push_back(sizeof(T) * localSize);
 #ifdef USE_MPI
-			m_cellDataType.push_back(mpiType);
+			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
+			m_cellDataType.push_back(type);
+			m_cellDataTypeDerived.push_back(derived);
 #endif
+		}
 			break;
 		case VERTEX:
+		{
 			m_originalVertexData.push_back(data);
-			m_vertexDataSize.push_back(sizeof(T));
+			m_vertexDataSize.push_back(sizeof(T) * localSize);
 #ifdef USE_MPI
-			m_vertexDataType.push_back(mpiType);
+			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
+			m_vertexDataType.push_back(type);
+			m_vertexDataTypeDerived.push_back(derived);
 #endif
+		}
 			break;
 		}
 	}
 
 	template<typename T = int>
-	void addData(const char* dataName, DataType type
+	void addData(const char* dataName, DataType type, const std::vector<size_t>& sizes
 #ifdef USE_MPI
 		, MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
@@ -461,12 +497,22 @@ public:
 		// Read the cells
 		auto[offset, localSize] = cellDistributor.offsetAndSize(rank);
 
-		hsize_t start = offset;
-		hsize_t count = localSize;
+		size_t elemSize = 1;
+		for (auto size : sizes) {
+			elemSize *= size;
+		}
 
-		checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, &start, 0L, &count, 0L));
+		std::vector<hsize_t> start = {offset};
+		std::vector<hsize_t> count = {localSize};
 
-		hid_t h5memspace = H5Screate_simple(1, &count, 0L);
+		for (auto size : sizes) {
+			start.push_back(0);
+			count.push_back(size);
+		}
+
+		checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), 0L, count.data(), 0L));
+
+		hid_t h5memspace = H5Screate_simple(count.size(), count.data(), 0L);
 		checkH5Err(h5memspace);
 
 		hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
@@ -475,7 +521,7 @@ public:
 		checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-		void* data = std::malloc(sizeof(T) * localSize);
+		void* data = std::malloc(sizeof(T) * localSize * elemSize);
 		checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, data));
 
 		// Close data
@@ -490,18 +536,26 @@ public:
 
 		switch (type) {
 		case CELL:
+		{
 			m_cellData.push_back(data);
-			m_cellDataSize.push_back(sizeof(T));
+			m_cellDataSize.push_back(sizeof(T) * localSize);
 #ifdef USE_MPI
-			m_cellDataType.push_back(mpiType);
+			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
+			m_cellDataType.push_back(type);
+			m_cellDataTypeDerived.push_back(derived);
 #endif
+		}
 			break;
 		case VERTEX:
+		{
 			m_originalVertexData.push_back(data);
-			m_vertexDataSize.push_back(sizeof(T));
+			m_vertexDataSize.push_back(sizeof(T) * localSize);
 #ifdef USE_MPI
-			m_vertexDataType.push_back(mpiType);
+			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
+			m_vertexDataType.push_back(type);
+			m_vertexDataTypeDerived.push_back(derived);
 #endif
+		}
 			break;
 		}
 	}
