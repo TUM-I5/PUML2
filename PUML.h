@@ -601,7 +601,7 @@ public:
 		for (std::size_t j = 0; j < m_cellData.size(); ++j) {
 			void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
 			for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-				std::memcpy(reinterpret_cast<std::byte*>(newData) + m_cellDataSize[j] * i, reinterpret_cast<std::byte*>(m_cellData[j]) + m_cellDataSize[j] * indices[i], m_cellDataSize[j]);
+				std::memcpy(reinterpret_cast<char*>(newData) + m_cellDataSize[j] * i, reinterpret_cast<char*>(m_cellData[j]) + m_cellDataSize[j] * indices[i], m_cellDataSize[j]);
 			}
 
 			std::free(m_cellData[j]);
@@ -757,7 +757,7 @@ public:
 
 				// Handle other vertex data
 				for (unsigned int l = 0; l < m_originalVertexData.size(); l++) {
-					std::memcpy(reinterpret_cast<std::byte*>(distribData[l]) + m_vertexDataSize[l] * k, reinterpret_cast<std::byte*>(m_originalVertexData[l]) + m_vertexDataSize[l] * distribVertexIds[k], m_vertexDataSize[l]);
+					std::memcpy(reinterpret_cast<char*>(distribData[l]) + m_vertexDataSize[l] * k, reinterpret_cast<char*>(m_originalVertexData[l]) + m_vertexDataSize[l] * distribVertexIds[k], m_vertexDataSize[l]);
 				}
 
 				// Save all ranks for each vertex
