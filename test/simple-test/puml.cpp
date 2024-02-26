@@ -6,11 +6,15 @@
  *  notice in the file 'COPYING' at the root directory of this package
  *  and the copyright notice at https://github.com/TUM-I5/PUMGen
  *
- * @copyright 2017 Technische Universitaet Muenchen
- * @author Sebastian Rettenberger <sebastian.rettenberger@tum.de>
+ * @copyright 2024 Technische Universitaet Muenchen
+ * @author David Schneller <david.schneller@tum.de>
  */
 
 #include <mpi.h>
+
+#include <sstream>
+#include <vector>
+#include <type_traits>
 
 #include "utils/args.h"
 #include "utils/logger.h"
@@ -20,10 +24,6 @@
 #include "Neighbor.h"
 #include "Partition.h"
 #include "PartitionGraph.h"
-
-#include <sstream>
-#include <vector>
-#include <type_traits>
 
 template<typename T>
 void printElement(std::stringstream& stream, const T& data) {

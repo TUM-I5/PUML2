@@ -14,15 +14,16 @@ add_executable(tests ./puml.cpp)
 target_include_directories(tests PRIVATE
         ../..
         ../../submodules
-        ${MPI_CXX_INCLUDE_DIRS}
+        ${PARMETIS_INCLUDE_DIRS}
         ${HDF5_INCLUDE_DIRS}
-        ${PARMETIS_INCLUDE_DIRS})
+        ${MPI_CXX_INCLUDE_DIRS}
+        )
 
 target_link_libraries(tests
-        ${MPI_CXX_LIBRARIES}
+        ${PARMETIS_LIBRARIES}
         ${HDF5_C_HL_LIBRARIES}
         ${HDF5_C_LIBRARIES}
-        ${PARMETIS_LIBRARIES})
+        ${MPI_CXX_LIBRARIES})
 
 target_compile_definitions(tests PRIVATE USE_MPI REAL_SIZE=8)
 
