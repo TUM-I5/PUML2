@@ -421,7 +421,7 @@ public:
 		case CELL:
 		{
 			m_cellData.push_back(data);
-			m_cellDataSize.push_back(sizeof(T) * localSize);
+			m_cellDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
 			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
 			m_cellDataType.push_back(type);
@@ -432,7 +432,7 @@ public:
 		case VERTEX:
 		{
 			m_originalVertexData.push_back(data);
-			m_vertexDataSize.push_back(sizeof(T) * localSize);
+			m_vertexDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
 			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
 			m_vertexDataType.push_back(type);
@@ -538,7 +538,7 @@ public:
 		case CELL:
 		{
 			m_cellData.push_back(data);
-			m_cellDataSize.push_back(sizeof(T) * localSize);
+			m_cellDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
 			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
 			m_cellDataType.push_back(type);
@@ -549,7 +549,7 @@ public:
 		case VERTEX:
 		{
 			m_originalVertexData.push_back(data);
-			m_vertexDataSize.push_back(sizeof(T) * localSize);
+			m_vertexDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
 			auto [type, derived] = createDatatypeArray(mpiType, elemSize);
 			m_vertexDataType.push_back(type);
@@ -575,24 +575,15 @@ public:
 			indices[i] = i;
 		}
 
-		struct PSort
-		{
-			const int * const partition;
-
-			PSort(const int* partition) : partition(partition)
-			{ }
-
-			bool operator()(unsigned int i1, unsigned int i2) const
+		std::sort(indices, indices+m_originalSize[0], [&](unsigned int i1, unsigned int i2)
 			{
 				return partition[i1] < partition[i2];
-			}
-		};
-		std::sort(indices, indices+m_originalSize[0], PSort(partition));
+			});
 
 		// Sort cells
 		ocell_t* newCells = new ocell_t[m_originalSize[0]];
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-			memcpy(newCells[i], m_originalCells[indices[i]], sizeof(ocell_t));
+			std::memcpy(newCells[i], m_originalCells[indices[i]], sizeof(ocell_t));
 		}
 		delete [] m_originalCells;
 		m_originalCells = newCells;
@@ -743,8 +734,9 @@ public:
 		overtex_t* distribVertices = new overtex_t[totalRecv];
 		std::vector<void*> distribData;
 		distribData.resize(m_originalVertexData.size());
-		for (unsigned int i = 0; i < m_originalVertexData.size(); i++)
+		for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
 			distribData[i] = std::malloc(totalRecv * m_vertexDataSize[i]);
+		}
 		std::vector<int>* sharedRanks = new std::vector<int>[m_originalSize[1]];
 		k = 0;
 		for (int i = 0; i < procs; i++) {
