@@ -26,30 +26,12 @@
 #include <type_traits>
 #include <utility>
 #include "Upward.h"
+#include "TypeInference.h"
 
 #include "utils/logger.h"
 
 namespace PUML
 {
-
-#ifdef USE_MPI
-template<typename T> class MPITypeInfer;
-template<> class MPITypeInfer<char> { public: static MPI_Datatype type() { return MPI_CHAR; } };
-template<> class MPITypeInfer<signed char> { public: static MPI_Datatype type() { return MPI_SIGNED_CHAR; } };
-template<> class MPITypeInfer<unsigned char> { public: static MPI_Datatype type() { return MPI_UNSIGNED_CHAR; } };
-template<> class MPITypeInfer<short> { public: static MPI_Datatype type() { return MPI_SHORT; } };
-template<> class MPITypeInfer<unsigned short> { public: static MPI_Datatype type() { return MPI_UNSIGNED_SHORT; } };
-template<> class MPITypeInfer<int> { public: static MPI_Datatype type() { return MPI_INT; } };
-template<> class MPITypeInfer<unsigned> { public: static MPI_Datatype type() { return MPI_UNSIGNED; } };
-template<> class MPITypeInfer<long> { public: static MPI_Datatype type() { return MPI_LONG; } };
-template<> class MPITypeInfer<unsigned long> { public: static MPI_Datatype type() { return MPI_UNSIGNED_LONG; } };
-template<> class MPITypeInfer<long long> { public: static MPI_Datatype type() { return MPI_LONG_LONG; } };
-template<> class MPITypeInfer<unsigned long long> { public: static MPI_Datatype type() { return MPI_UNSIGNED_LONG_LONG; } };
-template<> class MPITypeInfer<float> { public: static MPI_Datatype type() { return MPI_FLOAT; } };
-template<> class MPITypeInfer<double> { public: static MPI_Datatype type() { return MPI_DOUBLE; } };
-template<> class MPITypeInfer<long double> { public: static MPI_Datatype type() { return MPI_LONG_DOUBLE; } };
-template<> class MPITypeInfer<wchar_t> { public: static MPI_Datatype type() { return MPI_WCHAR; } };
-#endif
 
 template<TopoType Topo>
 class FaceIterator
