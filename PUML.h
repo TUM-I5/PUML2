@@ -486,13 +486,20 @@ public:
 		// Check the size of cell dataset
 		hid_t h5space = H5Dget_space(h5dataset);
 		checkH5Err(h5space);
-		if (H5Sget_simple_extent_ndims(h5space) != 1) {
-			logError() << "Dataset must have 1 dimension";
+		const auto dimcount = H5Sget_simple_extent_ndims(h5space);
+		if (dimcount != 1 + sizes.size()) {
+			logError() << "Dataset must have" << 1 + sizes.size() << "dimension(s), but it has" << dimcount;
 		}
-		hsize_t dim;
-		checkH5Err(H5Sget_simple_extent_dims(h5space, &dim, 0L));
-		if (dim != totalSize) {
-			logError() << "Dataset has the wrong size";
+		std::vector<hsize_t> dim(1 + sizes.size());
+		checkH5Err(H5Sget_simple_extent_dims(h5space, dim.data(), 0L));
+		if (dim[0] != totalSize) {
+			logError() << "Dataset has the wrong size:" << dim[0] << "vs." << totalSize;
+		}
+		for (std::size_t i = 0; i < sizes.size(); ++i) {
+			if (dim[i + 1] != sizes[i]) {
+				std::vector<hsize_t> subdims(dim.begin() + 1, dim.end());
+				logError() << "Dataset has the wrong subsize:" << subdims << "vs." << sizes;
+			}
 		}
 
 		// Read the cells
