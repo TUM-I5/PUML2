@@ -36,6 +36,7 @@
 
 #include "DownElement.h"
 #include "Element.h"
+#include "Numbering.h"
 #include "Topology.h"
 #include "VertexElementMap.h"
 
@@ -730,7 +731,7 @@ public:
 			m_comm);
 #endif // USE_MPI
 
-		// Send back vertex coordinates (an other data)
+		// Send back vertex coordinates (and other data)
 		overtex_t* distribVertices = new overtex_t[totalRecv];
 		std::vector<void*> distribData;
 		distribData.resize(m_originalVertexData.size());
@@ -915,65 +916,31 @@ public:
 		for (unsigned int i = 0; i < m_originalSize[0]; i++) {
 			m_cells[i].m_gid = i + cellOffset;
 
-			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++)
+			for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
 				m_cells[i].m_vertices[j] = m_verticesg2l[m_originalCells[i][j]];
-
-			// TODO adapt for hex
+			}
 
 			// Faces
 			unsigned int v[internal::Topology<Topo>::facevertices()];
 			unsigned int faces[internal::Topology<Topo>::cellfaces()];
-			v[0] = m_cells[i].m_vertices[1];
-			v[1] = m_cells[i].m_vertices[0];
-			v[2] = m_cells[i].m_vertices[2];
-			faces[0] = addFace(m_v2f.add(v), i);
-			v[0] = m_cells[i].m_vertices[0];
-			v[1] = m_cells[i].m_vertices[1];
-			v[2] = m_cells[i].m_vertices[3];
-			faces[1] = addFace(m_v2f.add(v), i);
-			v[0] = m_cells[i].m_vertices[1];
-			v[1] = m_cells[i].m_vertices[2];
-			v[2] = m_cells[i].m_vertices[3];
-			faces[2] = addFace(m_v2f.add(v), i);
-			v[0] = m_cells[i].m_vertices[2];
-			v[1] = m_cells[i].m_vertices[0];
-			v[2] = m_cells[i].m_vertices[3];
-			faces[3] = addFace(m_v2f.add(v), i);
+			for (unsigned int j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
+				const auto& face = internal::Numbering<Topo>::facevertices()[j];
+				v[0] = m_cells[i].m_vertices[face[0]];
+				v[1] = m_cells[i].m_vertices[face[1]];
+				v[2] = m_cells[i].m_vertices[face[2]];
+				faces[j] = addFace(m_v2f.add(v), i);
+			}
 
-			// Edges
-			unsigned int edges[internal::Topology<Topo>::celledges()];
-			v[0] = m_cells[i].m_vertices[0];
-			v[1] = m_cells[i].m_vertices[1];
-			edges[0] = addEdge(edgeUpward, m_v2e.add(v), faces[0], faces[1]);
-			v[0] = m_cells[i].m_vertices[1];
-			v[1] = m_cells[i].m_vertices[2];
-			edges[1] = addEdge(edgeUpward, m_v2e.add(v), faces[0], faces[2]);
-			v[0] = m_cells[i].m_vertices[2];
-			v[1] = m_cells[i].m_vertices[0];
-			edges[2] = addEdge(edgeUpward, m_v2e.add(v), faces[0], faces[3]);
-			v[0] = m_cells[i].m_vertices[0];
-			v[1] = m_cells[i].m_vertices[3];
-			edges[3] = addEdge(edgeUpward, m_v2e.add(v), faces[1], faces[3]);
-			v[0] = m_cells[i].m_vertices[1];
-			v[1] = m_cells[i].m_vertices[3];
-			edges[4] = addEdge(edgeUpward, m_v2e.add(v), faces[1], faces[2]);
-			v[0] = m_cells[i].m_vertices[2];
-			v[1] = m_cells[i].m_vertices[3];
-			edges[5] = addEdge(edgeUpward, m_v2e.add(v), faces[2], faces[3]);
-
-			// Vertices (upward information)
-			vertexUpward[m_cells[i].m_vertices[0]].insert(edges[0]);
-			vertexUpward[m_cells[i].m_vertices[0]].insert(edges[2]);
-			vertexUpward[m_cells[i].m_vertices[0]].insert(edges[3]);
-			vertexUpward[m_cells[i].m_vertices[1]].insert(edges[0]);
-			vertexUpward[m_cells[i].m_vertices[1]].insert(edges[1]);
-			vertexUpward[m_cells[i].m_vertices[1]].insert(edges[4]);
-			vertexUpward[m_cells[i].m_vertices[2]].insert(edges[1]);
-			vertexUpward[m_cells[i].m_vertices[2]].insert(edges[2]);
-			vertexUpward[m_cells[i].m_vertices[2]].insert(edges[5]);
-			vertexUpward[m_cells[i].m_vertices[3]].insert(edges[3]);
-			vertexUpward[m_cells[i].m_vertices[3]].insert(edges[4]);
-			vertexUpward[m_cells[i].m_vertices[3]].insert(edges[5]);
+			// Edges + Vertex upward information
+			for (unsigned int j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
+				const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
+				const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
+				v[0] = m_cells[i].m_vertices[edge[0]];
+				v[1] = m_cells[i].m_vertices[edge[1]];
+				unsigned int edgeIdx = addEdge(edgeUpward, m_v2e.add(v), faces[edgeadj[0]], faces[edgeadj[1]]);
+				vertexUpward[m_cells[i].m_vertices[edge[0]]].insert(edgeIdx);
+				vertexUpward[m_cells[i].m_vertices[edge[1]]].insert(edgeIdx);
+			}
 		}
 
 		// Create edges
