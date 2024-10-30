@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2017-2024 Technical University of Munich
+//
+// SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file
  *  This file is part of PUML
@@ -6,8 +9,8 @@
  *  notice in the file 'COPYING' at the root directory of this package
  *  and the copyright notice at https://github.com/TUM-I5/PUMGen
  *
- * @copyright 2017 Technische Universitaet Muenchen
  * @author Sebastian Rettenberger <sebastian.rettenberger@tum.de>
+ * @author David Schneller <david.schneller@tum.de>
  */
 
 #ifndef PUML_NUMBERING_H

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2024 Technical University of Munich
+//
+// SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file
  *  This file is part of PUML
