@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: CECILL-C
+
 ###
 #
 # @copyright (c) 2009-2014 The University of Tennessee and The University

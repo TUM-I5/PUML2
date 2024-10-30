@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2019-2023 Technical University of Munich
+//
+// SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file
  *  This file is part of PUML
@@ -6,7 +9,6 @@
  *  notice in the file 'COPYING' at the root directory of this package
  *  and the copyright notice at https://github.com/TUM-I5/PUMGen
  *
- * @copyright 2019-2023 Technische Universitaet Muenchen
  * @author Sebastian Rettenberger <sebastian.rettenberger@tum.de>
  * @author David Schneller <david.schneller@tum.de>
  */
@@ -15,53 +17,50 @@
 #define PUML_PARTITION_BASE_H
 
 #ifdef USE_MPI
-#include <mpi.h>
 #endif // USE_MPI
 #include "utils/logger.h"
 #include "Topology.h"
-#include "PUML.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 #include <vector>
-#include <stdexcept>
 
-namespace PUML
-{
+namespace PUML {
 
-enum class PartitioningResult {
-	SUCCESS = 0,
-	ERROR
-};
+enum class PartitioningResult { SUCCESS = 0, ERROR };
 
-template<TopoType Topo>
-class PartitionBase
-{
-public:
-	PartitionBase() { }
-        virtual ~PartitionBase() = default;
+template <TopoType Topo>
+class PartitionBase {
+  public:
+  PartitionBase() = default;
+  virtual ~PartitionBase() = default;
 
 #ifdef USE_MPI
-	std::vector<int> partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
-	{
-		std::vector<int> part(graph.localVertexCount());
-		auto result = partition(part, graph, target, seed);
-		if (result != PartitioningResult::SUCCESS) {
-			logError() << "Partitioning failed.";
-		}
-		return part;
-	}
+  auto partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
+      -> std::vector<int> {
+    std::vector<int> part(graph.localVertexCount());
+    auto result = partition(part, graph, target, seed);
+    if (result != PartitioningResult::SUCCESS) {
+      logError() << "Partitioning failed.";
+    }
+    return part;
+  }
 
-	PartitioningResult partition(std::vector<int>& part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
-	{
-		return partition(part.data(), graph, target, seed);
-	}
+  auto partition(std::vector<int>& part,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& target,
+                 int seed = 1) -> PartitioningResult {
+    return partition(part.data(), graph, target, seed);
+  }
 
-	virtual PartitioningResult partition(int* part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
+  virtual auto partition(int* part,
+                         const PartitionGraph<Topo>& graph,
+                         const PartitionTarget& target,
+                         int seed = 1) -> PartitioningResult = 0;
 #endif // USE_MPI
 };
 
 using TETPartitionBase = PartitionBase<TETRAHEDRON>;
 
-}
+} // namespace PUML
 
 #endif // PUML_PARTITION_BASE_H
