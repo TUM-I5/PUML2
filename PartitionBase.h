@@ -27,43 +27,43 @@
 #include <vector>
 #include <stdexcept>
 
-namespace PUML
-{
+namespace PUML {
 
-enum class PartitioningResult {
-	SUCCESS = 0,
-	ERROR
-};
+enum class PartitioningResult { SUCCESS = 0, ERROR };
 
-template<TopoType Topo>
-class PartitionBase
-{
-public:
-	PartitionBase() { }
-        virtual ~PartitionBase() = default;
+template <TopoType Topo>
+class PartitionBase {
+  public:
+  PartitionBase() {}
+  virtual ~PartitionBase() = default;
 
 #ifdef USE_MPI
-	std::vector<int> partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
-	{
-		std::vector<int> part(graph.localVertexCount());
-		auto result = partition(part, graph, target, seed);
-		if (result != PartitioningResult::SUCCESS) {
-			logError() << "Partitioning failed.";
-		}
-		return part;
-	}
+  std::vector<int>
+      partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) {
+    std::vector<int> part(graph.localVertexCount());
+    auto result = partition(part, graph, target, seed);
+    if (result != PartitioningResult::SUCCESS) {
+      logError() << "Partitioning failed.";
+    }
+    return part;
+  }
 
-	PartitioningResult partition(std::vector<int>& part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
-	{
-		return partition(part.data(), graph, target, seed);
-	}
+  PartitioningResult partition(std::vector<int>& part,
+                               const PartitionGraph<Topo>& graph,
+                               const PartitionTarget& target,
+                               int seed = 1) {
+    return partition(part.data(), graph, target, seed);
+  }
 
-	virtual PartitioningResult partition(int* part, const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) = 0;
+  virtual PartitioningResult partition(int* part,
+                                       const PartitionGraph<Topo>& graph,
+                                       const PartitionTarget& target,
+                                       int seed = 1) = 0;
 #endif // USE_MPI
 };
 
 using TETPartitionBase = PartitionBase<TETRAHEDRON>;
 
-}
+} // namespace PUML
 
 #endif // PUML_PARTITION_BASE_H
