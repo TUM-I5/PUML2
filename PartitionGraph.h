@@ -15,12 +15,13 @@
 #ifndef PUML_PARTITION_GRAPH_H
 #define PUML_PARTITION_GRAPH_H
 
+#include <cstddef>
+#include "TypeInference.h"
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
 
 #include <algorithm>
-#include <numeric>
 #include <vector>
 #include <cassert>
 #include <functional>
@@ -30,8 +31,6 @@
 #include "PUML.h"
 #include "FaceIterator.h"
 #include "Downward.h"
-
-#include "utils/logger.h"
 
 namespace PUML {
 
@@ -58,7 +57,7 @@ class PartitionGraph {
     iterator.template forEach<unsigned long>(
         [&cells](int fid, int cid) { return cells[cid].gid(); },
         [&adjRawCount, &adjRaw](int id, int lid, const unsigned long& gid) {
-          int idx = cellfaces * lid + adjRawCount[lid]++;
+          int idx = (cellfaces * lid) + adjRawCount[lid]++;
           adjRaw[idx] = gid;
         });
 
@@ -74,7 +73,7 @@ class PartitionGraph {
     m_adj.resize(m_adjDisp[vertexCount]);
     for (unsigned long i = 0, j = 0; i < vertexCount; ++i) {
       for (unsigned long k = 0; k < adjRawCount[i]; ++k, ++j) {
-        m_adj[j] = adjRaw[i * cellfaces + k];
+        m_adj[j] = adjRaw[(i * cellfaces) + k];
       }
     }
 
@@ -183,13 +182,17 @@ class PartitionGraph {
                                  mpit);
   }
 
-  unsigned long localVertexCount() const { return m_adjDisp.size() - 1; }
+  [[nodiscard]] auto localVertexCount() const -> unsigned long { return m_adjDisp.size() - 1; }
 
-  unsigned long localEdgeCount() const { return m_adj.size(); }
+  [[nodiscard]] auto localEdgeCount() const -> unsigned long { return m_adj.size(); }
 
-  unsigned long globalVertexCount() const { return m_vertexDistribution[m_processCount]; }
+  [[nodiscard]] auto globalVertexCount() const -> unsigned long {
+    return m_vertexDistribution[m_processCount];
+  }
 
-  unsigned long globalEdgeCount() const { return m_edgeDistribution[m_processCount]; }
+  [[nodiscard]] auto globalEdgeCount() const -> unsigned long {
+    return m_edgeDistribution[m_processCount];
+  }
 
   template <typename OutputType>
   void geometricCoordinates(std::vector<OutputType>& coord) const {
@@ -199,7 +202,9 @@ class PartitionGraph {
       const auto& cell = m_puml.cells()[i];
       unsigned int lid[internal::Topology<Topo>::cellvertices()];
       Downward::vertices(m_puml, cell, lid);
-      OutputType x = 0.0, y = 0.0, z = 0.0;
+      OutputType x = 0.0;
+      OutputType y = 0.0;
+      OutputType z = 0.0;
       for (unsigned long j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
         auto vertex = m_puml.vertices()[lid[j]];
         x += vertex.coordinate()[0];
@@ -209,9 +214,9 @@ class PartitionGraph {
       x /= internal::Topology<Topo>::cellvertices();
       y /= internal::Topology<Topo>::cellvertices();
       z /= internal::Topology<Topo>::cellvertices();
-      coord[i * 3 + 0] = x;
-      coord[i * 3 + 1] = y;
-      coord[i * 3 + 2] = z;
+      coord[(i * 3) + 0] = x;
+      coord[(i * 3) + 1] = y;
+      coord[(i * 3) + 2] = z;
     }
   }
 
@@ -222,8 +227,9 @@ class PartitionGraph {
 
   template <typename T>
   void setVertexWeights(const T* vertexWeights, int vertexWeightCount) {
-    if (vertexWeights == nullptr)
+    if (vertexWeights == nullptr) {
       return;
+    }
     m_vertexWeightCount = vertexWeightCount;
     m_vertexWeights.resize(localVertexCount() * vertexWeightCount);
     for (size_t i = 0; i < m_vertexWeights.size(); ++i) {
@@ -238,33 +244,42 @@ class PartitionGraph {
 
   template <typename T>
   void setEdgeWeights(const T* edgeWeights) {
-    if (edgeWeights == nullptr)
+    if (edgeWeights == nullptr) {
       return;
+    }
     m_edgeWeights.resize(m_adj.size());
     for (size_t i = 0; i < m_adj.size(); ++i) {
       m_edgeWeights[i] = edgeWeights[i];
     }
   }
 
-  const std::vector<unsigned long>& adj() const { return m_adj; }
+  [[nodiscard]] auto adj() const -> const std::vector<unsigned long>& { return m_adj; }
 
-  const std::vector<unsigned long>& adjDisp() const { return m_adjDisp; }
+  [[nodiscard]] auto adjDisp() const -> const std::vector<unsigned long>& { return m_adjDisp; }
 
-  const std::vector<unsigned long>& vertexDistribution() const { return m_vertexDistribution; }
+  [[nodiscard]] auto vertexDistribution() const -> const std::vector<unsigned long>& {
+    return m_vertexDistribution;
+  }
 
-  const std::vector<unsigned long>& edgeDistribution() const { return m_edgeDistribution; }
+  [[nodiscard]] auto edgeDistribution() const -> const std::vector<unsigned long>& {
+    return m_edgeDistribution;
+  }
 
-  const std::vector<unsigned long>& vertexWeights() const { return m_vertexWeights; }
+  [[nodiscard]] auto vertexWeights() const -> const std::vector<unsigned long>& {
+    return m_vertexWeights;
+  }
 
-  const std::vector<unsigned long>& edgeWeights() const { return m_edgeWeights; }
+  [[nodiscard]] auto edgeWeights() const -> const std::vector<unsigned long>& {
+    return m_edgeWeights;
+  }
 
-  const MPI_Comm& comm() const { return m_comm; }
+  [[nodiscard]] auto comm() const -> const MPI_Comm& { return m_comm; }
 
-  const PUML<Topo>& puml() const { return m_puml; }
+  auto puml() const -> const PUML<Topo>& { return m_puml; }
 
-  unsigned long vertexWeightCount() const { return m_vertexWeightCount; }
+  [[nodiscard]] auto vertexWeightCount() const -> unsigned long { return m_vertexWeightCount; }
 
-  unsigned long processCount() const { return m_processCount; }
+  [[nodiscard]] auto processCount() const -> unsigned long { return m_processCount; }
 
   private:
   std::vector<unsigned long> m_adj;

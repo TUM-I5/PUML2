@@ -15,11 +15,10 @@
 #ifndef PUML_TYPE_INFERENCE_H
 #define PUML_TYPE_INFERENCE_H
 
+#include <hdf5.h>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
-
-#include <hdf5.h>
 
 namespace PUML {
 
@@ -27,159 +26,159 @@ namespace PUML {
 template <typename T>
 class MPITypeInfer {
   public:
-  static MPI_Datatype type() { return MPI_BYTE; }
+  static auto type() -> MPI_Datatype { return MPI_BYTE; }
 };
 template <>
 class MPITypeInfer<char> {
   public:
-  static MPI_Datatype type() { return MPI_CHAR; }
+  static auto type() -> MPI_Datatype { return MPI_CHAR; }
 };
 template <>
 class MPITypeInfer<signed char> {
   public:
-  static MPI_Datatype type() { return MPI_SIGNED_CHAR; }
+  static auto type() -> MPI_Datatype { return MPI_SIGNED_CHAR; }
 };
 template <>
 class MPITypeInfer<unsigned char> {
   public:
-  static MPI_Datatype type() { return MPI_UNSIGNED_CHAR; }
+  static auto type() -> MPI_Datatype { return MPI_UNSIGNED_CHAR; }
 };
 template <>
 class MPITypeInfer<short> {
   public:
-  static MPI_Datatype type() { return MPI_SHORT; }
+  static auto type() -> MPI_Datatype { return MPI_SHORT; }
 };
 template <>
 class MPITypeInfer<unsigned short> {
   public:
-  static MPI_Datatype type() { return MPI_UNSIGNED_SHORT; }
+  static auto type() -> MPI_Datatype { return MPI_UNSIGNED_SHORT; }
 };
 template <>
 class MPITypeInfer<int> {
   public:
-  static MPI_Datatype type() { return MPI_INT; }
+  static auto type() -> MPI_Datatype { return MPI_INT; }
 };
 template <>
 class MPITypeInfer<unsigned> {
   public:
-  static MPI_Datatype type() { return MPI_UNSIGNED; }
+  static auto type() -> MPI_Datatype { return MPI_UNSIGNED; }
 };
 template <>
 class MPITypeInfer<long> {
   public:
-  static MPI_Datatype type() { return MPI_LONG; }
+  static auto type() -> MPI_Datatype { return MPI_LONG; }
 };
 template <>
 class MPITypeInfer<unsigned long> {
   public:
-  static MPI_Datatype type() { return MPI_UNSIGNED_LONG; }
+  static auto type() -> MPI_Datatype { return MPI_UNSIGNED_LONG; }
 };
 template <>
 class MPITypeInfer<long long> {
   public:
-  static MPI_Datatype type() { return MPI_LONG_LONG; }
+  static auto type() -> MPI_Datatype { return MPI_LONG_LONG; }
 };
 template <>
 class MPITypeInfer<unsigned long long> {
   public:
-  static MPI_Datatype type() { return MPI_UNSIGNED_LONG_LONG; }
+  static auto type() -> MPI_Datatype { return MPI_UNSIGNED_LONG_LONG; }
 };
 template <>
 class MPITypeInfer<float> {
   public:
-  static MPI_Datatype type() { return MPI_FLOAT; }
+  static auto type() -> MPI_Datatype { return MPI_FLOAT; }
 };
 template <>
 class MPITypeInfer<double> {
   public:
-  static MPI_Datatype type() { return MPI_DOUBLE; }
+  static auto type() -> MPI_Datatype { return MPI_DOUBLE; }
 };
 template <>
 class MPITypeInfer<long double> {
   public:
-  static MPI_Datatype type() { return MPI_LONG_DOUBLE; }
+  static auto type() -> MPI_Datatype { return MPI_LONG_DOUBLE; }
 };
 template <>
 class MPITypeInfer<wchar_t> {
   public:
-  static MPI_Datatype type() { return MPI_WCHAR; }
+  static auto type() -> MPI_Datatype { return MPI_WCHAR; }
 };
 #endif
 
 template <typename T>
 class HDF5TypeInfer {
   public:
-  static hid_t type() { return -1; }
+  static auto type() -> hid_t { return -1; }
 };
 template <>
 class HDF5TypeInfer<char> {
   public:
-  static hid_t type() { return H5T_NATIVE_CHAR; }
+  static auto type() -> hid_t { return H5T_NATIVE_CHAR; }
 };
 template <>
 class HDF5TypeInfer<signed char> {
   public:
-  static hid_t type() { return H5T_NATIVE_SCHAR; }
+  static auto type() -> hid_t { return H5T_NATIVE_SCHAR; }
 };
 template <>
 class HDF5TypeInfer<unsigned char> {
   public:
-  static hid_t type() { return H5T_NATIVE_UCHAR; }
+  static auto type() -> hid_t { return H5T_NATIVE_UCHAR; }
 };
 template <>
 class HDF5TypeInfer<short> {
   public:
-  static hid_t type() { return H5T_NATIVE_SHORT; }
+  static auto type() -> hid_t { return H5T_NATIVE_SHORT; }
 };
 template <>
 class HDF5TypeInfer<unsigned short> {
   public:
-  static hid_t type() { return H5T_NATIVE_USHORT; }
+  static auto type() -> hid_t { return H5T_NATIVE_USHORT; }
 };
 template <>
 class HDF5TypeInfer<int> {
   public:
-  static hid_t type() { return H5T_NATIVE_INT; }
+  static auto type() -> hid_t { return H5T_NATIVE_INT; }
 };
 template <>
 class HDF5TypeInfer<unsigned> {
   public:
-  static hid_t type() { return H5T_NATIVE_UINT; }
+  static auto type() -> hid_t { return H5T_NATIVE_UINT; }
 };
 template <>
 class HDF5TypeInfer<long> {
   public:
-  static hid_t type() { return H5T_NATIVE_LONG; }
+  static auto type() -> hid_t { return H5T_NATIVE_LONG; }
 };
 template <>
 class HDF5TypeInfer<unsigned long> {
   public:
-  static hid_t type() { return H5T_NATIVE_ULONG; }
+  static auto type() -> hid_t { return H5T_NATIVE_ULONG; }
 };
 template <>
 class HDF5TypeInfer<long long> {
   public:
-  static hid_t type() { return H5T_NATIVE_LLONG; }
+  static auto type() -> hid_t { return H5T_NATIVE_LLONG; }
 };
 template <>
 class HDF5TypeInfer<unsigned long long> {
   public:
-  static hid_t type() { return H5T_NATIVE_ULLONG; }
+  static auto type() -> hid_t { return H5T_NATIVE_ULLONG; }
 };
 template <>
 class HDF5TypeInfer<float> {
   public:
-  static hid_t type() { return H5T_NATIVE_FLOAT; }
+  static auto type() -> hid_t { return H5T_NATIVE_FLOAT; }
 };
 template <>
 class HDF5TypeInfer<double> {
   public:
-  static hid_t type() { return H5T_NATIVE_DOUBLE; }
+  static auto type() -> hid_t { return H5T_NATIVE_DOUBLE; }
 };
 template <>
 class HDF5TypeInfer<long double> {
   public:
-  static hid_t type() { return H5T_NATIVE_LDOUBLE; }
+  static auto type() -> hid_t { return H5T_NATIVE_LDOUBLE; }
 };
 
 } // namespace PUML

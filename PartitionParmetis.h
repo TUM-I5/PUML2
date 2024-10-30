@@ -16,8 +16,10 @@
 #ifndef PUML_PARTITIONPARMETIS_H
 #define PUML_PARTITIONPARMETIS_H
 
+#include "PartitionTarget.h"
+#include <vector>
+#include "utils/logger.h"
 #ifdef USE_MPI
-#include <mpi.h>
 #endif // USE_MPI
 
 #ifndef USE_PARMETIS
@@ -43,10 +45,10 @@ class PartitionParmetis : public PartitionBase<Topo> {
   public:
   PartitionParmetis(ParmetisPartitionMode mode) : mode(mode) {}
 #ifdef USE_MPI
-  virtual PartitioningResult partition(int* partition,
-                                       const PartitionGraph<Topo>& graph,
-                                       const PartitionTarget& target,
-                                       int seed = 1) {
+  virtual auto partition(int* partition,
+                         const PartitionGraph<Topo>& graph,
+                         const PartitionTarget& target,
+                         int seed = 1) -> PartitioningResult {
     auto comm = graph.comm();
     std::vector<idx_t> vtxdist(graph.vertexDistribution().begin(),
                                graph.vertexDistribution().end());
@@ -54,17 +56,18 @@ class PartitionParmetis : public PartitionBase<Topo> {
     std::vector<idx_t> adjncy(graph.adj().begin(), graph.adj().end());
     std::vector<idx_t> vwgt(graph.vertexWeights().begin(), graph.vertexWeights().end());
     std::vector<idx_t> adjwgt(graph.edgeWeights().begin(), graph.edgeWeights().end());
-    auto cell_count = graph.localVertexCount();
+    auto cellCount = graph.localVertexCount();
 
     idx_t ncon = graph.vertexWeightCount();
-    if (ncon == 0)
+    if (ncon == 0) {
       ncon = 1;
+    }
     idx_t nparts = target.vertexCount();
     std::vector<real_t> tpwgts(nparts * ncon, static_cast<real_t>(1.) / nparts);
     if (!target.vertexWeightsUniform()) {
       for (idx_t i = 0; i < target.vertexCount(); i++) {
         for (idx_t j = 0; j < ncon; ++j) {
-          tpwgts[i * ncon + j] = target.vertexWeights()[i];
+          tpwgts[(i * ncon) + j] = target.vertexWeights()[i];
         }
       }
     }
@@ -72,14 +75,16 @@ class PartitionParmetis : public PartitionBase<Topo> {
     idx_t options[3] = {1, 0, seed};
     idx_t numflag = 0;
     idx_t wgtflag = 0;
-    if (!vwgt.empty())
+    if (!vwgt.empty()) {
       wgtflag |= 2;
-    if (!adjwgt.empty())
+    }
+    if (!adjwgt.empty()) {
       wgtflag |= 1;
+    }
     std::vector<real_t> ubvec(ncon, target.imbalance() + 1.0);
 
-    idx_t edgecut;
-    std::vector<idx_t> part(cell_count);
+    idx_t edgecut = 0;
+    std::vector<idx_t> part(cellCount);
 
     if (mode == ParmetisPartitionMode::Default) {
       ParMETIS_V3_PartKway(vtxdist.data(),
@@ -123,7 +128,7 @@ class PartitionParmetis : public PartitionBase<Topo> {
       return PartitioningResult::ERROR;
     }
 
-    for (int i = 0; i < cell_count; i++) {
+    for (int i = 0; i < cellCount; i++) {
       partition[i] = part[i];
     }
 

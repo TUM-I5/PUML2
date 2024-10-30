@@ -43,10 +43,11 @@ class Neighbor {
       int neighbors[2];
       Upward::cells(puml, puml.faces()[faces[i]], neighbors);
 
-      if (static_cast<unsigned int>(neighbors[0]) == clid)
+      if (static_cast<unsigned int>(neighbors[0]) == clid) {
         flid[i] = neighbors[1];
-      else
+      } else {
         flid[i] = neighbors[0];
+      }
     }
   }
 };

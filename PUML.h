@@ -17,21 +17,24 @@
 
 #include "TypeInference.h"
 #include <cstddef>
+#include <cstring>
+#include <hdf5.h>
+#include <iterator>
+#include <string>
 #include <type_traits>
+#include <utility>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <limits>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <cstdlib>
-
-#include <hdf5.h>
 
 #include "utils/logger.h"
 #include "utils/stringutils.h"
@@ -63,7 +66,7 @@ class Distributor {
   /**
    * Gives the offset and size of data where the rank should read data.
    */
-  std::pair<unsigned long, unsigned long> offsetAndSize(unsigned long rank) {
+  auto offsetAndSize(unsigned long rank) -> std::pair<unsigned long, unsigned long> {
     assert(rank < numRanks);
     unsigned long offset = 0;
     unsigned long size = 0;
@@ -81,7 +84,7 @@ class Distributor {
   /**
    * Gives the rank, which has read the entity with the given globalId.
    */
-  unsigned long rankOfEntity(unsigned long globalId) {
+  auto rankOfEntity(unsigned long globalId) -> const unsigned long {
     assert(globalId < numEntities);
     unsigned long rank = 0;
     if (globalId < missingEntities * (entitiesPerRank + 1)) {
@@ -97,7 +100,7 @@ class Distributor {
   /**
    * Gives the local id of a mesh entity for the given globalId.
    */
-  unsigned long globalToLocalId(unsigned long rank, unsigned long globalId) {
+  auto globalToLocalId(unsigned long rank, unsigned long globalId) -> unsigned long {
     assert(globalId < numEntities);
     auto [offset, size] = offsetAndSize(rank);
     assert(globalId >= offset);
@@ -127,16 +130,16 @@ class PUML {
   typedef double overtex_t[3];
 
   /** Internal cell type */
-  typedef Cell<Topo> cell_t;
+  using cell_t = Cell<Topo>;
 
   /** Internal face type */
-  typedef Face face_t;
+  using face_t = Face;
 
   /** Internal edge type */
-  typedef Edge edge_t;
+  using edge_t = Edge;
 
   /** Internal vertex type */
-  typedef Vertex vertex_t;
+  using vertex_t = Vertex;
 
   private:
 #ifdef USE_MPI
@@ -147,15 +150,15 @@ class PUML {
   ocell_t* m_originalCells;
 
   /** The original vertices from the file */
-  overtex_t* m_originalVertices;
+  overtex_t* m_originalVertices{0L};
 
   /** The original number of cells/vertices on each node */
-  unsigned int m_originalSize[2];
+  unsigned int m_originalSize[2]{};
 
   /** The original number of total cells/vertices */
-  unsigned long m_originalTotalSize[2];
+  unsigned long m_originalTotalSize[2]{};
 
-  typedef std::unordered_map<unsigned long, unsigned int> g2l_t;
+  using g2l_t = std::unordered_map<unsigned long, unsigned int>;
 
   /** The list of all local cells */
   std::vector<cell_t> m_cells;
@@ -206,11 +209,12 @@ class PUML {
   std::vector<bool> m_vertexDataTypeDerived;
 #endif
 
-  std::pair<MPI_Datatype, bool> createDatatypeArray(MPI_Datatype baseType, std::size_t elemSize) {
+  auto createDatatypeArray(MPI_Datatype baseType, std::size_t elemSize)
+      -> std::pair<MPI_Datatype, bool> {
     if (elemSize == 1) {
       return {baseType, false};
     }
-    MPI_Datatype newType;
+    MPI_Datatype newType = MPI_DATATYPE_NULL;
     MPI_Type_contiguous(elemSize, baseType, &newType);
     MPI_Type_commit(&newType);
     return {newType, true};
@@ -222,7 +226,7 @@ class PUML {
 #ifdef USE_MPI
         m_comm(MPI_COMM_WORLD),
 #endif // USE_MPI
-        m_originalCells(0L), m_originalVertices(0L) {
+        m_originalCells(0L) {
   }
 
   virtual ~PUML() {
@@ -299,7 +303,7 @@ class PUML {
       logError() << "Cell dataset must have 2 dimensions";
     }
     hsize_t dims[2];
-    checkH5Err(H5Sget_simple_extent_dims(h5space, dims, 0L));
+    checkH5Err(H5Sget_simple_extent_dims(h5space, dims, nullptr));
     if (dims[1] != internal::Topology<Topo>::cellvertices()) {
       logError() << "Each cell must have" << internal::Topology<Topo>::cellvertices() << "vertices";
     }
@@ -315,9 +319,9 @@ class PUML {
     hsize_t start[2] = {offsetCells, 0};
     hsize_t count[2] = {m_originalSize[0], internal::Topology<Topo>::cellvertices()};
 
-    checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, 0L, count, 0L));
+    checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, nullptr, count, nullptr));
 
-    hid_t h5memspace = H5Screate_simple(2, count, 0L);
+    hid_t h5memspace = H5Screate_simple(2, count, nullptr);
     checkH5Err(h5memspace);
 
     hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
@@ -349,7 +353,7 @@ class PUML {
     if (H5Sget_simple_extent_ndims(h5space) != 2) {
       logError() << "Vertex dataset must have 2 dimensions";
     }
-    checkH5Err(H5Sget_simple_extent_dims(h5space, dims, 0L));
+    checkH5Err(H5Sget_simple_extent_dims(h5space, dims, nullptr));
     if (dims[1] != 3) {
       logError() << "Each vertex must have xyz coordinate";
     }
@@ -366,9 +370,9 @@ class PUML {
     count[0] = m_originalSize[1];
     count[1] = 3;
 
-    checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, 0L, count, 0L));
+    checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, nullptr, count, nullptr));
 
-    h5memspace = H5Screate_simple(2, count, 0L);
+    h5memspace = H5Screate_simple(2, count, nullptr);
     checkH5Err(h5memspace);
 
     m_originalVertices = new overtex_t[m_originalSize[1]];
@@ -488,13 +492,13 @@ class PUML {
                  << dimcount;
     }
     std::vector<hsize_t> dim(1 + sizes.size());
-    checkH5Err(H5Sget_simple_extent_dims(h5space, dim.data(), 0L));
+    checkH5Err(H5Sget_simple_extent_dims(h5space, dim.data(), nullptr));
     if (dim[0] != totalSize) {
       logError() << "Dataset has the wrong size:" << dim[0] << "vs." << totalSize;
     }
     for (std::size_t i = 0; i < sizes.size(); ++i) {
       if (dim[i + 1] != sizes[i]) {
-        std::vector<hsize_t> subdims(dim.begin() + 1, dim.end());
+        const std::vector<hsize_t> subdims(dim.begin() + 1, dim.end());
         logError() << "Dataset has the wrong subsize:" << subdims << "vs." << sizes;
       }
     }
@@ -515,9 +519,10 @@ class PUML {
       count.push_back(size);
     }
 
-    checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), 0L, count.data(), 0L));
+    checkH5Err(
+        H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
 
-    hid_t h5memspace = H5Screate_simple(count.size(), count.data(), 0L);
+    hid_t h5memspace = H5Screate_simple(count.size(), count.data(), nullptr);
     checkH5Err(h5memspace);
 
     hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
@@ -561,7 +566,7 @@ class PUML {
     }
   }
 
-  void partition(int* partition) {
+  void partition(const int* partition) {
     int rank = 0;
     int procs = 1;
 #ifdef USE_MPI
@@ -570,7 +575,7 @@ class PUML {
 #endif // USE_MPI
 
     // Create sorting indices
-    unsigned int* indices = new unsigned int[m_originalSize[0]];
+    auto* indices = new unsigned int[m_originalSize[0]];
     for (unsigned int i = 0; i < m_originalSize[0]; i++) {
       indices[i] = i;
     }
@@ -580,7 +585,7 @@ class PUML {
     });
 
     // Sort cells
-    ocell_t* newCells = new ocell_t[m_originalSize[0]];
+    auto* newCells = new ocell_t[m_originalSize[0]];
     for (unsigned int i = 0; i < m_originalSize[0]; i++) {
       std::memcpy(newCells[i], m_originalCells[indices[i]], sizeof(ocell_t));
     }
@@ -591,8 +596,8 @@ class PUML {
     for (std::size_t j = 0; j < m_cellData.size(); ++j) {
       void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
       for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-        std::memcpy(reinterpret_cast<char*>(newData) + m_cellDataSize[j] * i,
-                    reinterpret_cast<char*>(m_cellData[j]) + m_cellDataSize[j] * indices[i],
+        std::memcpy(reinterpret_cast<char*>(newData) + (m_cellDataSize[j] * i),
+                    reinterpret_cast<char*>(m_cellData[j]) + (m_cellDataSize[j] * indices[i]),
                     m_cellDataSize[j]);
       }
 
@@ -631,7 +636,7 @@ class PUML {
 
 #ifdef USE_MPI
     // Exchange the cells
-    MPI_Datatype cellType;
+    MPI_Datatype cellType = MPI_DATATYPE_NULL;
     MPI_Type_contiguous(internal::Topology<Topo>::cellvertices(), MPI_UNSIGNED_LONG, &cellType);
     MPI_Type_commit(&cellType);
 
@@ -685,8 +690,7 @@ class PUML {
 
     auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
     // Generate a list of vertices we need from other processors
-    std::unordered_set<unsigned long>* requiredVertexSets =
-        new std::unordered_set<unsigned long>[procs];
+    auto* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
     for (unsigned int i = 0; i < m_originalSize[0]; i++) {
       for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
         int proc = vertexDistributor.rankOfEntity(m_originalCells[i][j]);
@@ -698,21 +702,20 @@ class PUML {
 
     // Generate information for requesting vertices
     unsigned int totalVertices = requiredVertexSets[0].size();
-    for (int i = 1; i < procs; i++)
+    for (int i = 1; i < procs; i++) {
       totalVertices += requiredVertexSets[i].size();
+    }
 
     int* sendCount = new int[procs];
 
-    unsigned long* requiredVertices = new unsigned long[totalVertices];
+    auto* requiredVertices = new unsigned long[totalVertices];
     unsigned int k = 0;
     for (int i = 0; i < procs; i++) {
       sendCount[i] = requiredVertexSets[i].size();
 
-      for (std::unordered_set<unsigned long>::const_iterator it = requiredVertexSets[i].begin();
-           it != requiredVertexSets[i].end();
-           ++it) {
+      for (unsigned long it : requiredVertexSets[i]) {
         assert(k < totalVertices);
-        requiredVertices[k++] = *it;
+        requiredVertices[k++] = it;
       }
     }
 
@@ -735,9 +738,9 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + recvCount[i - 1];
     }
 
-    unsigned int totalRecv = rDispls[procs - 1] + recvCount[procs - 1];
+    const unsigned int totalRecv = rDispls[procs - 1] + recvCount[procs - 1];
 
-    unsigned long* distribVertexIds = new unsigned long[totalRecv];
+    auto* distribVertexIds = new unsigned long[totalRecv];
 #ifdef USE_MPI
     MPI_Alltoallv(requiredVertices,
                   sendCount,
@@ -751,13 +754,13 @@ class PUML {
 #endif // USE_MPI
 
     // Send back vertex coordinates (and other data)
-    overtex_t* distribVertices = new overtex_t[totalRecv];
+    auto* distribVertices = new overtex_t[totalRecv];
     std::vector<void*> distribData;
     distribData.resize(m_originalVertexData.size());
     for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
       distribData[i] = std::malloc(totalRecv * m_vertexDataSize[i]);
     }
-    std::vector<int>* sharedRanks = new std::vector<int>[m_originalSize[1]];
+    auto* sharedRanks = new std::vector<int>[m_originalSize[1]];
     k = 0;
     for (int i = 0; i < procs; i++) {
       for (int j = 0; j < recvCount[i]; j++) {
@@ -769,9 +772,9 @@ class PUML {
 
         // Handle other vertex data
         for (unsigned int l = 0; l < m_originalVertexData.size(); l++) {
-          std::memcpy(reinterpret_cast<char*>(distribData[l]) + m_vertexDataSize[l] * k,
+          std::memcpy(reinterpret_cast<char*>(distribData[l]) + (m_vertexDataSize[l] * k),
                       reinterpret_cast<char*>(m_originalVertexData[l]) +
-                          m_vertexDataSize[l] * distribVertexIds[k],
+                          (m_vertexDataSize[l] * distribVertexIds[k]),
                       m_vertexDataSize[l]);
         }
 
@@ -782,7 +785,7 @@ class PUML {
       }
     }
 
-    overtex_t* recvVertices = new overtex_t[totalVertices];
+    auto* recvVertices = new overtex_t[totalVertices];
 
     for (auto& it : m_vertexData) {
       std::free(it);
@@ -792,7 +795,7 @@ class PUML {
       m_vertexData[i] = std::malloc(totalVertices * m_vertexDataSize[i]);
     }
 #ifdef USE_MPI
-    MPI_Datatype vertexType;
+    MPI_Datatype vertexType = MPI_DATATYPE_NULL;
     MPI_Type_contiguous(3, MPI_DOUBLE, &vertexType);
     MPI_Type_commit(&vertexType);
 
@@ -828,7 +831,7 @@ class PUML {
     distribData.clear();
 
     // Send back the number of shared ranks for each vertex
-    unsigned int* distNsharedRanks = new unsigned int[totalRecv];
+    auto* distNsharedRanks = new unsigned int[totalRecv];
     unsigned int distTotalSharedRanks = 0;
     for (unsigned int i = 0; i < totalRecv; i++) {
       assert(distribVertexIds[i] < m_originalSize[1]);
@@ -836,7 +839,7 @@ class PUML {
       distTotalSharedRanks += distNsharedRanks[i];
     }
 
-    unsigned int* recvNsharedRanks = new unsigned int[totalVertices];
+    auto* recvNsharedRanks = new unsigned int[totalVertices];
 #ifdef USE_MPI
     MPI_Alltoallv(distNsharedRanks,
                   recvCount,
@@ -863,7 +866,7 @@ class PUML {
         assert(k < totalRecv);
         assert(l + sharedRanks[distribVertexIds[k]].size() <= distTotalSharedRanks);
         memcpy(&distSharedRanks[l],
-               &sharedRanks[distribVertexIds[k]][0],
+               sharedRanks[distribVertexIds[k]].data(),
                sharedRanks[distribVertexIds[k]].size() * sizeof(int));
         l += sharedRanks[distribVertexIds[k]].size();
 
@@ -931,8 +934,9 @@ class PUML {
       m_vertices[i].m_sharedRanks.resize(recvNsharedRanks[i] - 1);
       unsigned int l = 0;
       for (unsigned int j = 0; j < recvNsharedRanks[i]; j++) {
-        if (recvSharedRanks[k] != rank)
+        if (recvSharedRanks[k] != rank) {
           m_vertices[i].m_sharedRanks[l++] = recvSharedRanks[k];
+        }
         k++;
       }
       std::sort(m_vertices[i].m_sharedRanks.begin(), m_vertices[i].m_sharedRanks.end());
@@ -959,7 +963,7 @@ class PUML {
     cellOffset -= m_originalSize[0];
 
     std::vector<std::set<unsigned int>> edgeUpward;
-    std::set<unsigned int>* vertexUpward = new std::set<unsigned int>[m_vertices.size()];
+    auto* vertexUpward = new std::set<unsigned int>[m_vertices.size()];
 
     for (unsigned int i = 0; i < m_originalSize[0]; i++) {
       m_cells[i].m_gid = i + cellOffset;
@@ -999,9 +1003,7 @@ class PUML {
       assert(m_edges[i].m_upward.empty());
       m_edges[i].m_upward.resize(edgeUpward[i].size());
       unsigned int j = 0;
-      for (std::set<unsigned int>::const_iterator it = edgeUpward[i].begin();
-           it != edgeUpward[i].end();
-           ++it, j++) {
+      for (auto it = edgeUpward[i].begin(); it != edgeUpward[i].end(); ++it, j++) {
         m_edges[i].m_upward[j] = *it;
       }
     }
@@ -1011,9 +1013,7 @@ class PUML {
     for (unsigned int i = 0; i < m_vertices.size(); i++) {
       m_vertices[i].m_upward.resize(vertexUpward[i].size());
       unsigned int j = 0;
-      for (std::set<unsigned int>::const_iterator it = vertexUpward[i].begin();
-           it != vertexUpward[i].end();
-           ++it, j++) {
+      for (auto it = vertexUpward[i].begin(); it != vertexUpward[i].end(); ++it, j++) {
         m_vertices[i].m_upward[j] = *it;
       }
     }
@@ -1029,80 +1029,83 @@ class PUML {
   /**
    * @return The total number of all cells within the mesh.
    */
-  unsigned int numTotalCells() const { return m_originalTotalSize[0]; }
+  auto numTotalCells() const -> unsigned int { return m_originalTotalSize[0]; }
 
   /**
    * @return The number of original cells on this rank
    *
    * @note This value can change when {@link partition()} is called
    */
-  unsigned int numOriginalCells() const { return m_originalSize[0]; }
+  auto numOriginalCells() const -> unsigned int { return m_originalSize[0]; }
 
   /**
    * @return The number of original vertices on this rank
    */
-  unsigned int numOriginalVertices() const { return m_originalSize[1]; }
+  auto numOriginalVertices() const -> unsigned int { return m_originalSize[1]; }
 
   /**
    * @return The original cells on this rank
    *
    * @note The pointer gets invalid when {@link partition()} is called
    */
-  const ocell_t* originalCells() const { return m_originalCells; }
+  auto originalCells() const -> const ocell_t* { return m_originalCells; }
 
   /**
    * @return The original vertices on this rank
    */
-  const overtex_t* originalVertices() const { return m_originalVertices; }
+  auto originalVertices() const -> const overtex_t* { return m_originalVertices; }
 
   /**
    * @return Original user cell data
    */
-  const void* originalCellData(unsigned int index) const {
+  auto originalCellData(unsigned int index) const -> const void* {
     return cellData(index); // This is the same
   }
 
   /**
    * @return Original user vertex data
    */
-  const void* originalVertexData(unsigned int index) const { return m_originalVertexData[index]; }
+  auto originalVertexData(unsigned int index) const -> const void* {
+    return m_originalVertexData[index];
+  }
 
   /**
    * @return The cells of the mesh
    */
-  const std::vector<cell_t>& cells() const { return m_cells; }
+  auto cells() const -> const std::vector<cell_t>& { return m_cells; }
 
   /**
    * @return The faces of the mesh
    */
-  const std::vector<face_t>& faces() const { return m_faces; }
+  auto faces() const -> const std::vector<face_t>& { return m_faces; }
 
   /**
    * @return The edges of the mesh
    */
-  const std::vector<edge_t>& edges() const { return m_edges; }
+  auto edges() const -> const std::vector<edge_t>& { return m_edges; }
 
   /**
    * @return The vertices of the mesh
    */
-  const std::vector<vertex_t>& vertices() const { return m_vertices; }
+  auto vertices() const -> const std::vector<vertex_t>& { return m_vertices; }
 
   /**
    * @return User cell data
    */
-  const void* cellData(unsigned int index) const { return m_cellData[index]; }
+  auto cellData(unsigned int index) const -> const void* { return m_cellData[index]; }
 
   /**
    * @return User vertex data
    */
-  const void* vertexData(unsigned int index) const { return m_vertexData[index]; }
+  auto vertexData(unsigned int index) const -> const void* { return m_vertexData[index]; }
 
   /**
    * @param vertexIds A list of local vertex ids
    * @return The local face id for the given set of vertices or <code>-1</code> if
    *  the face does not exist
    */
-  int faceByVertices(unsigned int vertexIds[internal::Topology<Topo>::facevertices()]) const {
+  auto faceByVertices(unsigned int vertexIds[internal::Topology<Topo>::facevertices()]) const
+      -> int {
     return m_v2f.find(vertexIds);
   }
 
@@ -1110,7 +1113,7 @@ class PUML {
   /**
    * @return The MPI communicator used by this class. (this field only exists, if MPI is enabled)
    */
-  const MPI_Comm& comm() const { return m_comm; }
+  auto comm() const -> const MPI_Comm& { return m_comm; }
 #endif
 
   private:
@@ -1121,13 +1124,14 @@ class PUML {
    * @param plid The local id of the parent
    * @return The local id of the face
    */
-  unsigned int addFace(unsigned int lid, unsigned int plid) {
+  auto addFace(unsigned int lid, unsigned int plid) -> unsigned int {
     if (lid < m_faces.size()) {
       // Update an old face
       assert(m_faces[lid].m_upward[1] == -1);
       m_faces[lid].m_upward[1] = plid;
-      if (m_faces[lid].m_upward[1] < m_faces[lid].m_upward[0])
+      if (m_faces[lid].m_upward[1] < m_faces[lid].m_upward[0]) {
         std::swap(m_faces[lid].m_upward[0], m_faces[lid].m_upward[1]);
+      }
     } else {
       // New face
       assert(lid == m_faces.size());
@@ -1152,18 +1156,17 @@ class PUML {
   void generatedSharedAndGID(std::vector<E>& elements, const std::vector<D>& down) {
 #ifdef USE_MPI
     // Collect all shared ranks for each element and downward gids
-    const std::vector<int>** allShared = new const std::vector<int>*[elements.size() * N];
+    const auto** allShared = new const std::vector<int>*[elements.size() * N];
     memset(allShared, 0, elements.size() * N * sizeof(std::vector<int>*));
-    unsigned long* downward = new unsigned long[elements.size() * N];
-    unsigned int* downPos = new unsigned int[elements.size()];
+    auto* downward = new unsigned long[elements.size() * N];
+    auto* downPos = new unsigned int[elements.size()];
     memset(downPos, 0, elements.size() * sizeof(unsigned int));
 
     for (typename std::vector<D>::const_iterator it = down.begin(); it != down.end(); ++it) {
-      for (std::vector<int>::const_iterator it2 = it->m_upward.begin(); it2 != it->m_upward.end();
-           ++it2) {
+      for (auto it2 = it->m_upward.begin(); it2 != it->m_upward.end(); ++it2) {
         assert(downPos[*it2] < N);
-        allShared[*it2 * N + downPos[*it2]] = &it->m_sharedRanks;
-        downward[*it2 * N + downPos[*it2]] = it->m_gid;
+        allShared[(*it2 * N) + downPos[*it2]] = &it->m_sharedRanks;
+        downward[(*it2 * N) + downPos[*it2]] = it->m_gid;
         downPos[*it2]++;
       }
     }
@@ -1178,8 +1181,8 @@ class PUML {
 
       std::set_intersection(allShared[i * N]->begin(),
                             allShared[i * N]->end(),
-                            allShared[i * N + 1]->begin(),
-                            allShared[i * N + 1]->end(),
+                            allShared[(i * N) + 1]->begin(),
+                            allShared[(i * N) + 1]->end(),
                             std::back_inserter(elements[i].m_sharedRanks));
 
       std::vector<int> buffer;
@@ -1189,8 +1192,8 @@ class PUML {
         assert(allShared[i * N + j]);
         std::set_intersection(elements[i].m_sharedRanks.begin(),
                               elements[i].m_sharedRanks.end(),
-                              allShared[i * N + j]->begin(),
-                              allShared[i * N + j]->end(),
+                              allShared[(i * N) + j]->begin(),
+                              allShared[(i * N) + j]->end(),
                               std::back_inserter(buffer));
 
         std::swap(elements[i].m_sharedRanks, buffer);
@@ -1200,7 +1203,8 @@ class PUML {
     delete[] allShared;
 
     // Eliminate false positves
-    int rank, procs;
+    int rank;
+    int procs;
     MPI_Comm_rank(m_comm, &rank);
     MPI_Comm_size(m_comm, &procs);
 
@@ -1208,9 +1212,7 @@ class PUML {
     memset(nShared, 0, procs * sizeof(int));
     for (typename std::vector<E>::const_iterator it = elements.begin(); it != elements.end();
          ++it) {
-      for (std::vector<int>::const_iterator it2 = it->m_sharedRanks.begin();
-           it2 != it->m_sharedRanks.end();
-           ++it2) {
+      for (auto it2 = it->m_sharedRanks.begin(); it2 != it->m_sharedRanks.end(); ++it2) {
         nShared[*it2]++;
       }
     }
@@ -1227,16 +1229,15 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + nRecvShared[i - 1];
     }
 
-    unsigned int totalShared = sDispls[procs - 1] + nShared[procs - 1];
+    const unsigned int totalShared = sDispls[procs - 1] + nShared[procs - 1];
 
-    unsigned int* sharedPos = new unsigned int[procs];
+    auto* sharedPos = new unsigned int[procs];
     memset(sharedPos, 0, procs * sizeof(unsigned int));
 
-    unsigned long* sendShared = new unsigned long[totalShared * N];
+    auto* sendShared = new unsigned long[totalShared * N];
 
     for (unsigned int i = 0; i < elements.size(); i++) {
-      for (std::vector<int>::const_iterator it = elements[i].m_sharedRanks.begin();
-           it != elements[i].m_sharedRanks.end();
+      for (auto it = elements[i].m_sharedRanks.begin(); it != elements[i].m_sharedRanks.end();
            ++it) {
         assert(sharedPos[*it] < static_cast<unsigned>(nShared[*it]));
         memcpy(&sendShared[(sDispls[*it] + sharedPos[*it]) * N],
@@ -1248,11 +1249,11 @@ class PUML {
 
     delete[] sharedPos;
 
-    unsigned int totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
+    const unsigned int totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
 
-    unsigned long* recvShared = new unsigned long[totalRecvShared * N];
+    auto* recvShared = new unsigned long[totalRecvShared * N];
 
-    MPI_Datatype type;
+    MPI_Datatype type = MPI_DATATYPE_NULL;
     MPI_Type_contiguous(N, MPI_UNSIGNED_LONG, &type);
     MPI_Type_commit(&type);
 
@@ -1262,7 +1263,7 @@ class PUML {
     delete[] nShared;
     delete[] sendShared;
 
-    std::unordered_set<internal::DownElement<N>, internal::DownElementHash<N>>* hashedElements =
+    auto* hashedElements =
         new std::unordered_set<internal::DownElement<N>, internal::DownElementHash<N>>[procs];
 
     unsigned int k = 0;
@@ -1283,11 +1284,12 @@ class PUML {
     for (unsigned int i = 0; i < elements.size(); i++) {
       internal::DownElement<N> delem(&downward[i * N]);
 
-      std::vector<int>::iterator it = elements[i].m_sharedRanks.begin();
+      auto it = elements[i].m_sharedRanks.begin();
       while (it != elements[i].m_sharedRanks.end()) {
         if (hashedElements[*it].find(delem) == hashedElements[*it].end()) {
-          if ((rank == 0 && *it == 3) || (rank == 3 && *it == 0))
+          if ((rank == 0 && *it == 3) || (rank == 3 && *it == 0)) {
             e++;
+          }
           it = elements[i].m_sharedRanks.erase(it);
         } else {
           ++it;
@@ -1301,8 +1303,9 @@ class PUML {
     unsigned int owned = 0;
     for (typename std::vector<E>::const_iterator it = elements.begin(); it != elements.end();
          ++it) {
-      if (it->m_sharedRanks.empty() || it->m_sharedRanks[0] > rank)
+      if (it->m_sharedRanks.empty() || it->m_sharedRanks[0] > rank) {
         owned++;
+      }
     }
 
     // Get global id offset
@@ -1319,16 +1322,15 @@ class PUML {
       if (it->m_sharedRanks.empty() || it->m_sharedRanks[0] > rank) {
         it->m_gid = gidOffset++;
 
-        for (std::vector<int>::const_iterator it2 = it->m_sharedRanks.begin();
-             it2 != it->m_sharedRanks.end();
-             ++it2) {
+        for (auto it2 = it->m_sharedRanks.begin(); it2 != it->m_sharedRanks.end(); ++it2) {
           nSendGid[*it2]++;
         }
       } else {
         it->m_gid = std::numeric_limits<unsigned long>::max();
 
-        if (!it->m_sharedRanks.empty())
+        if (!it->m_sharedRanks.empty()) {
           nRecvGid[it->m_sharedRanks[0]]++;
+        }
       }
     }
 
@@ -1340,19 +1342,18 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + nRecvGid[i - 1];
     }
 
-    unsigned int totalSendGid = sDispls[procs - 1] + nSendGid[procs - 1];
-    unsigned int totalRecvGid = rDispls[procs - 1] + nRecvGid[procs - 1];
+    const unsigned int totalSendGid = sDispls[procs - 1] + nSendGid[procs - 1];
+    const unsigned int totalRecvGid = rDispls[procs - 1] + nRecvGid[procs - 1];
 
     // Collect send data
-    unsigned int* sendPos = new unsigned int[procs];
+    auto* sendPos = new unsigned int[procs];
     memset(sendPos, 0, procs * sizeof(unsigned int));
 
-    unsigned long* sendGid = new unsigned long[totalSendGid];
-    unsigned long* sendDGid = new unsigned long[totalSendGid * N];
+    auto* sendGid = new unsigned long[totalSendGid];
+    auto* sendDGid = new unsigned long[totalSendGid * N];
     for (unsigned int i = 0; i < elements.size(); i++) {
       if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
-        for (std::vector<int>::const_iterator it = elements[i].m_sharedRanks.begin();
-             it != elements[i].m_sharedRanks.end();
+        for (auto it = elements[i].m_sharedRanks.begin(); it != elements[i].m_sharedRanks.end();
              ++it) {
           assert(sendPos[*it] < static_cast<unsigned>(nSendGid[*it]));
 
@@ -1368,8 +1369,8 @@ class PUML {
     delete[] sendPos;
 
     // Exchange cell data
-    unsigned long* recvGid = new unsigned long[totalRecvGid];
-    unsigned long* recvDGid = new unsigned long[totalRecvGid * N];
+    auto* recvGid = new unsigned long[totalRecvGid];
+    auto* recvDGid = new unsigned long[totalRecvGid * N];
 
     MPI_Alltoallv(sendGid,
                   nSendGid,
@@ -1421,7 +1422,6 @@ class PUML {
 #endif // USE_MPI
   }
 
-  private:
   /**
    * Add an edge if it does not exist yet
    *
@@ -1431,13 +1431,13 @@ class PUML {
    * @param plid2 The second parent
    * @return The local id of the edge
    */
-  static unsigned int addEdge(std::vector<std::set<unsigned int>>& edgeUpward,
-                              unsigned int lid,
-                              unsigned int plid1,
-                              unsigned int plid2) {
+  static auto addEdge(std::vector<std::set<unsigned int>>& edgeUpward,
+                      unsigned int lid,
+                      unsigned int plid1,
+                      unsigned int plid2) -> unsigned int {
     if (lid >= edgeUpward.size()) {
       assert(lid == edgeUpward.size());
-      edgeUpward.push_back(std::set<unsigned int>());
+      edgeUpward.emplace_back();
     }
     edgeUpward[lid].insert(plid1);
     edgeUpward[lid].insert(plid2);
@@ -1461,7 +1461,7 @@ class PUML {
   }
 
   template <typename TT>
-  static void _checkH5Err(TT status, const char* file, int line, int rank) {
+  static void checkH5Err(TT status, const char* file, int line, int rank) {
     if (status < 0) {
       logError() << utils::nospace << "An HDF5 error occurred in PUML (" << file << ": " << line
                  << ") on rank " << rank;
@@ -1472,7 +1472,7 @@ class PUML {
 #undef checkH5Err
 
 /** Convenient typedef for tetrahrdral meshes */
-typedef PUML<TETRAHEDRON> TETPUML;
+using TETPUML = PUML<TETRAHEDRON>;
 
 } // namespace PUML
 

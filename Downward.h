@@ -19,8 +19,6 @@
 #include <cassert>
 #include <cstring>
 
-#include "utils/arrayutils.h"
-
 #include "Element.h"
 #include "Numbering.h"
 #include "PUML.h"
@@ -87,17 +85,18 @@ class Downward {
    * @return The side of the cell this face is on or -1 of the face is on no side
    */
   template <TopoType Topo>
-  static int faceSide(const PUML<Topo>& puml,
-                      const typename PUML<Topo>::cell_t& cell,
-                      unsigned int faceId) {
+  static auto faceSide(const PUML<Topo>& puml,
+                       const typename PUML<Topo>::cell_t& cell,
+                       unsigned int faceId) -> int {
     unsigned int faceIds[internal::Topology<Topo>::cellfaces()];
     faces(puml, cell, faceIds);
 
     unsigned int* end = faceIds + internal::Topology<Topo>::cellfaces();
 
     unsigned int* pFaceId = std::find(faceIds, end, faceId);
-    if (pFaceId == end)
+    if (pFaceId == end) {
       return -1;
+    }
 
     return pFaceId - faceIds;
   }

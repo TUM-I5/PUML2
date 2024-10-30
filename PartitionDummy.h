@@ -16,6 +16,7 @@
 #ifndef PUML_PARTITIONDUMMY_H
 #define PUML_PARTITIONDUMMY_H
 
+#include "PartitionTarget.h"
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
@@ -33,13 +34,13 @@ class PartitionDummy : public PartitionBase<Topo> {
   using PartitionBase<Topo>::PartitionBase;
 
 #ifdef USE_MPI
-  virtual PartitioningResult partition(int* partition,
-                                       const PartitionGraph<Topo>& graph,
-                                       const PartitionTarget& target,
-                                       int seed = 1) {
+  virtual auto partition(int* partition,
+                         const PartitionGraph<Topo>& graph,
+                         const PartitionTarget& target,
+                         int seed = 1) -> PartitioningResult {
     // all data stays where it is (i.e. where it was read)
 
-    int rank;
+    int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
     for (unsigned long i = 0; i < graph.localVertexCount(); ++i) {
       partition[i] = rank;

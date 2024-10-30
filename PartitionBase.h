@@ -17,15 +17,12 @@
 #define PUML_PARTITION_BASE_H
 
 #ifdef USE_MPI
-#include <mpi.h>
 #endif // USE_MPI
 #include "utils/logger.h"
 #include "Topology.h"
-#include "PUML.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 #include <vector>
-#include <stdexcept>
 
 namespace PUML {
 
@@ -34,12 +31,12 @@ enum class PartitioningResult { SUCCESS = 0, ERROR };
 template <TopoType Topo>
 class PartitionBase {
   public:
-  PartitionBase() {}
+  PartitionBase() = default;
   virtual ~PartitionBase() = default;
 
 #ifdef USE_MPI
-  std::vector<int>
-      partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1) {
+  auto partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
+      -> std::vector<int> {
     std::vector<int> part(graph.localVertexCount());
     auto result = partition(part, graph, target, seed);
     if (result != PartitioningResult::SUCCESS) {
@@ -48,17 +45,17 @@ class PartitionBase {
     return part;
   }
 
-  PartitioningResult partition(std::vector<int>& part,
-                               const PartitionGraph<Topo>& graph,
-                               const PartitionTarget& target,
-                               int seed = 1) {
+  auto partition(std::vector<int>& part,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& target,
+                 int seed = 1) -> PartitioningResult {
     return partition(part.data(), graph, target, seed);
   }
 
-  virtual PartitioningResult partition(int* part,
-                                       const PartitionGraph<Topo>& graph,
-                                       const PartitionTarget& target,
-                                       int seed = 1) = 0;
+  virtual auto partition(int* part,
+                         const PartitionGraph<Topo>& graph,
+                         const PartitionTarget& target,
+                         int seed = 1) -> PartitioningResult = 0;
 #endif // USE_MPI
 };
 

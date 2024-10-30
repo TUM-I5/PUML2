@@ -15,14 +15,14 @@
 #ifndef PUML_PARTITION_H
 #define PUML_PARTITION_H
 
+#include "Topology.h"
+#include "utils/logger.h"
 #include <memory>
 
 #ifdef USE_MPI
-#include <mpi.h>
 #endif // USE_MPI
 
 #include "PartitionBase.h"
-#include "PartitionGraph.h"
 #include "PartitionDummy.h"
 
 #ifdef USE_PARMETIS
@@ -60,7 +60,7 @@ enum class PartitionerType {
 template <TopoType Topo>
 class Partition {
   public:
-  static std::unique_ptr<PartitionBase<Topo>> getPartitioner(PartitionerType partitioner) {
+  static auto getPartitioner(PartitionerType partitioner) -> std::unique_ptr<PartitionBase<Topo>> {
     PartitionBase<Topo>* partition = nullptr;
     if (partitioner == PartitionerType::None) {
       partition = new PartitionDummy<Topo>();

@@ -33,66 +33,68 @@ class Topology {
   /**
    * @return The number of vertices of a cell
    */
-  static constexpr unsigned int cellvertices();
+  static constexpr auto cellvertices() -> unsigned int;
 
   /**
    * @return The number of faces of a cell
    */
-  static constexpr unsigned int cellfaces();
+  static constexpr auto cellfaces() -> unsigned int;
 
   /**
    * @return The number of edges for a cell
    */
-  static constexpr unsigned int celledges();
+  static constexpr auto celledges() -> unsigned int;
 
   /**
    * @return The number of edges for a face
    */
-  static constexpr unsigned int faceedges() { return facevertices(); /* This is always the same */ }
+  static constexpr auto faceedges() -> unsigned int {
+    return facevertices(); /* This is always the same */
+  }
 
   /**
    * @return The number vertices for a face
    */
-  static constexpr unsigned int facevertices();
+  static constexpr auto facevertices() -> unsigned int;
 };
 
 template <>
-inline constexpr unsigned int Topology<TETRAHEDRON>::cellvertices() {
+constexpr auto Topology<TETRAHEDRON>::cellvertices() -> unsigned int {
   return 4;
 }
 
 template <>
-inline constexpr unsigned int Topology<HEXAHEDRON>::cellvertices() {
+constexpr auto Topology<HEXAHEDRON>::cellvertices() -> unsigned int {
   return 8;
 }
 
 template <>
-inline constexpr unsigned int Topology<TETRAHEDRON>::cellfaces() {
+constexpr auto Topology<TETRAHEDRON>::cellfaces() -> unsigned int {
   return 4;
 }
 
 template <>
-inline constexpr unsigned int Topology<HEXAHEDRON>::cellfaces() {
+constexpr auto Topology<HEXAHEDRON>::cellfaces() -> unsigned int {
   return 6;
 }
 
 template <>
-inline constexpr unsigned int Topology<TETRAHEDRON>::celledges() {
+constexpr auto Topology<TETRAHEDRON>::celledges() -> unsigned int {
   return 6;
 }
 
 template <>
-inline constexpr unsigned int Topology<HEXAHEDRON>::celledges() {
+constexpr auto Topology<HEXAHEDRON>::celledges() -> unsigned int {
   return 12;
 }
 
 template <>
-inline constexpr unsigned int Topology<TETRAHEDRON>::facevertices() {
+constexpr auto Topology<TETRAHEDRON>::facevertices() -> unsigned int {
   return 3;
 }
 
 template <>
-inline constexpr unsigned int Topology<HEXAHEDRON>::facevertices() {
+constexpr auto Topology<HEXAHEDRON>::facevertices() -> unsigned int {
   return 4;
 }
 

@@ -20,25 +20,24 @@
 #include "PUML.h"
 #include "Topology.h"
 
-namespace PUML {
-
-namespace internal {
+namespace PUML::internal {
 
 template <TopoType Topo, typename E>
 struct ElementVector {
-  static const std::vector<E>& elements(const PUML<Topo>& puml);
+  static auto elements(const PUML<Topo>& puml) -> const std::vector<E>&;
 };
 
 template <TopoType Topo>
 struct ElementVector<Topo, typename PUML<Topo>::cell_t> {
-  static const std::vector<typename PUML<Topo>::cell_t>& elements(const PUML<Topo>& puml) {
+  static auto elements(const PUML<Topo>& puml) -> const std::vector<typename PUML<Topo>::cell_t>& {
     return puml.cells();
   }
 };
 
 template <TopoType Topo>
 struct ElementVector<Topo, typename PUML<Topo>::vertex_t> {
-  static const std::vector<typename PUML<Topo>::vertex_t>& elements(const PUML<Topo>& puml) {
+  static auto elements(const PUML<Topo>& puml)
+      -> const std::vector<typename PUML<Topo>::vertex_t>& {
     return puml.vertices();
   }
 };
@@ -51,13 +50,12 @@ class Utils {
   template <TopoType Topo, typename E, unsigned int N>
   static void l2g(const PUML<Topo>& puml, const unsigned int lid[N], unsigned long gid[N]) {
     const std::vector<E>& elements = ElementVector<Topo, E>::elements(puml);
-    for (unsigned int i = 0; i < N; i++)
+    for (unsigned int i = 0; i < N; i++) {
       gid[i] = elements[lid[i]].m_gid;
+    }
   }
 };
 
-} // namespace internal
-
-} // namespace PUML
+} // namespace PUML::internal
 
 #endif // PUML_UTILS_H

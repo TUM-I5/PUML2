@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <vector>
+#include <iterator>
 
 #include "PUML.h"
 #include "Topology.h"
@@ -53,20 +55,21 @@ class Upward {
     faces(puml, edge, faceIds);
 
     std::vector<int> cellIds;
-    for (std::vector<int>::const_iterator it = faceIds.begin(); it != faceIds.end(); ++it) {
+    for (int faceId : faceIds) {
       int tmp[2];
-      cells(puml, puml.faces()[*it], tmp);
-      unsigned int c = (tmp[1] < 0 ? 1 : 2);
+      cells(puml, puml.faces()[faceId], tmp);
+      const unsigned int c = (tmp[1] < 0 ? 1 : 2);
 
       std::vector<int> merged;
       std::set_union(cellIds.begin(), cellIds.end(), tmp, tmp + c, std::back_inserter(merged));
       std::swap(merged, cellIds);
     }
 
-    if (M)
+    if (M) {
       merge<true>(lid, cellIds);
-    else
+    } else {
       std::swap(lid, cellIds);
+    }
   }
 
   template <TopoType Topo, bool M = false>
@@ -84,14 +87,15 @@ class Upward {
     edges(puml, vertex, edgeIds);
 
     std::vector<int> cellIds;
-    for (std::vector<int>::const_iterator it = edgeIds.begin(); it != edgeIds.end(); ++it) {
-      merge<true>(cellIds, puml.edges()[*it].m_upward);
+    for (int edgeId : edgeIds) {
+      merge<true>(cellIds, puml.edges()[edgeId].m_upward);
     }
 
-    if (M)
+    if (M) {
       merge<true>(lid, cellIds);
-    else
+    } else {
       std::swap(lid, cellIds);
+    }
   }
 
   private:

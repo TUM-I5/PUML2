@@ -15,6 +15,7 @@
 #ifndef PUML_PARTITIONPARHIP_H
 #define PUML_PARTITIONPARHIP_H
 
+#include "PartitionTarget.h"
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
@@ -40,11 +41,11 @@ class PartitionParhip : public PartitionBase<Topo> {
   public:
   PartitionParhip(int mode) : mode(mode) {}
 #ifdef USE_MPI
-  virtual PartitioningResult partition(int* partition,
-                                       const PartitionGraph<Topo>& graph,
-                                       const PartitionTarget& target,
-                                       int seed = 1) {
-    int rank;
+  virtual auto partition(int* partition,
+                         const PartitionGraph<Topo>& graph,
+                         const PartitionTarget& target,
+                         int seed = 1) -> PartitioningResult {
+    int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
 
     std::vector<idxtype> vtxdist(graph.vertexDistribution().begin(),
@@ -62,7 +63,7 @@ class PartitionParhip : public PartitionBase<Topo> {
       logWarning(rank) << "Multiple vertex weights are currently ignored by ParHIP.";
     }
 
-    int edgecut;
+    int edgecut = 0;
     int nparts = target.vertexCount();
     std::vector<idxtype> part(cellCount);
     double imbalance = target.imbalance();

@@ -15,22 +15,20 @@
 #ifndef PUML_FACE_ITERATOR_H
 #define PUML_FACE_ITERATOR_H
 
+#include "Topology.h"
+#include "PUML.h"
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
 
+#include "TypeInference.h"
+#include "Upward.h"
 #include <algorithm>
-#include <vector>
-#include <unordered_map>
 #include <cassert>
-#include <cstddef>
 #include <functional>
 #include <type_traits>
 #include <utility>
-#include "Upward.h"
-#include "TypeInference.h"
-
-#include "utils/logger.h"
+#include <vector>
 
 namespace PUML {
 
@@ -42,7 +40,8 @@ class FaceIterator {
   public:
   FaceIterator(const PUML<Topo>& puml, bool sparseComm = true)
       : m_sparseComm(sparseComm), m_puml(puml) {
-    int rank = 0, commSize = 1;
+    int rank = 0;
+    int commSize = 1;
 
 #ifdef USE_MPI
     MPI_Comm_rank(m_puml.comm(), &rank);
@@ -478,7 +477,7 @@ class FaceIterator {
                        mpit);
   }
 
-  const PUML<Topo>& puml() const { return m_puml; }
+  auto puml() const -> const PUML<Topo>& { return m_puml; }
 
   private:
   // ExternalCellHandlerFunc: T(int,int)
@@ -496,7 +495,8 @@ class FaceIterator {
                        FaceHandlerFunc&& faceHandler,
                        BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                        MPI_Datatype mpit) {
-    int rank = 0, commSize = 1;
+    int rank = 0;
+    int commSize = 1;
 
     for (int i = 0; i < m_puml.faces().size(); ++i) {
       const auto& face = m_puml.faces()[i];
@@ -526,13 +526,13 @@ class FaceIterator {
     }
 
     if (m_sparseComm) {
-      int transfer_ranks = 0;
+      int transferRanks = 0;
       for (int i = 0, j = 0; i < commSize; ++i) {
         if (m_transferDisp[i + 1] > m_transferDisp[i]) {
-          ++transfer_ranks;
+          ++transferRanks;
         }
       }
-      std::vector<MPI_Request> requests(transfer_ranks * 2);
+      std::vector<MPI_Request> requests(transferRanks * 2);
       for (int i = 0, j = 0; i < commSize; ++i) {
         if (m_transferDisp[i + 1] > m_transferDisp[i]) {
           MPI_Isend(static_cast<T*>(transferSend.data()) + m_transferDisp[i],
@@ -548,7 +548,7 @@ class FaceIterator {
                     i,
                     0,
                     m_puml.comm(),
-                    &requests[2 * j + 1]);
+                    &requests[(2 * j) + 1]);
           ++j;
         }
       }

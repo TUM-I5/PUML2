@@ -15,6 +15,8 @@
 #ifndef PUML_PARTITIONPTSCOTCH_H
 #define PUML_PARTITIONPTSCOTCH_H
 
+#include "PartitionTarget.h"
+#include "utils/logger.h"
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
@@ -25,7 +27,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <ptscotch.h>
 #include <cmath>
 
@@ -41,11 +42,11 @@ class PartitionPtscotch : public PartitionBase<Topo> {
   public:
   PartitionPtscotch(int mode) : mode(mode) {}
 #ifdef USE_MPI
-  virtual PartitioningResult partition(int* partition,
-                                       const PartitionGraph<Topo>& graph,
-                                       const PartitionTarget& target,
-                                       int seed = 1) {
-    int rank;
+  virtual auto partition(int* partition,
+                         const PartitionGraph<Topo>& graph,
+                         const PartitionTarget& target,
+                         int seed = 1) -> PartitioningResult {
+    int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
 
     if (graph.vertexWeights().size() > graph.localVertexCount()) {
@@ -71,7 +72,7 @@ class PartitionPtscotch : public PartitionBase<Topo> {
       // we need to convert from double node weights to integer node weights
       // (that is due to the interface still being oriented at ParMETIS right now)
 
-      double scale = (double)(1ULL << 24); // if this is not enough (or too much), adjust it
+      auto scale = (double)(1ULL << 24); // if this is not enough (or too much), adjust it
       for (int i = 0; i < nparts; ++i) {
         // important: the weights should be non-negative
         weights[i] =
@@ -80,7 +81,7 @@ class PartitionPtscotch : public PartitionBase<Topo> {
       }
     }
 
-    int edgecut;
+    int edgecut = 0;
     std::vector<SCOTCH_Num> part(cellCount);
 
     SCOTCH_Dgraph dgraph;

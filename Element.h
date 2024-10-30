@@ -32,7 +32,7 @@ class PUML;
 class Downward;
 class Upward;
 
-template <typename utype>
+template <typename Utype>
 class Element {
   template <TopoType Topo>
   friend class PUML;
@@ -44,20 +44,20 @@ class Element {
   unsigned long m_gid;
 
   /** The local/global ids of the upper elements */
-  utype m_upward;
+  Utype m_upward;
 
   public:
   /**
    * @return The global ID of the element
    */
-  unsigned long gid() const { return m_gid; }
+  [[nodiscard]] auto gid() const -> unsigned long { return m_gid; }
 };
 
 /**
  * Elements that can be on partition boundaries (all except cells)
  */
-template <typename utype>
-class BoundaryElement : public Element<utype> {
+template <typename Utype>
+class BoundaryElement : public Element<Utype> {
   template <TopoType Topo>
   friend class PUML;
 
@@ -69,12 +69,12 @@ class BoundaryElement : public Element<utype> {
   /**
    * @return <code>True</code> if the element is on a partition boundary
    */
-  bool isShared() const { return m_sharedRanks.size() > 0; }
+  [[nodiscard]] auto isShared() const -> bool { return !m_sharedRanks.empty(); }
 
   /**
    * @return A vector of ranks that also has this element
    */
-  const std::vector<int>& shared() const { return m_sharedRanks; }
+  [[nodiscard]] auto shared() const -> const std::vector<int>& { return m_sharedRanks; }
 };
 
 class Vertex : public BoundaryElement<std::vector<int>> {
@@ -82,14 +82,14 @@ class Vertex : public BoundaryElement<std::vector<int>> {
   friend class PUML;
 
   private:
-  double m_coordinate[3];
+  double m_coordinate[3]{};
 
   public:
   /**
    * @return A pointer to an array with 3 components containing
    *  x, y and z
    */
-  const double* coordinate() const { return m_coordinate; }
+  [[nodiscard]] auto coordinate() const -> const double* { return m_coordinate; }
 };
 
 class Edge : public BoundaryElement<std::vector<int>> {
@@ -108,7 +108,7 @@ class Cell : public Element<std::array<int, 0>> {
   friend class Downward;
 
   private:
-  unsigned int m_vertices[internal::Topology<Topo>::cellvertices()];
+  unsigned int m_vertices[internal::Topology<Topo>::cellvertices()]{};
 };
 
 } // namespace PUML
