@@ -115,7 +115,7 @@ class Distributor {
   const unsigned long missingEntities;
 };
 
-#define checkH5Err(...) _checkH5Err(__VA_ARGS__, __FILE__, __LINE__, rank)
+#define checkH5Err(...) checkH5ErrImpl(__VA_ARGS__, __FILE__, __LINE__, rank)
 
 /**
  * @todo Handle non-MPI case correct
@@ -1461,7 +1461,7 @@ class PUML {
   }
 
   template <typename TT>
-  static void checkH5Err(TT status, const char* file, int line, int rank) {
+  static void checkH5ErrImpl(TT status, const char* file, int line, int rank) {
     if (status < 0) {
       logError() << utils::nospace << "An HDF5 error occurred in PUML (" << file << ": " << line
                  << ") on rank " << rank;
