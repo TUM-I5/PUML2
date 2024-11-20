@@ -56,7 +56,7 @@ enum DataType { CELL = 0, VERTEX = 1 };
  */
 class Distributor {
   public:
-  Distributor() = default;
+  Distributor() = delete;
   Distributor(unsigned long newNumEntities, unsigned long newNumRanks)
       : numEntities(newNumEntities), numRanks(newNumRanks), entitiesPerRank(numEntities / numRanks),
         missingEntities(numEntities % numRanks) {
