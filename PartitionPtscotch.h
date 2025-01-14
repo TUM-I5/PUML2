@@ -50,10 +50,10 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     MPI_Comm_rank(graph.comm(), &rank);
 
     if (graph.vertexWeights().size() > graph.localVertexCount()) {
-      logWarning(rank) << "Multiple vertex weights are currently ignored by PTSCOTCH.";
+      logWarning() << "Multiple vertex weights are currently ignored by PTSCOTCH.";
     }
     if (!graph.edgeWeights().empty()) {
-      logWarning(rank) << "The existence of edge weights may make PTSCOTCH very slow.";
+      logWarning() << "The existence of edge weights may make PTSCOTCH very slow.";
     }
 
     auto comm = graph.comm();

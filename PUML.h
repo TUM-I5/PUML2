@@ -308,7 +308,7 @@ class PUML {
       logError() << "Each cell must have" << internal::Topology<Topo>::cellvertices() << "vertices";
     }
 
-    logInfo(rank) << "Found" << dims[0] << "cells";
+    logInfo() << "Found" << dims[0] << "cells";
     auto cellDistributor = Distributor(dims[0], procs);
 
     // Read the cells
@@ -358,7 +358,7 @@ class PUML {
       logError() << "Each vertex must have xyz coordinate";
     }
 
-    logInfo(rank) << "Found" << dims[0] << "vertices";
+    logInfo() << "Found" << dims[0] << "vertices";
     auto vertexDistributor = Distributor(dims[0], procs);
 
     // Read the vertices
