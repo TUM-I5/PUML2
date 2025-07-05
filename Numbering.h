@@ -56,7 +56,55 @@ class Numbering<TETRAHEDRON> {
   }
 };
 
-// TODO(someone): adapt for HEXAHEDRON. Maybe edgefaces() can be removed or inferred
+// TODO(someone): adapt for HEXAHEDRON. Also, maybe edgefaces() can be removed or inferred
+
+template <>
+class Numbering<TRIANGLE> {
+  public:
+  typedef unsigned int face_t[Topology<TETRAHEDRON>::facevertices()];
+  typedef unsigned int edge_t[2];
+  typedef unsigned int faceadj_t[2];
+
+  static auto facevertices() -> const face_t* {
+    static const face_t Vertices[3] = {{1, 0}, {2, 1}, {0, 2}};
+
+    return Vertices;
+  }
+
+  static auto edgevertices() -> const edge_t* {
+    // not needed for 2D
+    return nullptr;
+  }
+
+  static auto edgefaces() -> const faceadj_t* {
+    // not needed for 2D (conflates with the faces)
+    return nullptr;
+  }
+};
+
+template <>
+class Numbering<QUADRANGLE> {
+  public:
+  typedef unsigned int face_t[Topology<TETRAHEDRON>::facevertices()];
+  typedef unsigned int edge_t[2];
+  typedef unsigned int faceadj_t[2];
+
+  static auto facevertices() -> const face_t* {
+    static const face_t Vertices[4] = {{1, 0}, {2, 1}, {3, 2}, {0, 3}};
+
+    return Vertices;
+  }
+
+  static auto edgevertices() -> const edge_t* {
+    // not needed for 2D
+    return nullptr;
+  }
+
+  static auto edgefaces() -> const faceadj_t* {
+    // not needed for 2D (conflates with the faces)
+    return nullptr;
+  }
+};
 
 } // namespace PUML::internal
 

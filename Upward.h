@@ -65,7 +65,7 @@ class Upward {
       std::swap(merged, cellIds);
     }
 
-    if (M) {
+    if constexpr (M) {
       merge<true>(lid, cellIds);
     } else {
       std::swap(lid, cellIds);
@@ -83,15 +83,23 @@ class Upward {
   static void cells(const PUML<Topo>& puml,
                     const typename PUML<Topo>::vertex_t& vertex,
                     std::vector<int>& lid) {
-    std::vector<int> edgeIds;
-    edges(puml, vertex, edgeIds);
-
-    std::vector<int> cellIds;
-    for (int edgeId : edgeIds) {
-      merge<true>(cellIds, puml.edges()[edgeId].m_upward);
+    std::vector<int> intermediateIds;
+    if constexpr (internal::Topology<Topo>::dimension() == 3) {
+      edges(puml, vertex, intermediateIds);
+    } else {
+      faces(puml, vertex, intermediateIds);
     }
 
-    if (M) {
+    std::vector<int> cellIds;
+    for (int id : intermediateIds) {
+      if constexpr (internal::Topology<Topo>::dimension() == 3) {
+        merge<true>(cellIds, puml.edges()[id].m_upward);
+      } else {
+        merge<true>(cellIds, puml.faces()[id].m_upward);
+      }
+    }
+
+    if constexpr (M) {
       merge<true>(lid, cellIds);
     } else {
       std::swap(lid, cellIds);

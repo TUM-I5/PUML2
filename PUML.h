@@ -129,7 +129,7 @@ class PUML {
   using ocell_t = unsigned long[internal::Topology<Topo>::cellvertices()];
 
   /** The vertex type from the file */
-  using overtex_t = double[3];
+  using overtex_t = double[internal::Topology<Topo>::dimension()];
 
   /** Internal cell type */
   using cell_t = Cell<Topo>;
@@ -141,7 +141,7 @@ class PUML {
   using edge_t = Edge;
 
   /** Internal vertex type */
-  using vertex_t = Vertex;
+  using vertex_t = Vertex<Topo>;
 
   private:
 #ifdef USE_MPI
@@ -354,8 +354,9 @@ class PUML {
       logError() << "Vertex dataset must have 2 dimensions";
     }
     checkH5Err(H5Sget_simple_extent_dims(h5space, dims, nullptr));
-    if (dims[1] != 3) {
-      logError() << "Each vertex must have xyz coordinate";
+    if (dims[1] != internal::Topology<Topo>::dimension()) {
+      logError() << "Each vertex must have" << internal::Topology<Topo>::dimension()
+                 << "coordinate entries";
     }
 
     logInfo() << "Found" << dims[0] << "vertices";
@@ -368,7 +369,7 @@ class PUML {
 
     start[0] = offsetVertices;
     count[0] = m_originalSize[1];
-    count[1] = 3;
+    count[1] = internal::Topology<Topo>::dimension();
 
     checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, nullptr, count, nullptr));
 
@@ -806,7 +807,7 @@ class PUML {
     }
 #ifdef USE_MPI
     MPI_Datatype vertexType = MPI_DATATYPE_NULL;
-    MPI_Type_contiguous(3, MPI_DOUBLE, &vertexType);
+    MPI_Type_contiguous(internal::Topology<Topo>::dimension(), MPI_DOUBLE, &vertexType);
     MPI_Type_commit(&vertexType);
 
     MPI_Alltoallv(distribVertices,
@@ -983,41 +984,52 @@ class PUML {
       }
 
       // Faces
-      unsigned int v[internal::Topology<Topo>::facevertices()];
+      unsigned int v[internal::Topology<Topo>::dimension()];
       unsigned int faces[internal::Topology<Topo>::cellfaces()];
       for (unsigned int j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
         const auto& face = internal::Numbering<Topo>::facevertices()[j];
-        v[0] = m_cells[i].m_vertices[face[0]];
-        v[1] = m_cells[i].m_vertices[face[1]];
-        v[2] = m_cells[i].m_vertices[face[2]];
+        for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
+          v[d] = m_cells[i].m_vertices[face[d]];
+        }
         faces[j] = addFace(m_v2f.add(v), i);
+        if constexpr (internal::Topology<Topo>::dimension() == 2) {
+          for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
+            vertexUpward[v[d]].insert(faces[j]);
+          }
+        }
       }
 
       // Edges + Vertex upward information
-      for (unsigned int j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
-        const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
-        const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
-        v[0] = m_cells[i].m_vertices[edge[0]];
-        v[1] = m_cells[i].m_vertices[edge[1]];
-        unsigned int edgeIdx =
-            addEdge(edgeUpward, m_v2e.add(v), faces[edgeadj[0]], faces[edgeadj[1]]);
-        vertexUpward[m_cells[i].m_vertices[edge[0]]].insert(edgeIdx);
-        vertexUpward[m_cells[i].m_vertices[edge[1]]].insert(edgeIdx);
+      if constexpr (internal::Topology<Topo>::dimension() == 3) {
+        unsigned int w[internal::Topology<Topo>::dimension() - 1];
+        for (unsigned int j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
+          const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
+          const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
+          w[0] = m_cells[i].m_vertices[edge[0]];
+          w[1] = m_cells[i].m_vertices[edge[1]];
+          unsigned int edgeIdx =
+              addEdge(edgeUpward, m_v2e.add(w), faces[edgeadj[0]], faces[edgeadj[1]]);
+          vertexUpward[w[0]].insert(edgeIdx);
+          vertexUpward[w[1]].insert(edgeIdx);
+        }
       }
     }
 
     // Create edges
     m_edges.clear();
-    m_edges.resize(edgeUpward.size());
-    for (unsigned int i = 0; i < m_edges.size(); i++) {
-      assert(m_edges[i].m_upward.empty());
-      m_edges[i].m_upward.resize(edgeUpward[i].size());
-      unsigned int j = 0;
-      for (auto it = edgeUpward[i].begin(); it != edgeUpward[i].end(); ++it, j++) {
-        m_edges[i].m_upward[j] = *it;
+
+    if constexpr (internal::Topology<Topo>::dimension() == 3) {
+      m_edges.resize(edgeUpward.size());
+      for (unsigned int i = 0; i < m_edges.size(); i++) {
+        assert(m_edges[i].m_upward.empty());
+        m_edges[i].m_upward.resize(edgeUpward[i].size());
+        unsigned int j = 0;
+        for (auto it = edgeUpward[i].begin(); it != edgeUpward[i].end(); ++it, j++) {
+          m_edges[i].m_upward[j] = *it;
+        }
       }
+      edgeUpward.clear(); // Free memory
     }
-    edgeUpward.clear(); // Free memory
 
     // Set vertex upward information
     for (unsigned int i = 0; i < m_vertices.size(); i++) {
@@ -1029,11 +1041,17 @@ class PUML {
     }
     delete[] vertexUpward;
 
-    // Generate shared information and global ids for edges
-    generatedSharedAndGID<edge_t, vertex_t, 2>(m_edges, m_vertices);
+    if constexpr (internal::Topology<Topo>::dimension() == 3) {
+      // Generate shared information and global ids for edges
+      generatedSharedAndGID<edge_t, vertex_t, 2>(m_edges, m_vertices);
 
-    // Generate shared information and global ids for faces
-    generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces, m_edges);
+      // Generate shared information and global ids for faces
+      generatedSharedAndGID<face_t, edge_t, internal::Topology<Topo>::faceedges()>(m_faces,
+                                                                                   m_edges);
+    } else {
+      // skip edges
+      generatedSharedAndGID<face_t, vertex_t, 2>(m_faces, m_vertices);
+    }
   }
 
   /**
@@ -1089,12 +1107,12 @@ class PUML {
   auto cells() const -> const std::vector<cell_t>& { return m_cells; }
 
   /**
-   * @return The faces of the mesh
+   * @return The facets/faces of the mesh (for 2D: edges)
    */
   auto faces() const -> const std::vector<face_t>& { return m_faces; }
 
   /**
-   * @return The edges of the mesh
+   * @return The edges of the mesh (only relevant for 3D)
    */
   auto edges() const -> const std::vector<edge_t>& { return m_edges; }
 
