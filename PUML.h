@@ -66,7 +66,8 @@ class Distributor {
   /**
    * Gives the offset and size of data where the rank should read data.
    */
-  auto offsetAndSize(unsigned long rank) -> std::pair<unsigned long, unsigned long> {
+  [[nodiscard]] auto offsetAndSize(unsigned long rank) const
+      -> std::pair<unsigned long, unsigned long> {
     assert(rank < numRanks);
     unsigned long offset = 0;
     unsigned long size = 0;
@@ -84,7 +85,7 @@ class Distributor {
   /**
    * Gives the rank, which has read the entity with the given globalId.
    */
-  auto rankOfEntity(unsigned long globalId) -> const unsigned long {
+  [[nodiscard]] auto rankOfEntity(unsigned long globalId) const -> unsigned long {
     assert(globalId < numEntities);
     unsigned long rank = 0;
     if (globalId < missingEntities * (entitiesPerRank + 1)) {
@@ -100,7 +101,8 @@ class Distributor {
   /**
    * Gives the local id of a mesh entity for the given globalId.
    */
-  auto globalToLocalId(unsigned long rank, unsigned long globalId) -> unsigned long {
+  [[nodiscard]] auto globalToLocalId(unsigned long rank, unsigned long globalId) const
+      -> unsigned long {
     assert(globalId < numEntities);
     auto [offset, size] = offsetAndSize(rank);
     assert(globalId >= offset);
@@ -109,10 +111,10 @@ class Distributor {
   }
 
   private:
-  const unsigned long numEntities;
-  const unsigned long numRanks;
-  const unsigned long entitiesPerRank;
-  const unsigned long missingEntities;
+  unsigned long numEntities;
+  unsigned long numRanks;
+  unsigned long entitiesPerRank;
+  unsigned long missingEntities;
 };
 
 #define checkH5Err(...) checkH5ErrImpl(__VA_ARGS__, __FILE__, __LINE__, rank)
@@ -124,10 +126,10 @@ template <TopoType Topo>
 class PUML {
   public:
   /** The cell type from the file */
-  typedef unsigned long ocell_t[internal::Topology<Topo>::cellvertices()];
+  using ocell_t = unsigned long[internal::Topology<Topo>::cellvertices()];
 
   /** The vertex type from the file */
-  typedef double overtex_t[3];
+  using overtex_t = double[3];
 
   /** Internal cell type */
   using cell_t = Cell<Topo>;
@@ -143,14 +145,14 @@ class PUML {
 
   private:
 #ifdef USE_MPI
-  MPI_Comm m_comm;
+  MPI_Comm m_comm{MPI_COMM_WORLD};
 #endif // USE_MPI
 
   /** The original cells from the file */
-  ocell_t* m_originalCells;
+  ocell_t* m_originalCells{nullptr};
 
   /** The original vertices from the file */
-  overtex_t* m_originalVertices{0L};
+  overtex_t* m_originalVertices{nullptr};
 
   /** The original number of cells/vertices on each node */
   unsigned int m_originalSize[2]{};
@@ -221,13 +223,11 @@ class PUML {
   }
 
   public:
-  PUML()
-      :
-#ifdef USE_MPI
-        m_comm(MPI_COMM_WORLD),
-#endif // USE_MPI
-        m_originalCells(0L) {
-  }
+  PUML() = default;
+  auto operator=(const PUML&) = delete;
+  auto operator=(PUML&&) = delete;
+  PUML(const PUML&) = delete;
+  PUML(PUML&&) = delete;
 
   virtual ~PUML() {
     delete[] m_originalCells;
@@ -272,12 +272,12 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    std::vector<std::string> cellNames = utils::StringUtils::split(cellName, ':');
+    const auto cellNames = utils::StringUtils::split(cellName, ':');
     if (cellNames.size() != 2) {
       logError() << "Cells name must have the form \"filename:/dataset\"";
     }
 
-    std::vector<std::string> vertexNames = utils::StringUtils::split(vertexName, ':');
+    const auto vertexNames = utils::StringUtils::split(vertexName, ':');
     if (vertexNames.size() != 2) {
       logError() << "Vertices name must have the form \"filename:/dataset\"";
     }
@@ -391,14 +391,14 @@ class PUML {
   }
 
   template <typename T>
-  void addDataArray(const T* rawData,
+  auto addDataArray(const T* rawData,
                     DataType type,
                     const std::vector<size_t>& sizes
 #ifdef USE_MPI
                     ,
                     MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
-  ) {
+                        ) -> int {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
@@ -419,8 +419,11 @@ class PUML {
 
     void* data = std::malloc(sizeof(T) * localSize * elemSize);
     std::memcpy(data, rawData, sizeof(T) * localSize * elemSize);
+
+    int id = -1;
     switch (type) {
     case CELL: {
+      id = m_cellData.size();
       m_cellData.push_back(data);
       m_cellDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -430,6 +433,7 @@ class PUML {
 #endif
     } break;
     case VERTEX: {
+      id = m_originalVertexData.size();
       m_originalVertexData.push_back(data);
       m_vertexDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -439,10 +443,12 @@ class PUML {
 #endif
     } break;
     }
+
+    return id;
   }
 
   template <typename T = int>
-  void addData(const char* dataName,
+  auto addData(const char* dataName,
                DataType type,
                const std::vector<size_t>& sizes
 #ifdef USE_MPI
@@ -450,7 +456,7 @@ class PUML {
                MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
                    ,
-               hid_t hdf5Type = HDF5TypeInfer<T>::type()) {
+               hid_t hdf5Type = HDF5TypeInfer<T>::type()) -> int {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
@@ -461,7 +467,7 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    auto cellDistributor = Distributor(m_originalTotalSize[0], procs);
+    auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
     std::vector<std::string> dataNames = utils::StringUtils::split(dataName, ':');
     if (dataNames.size() != 2) {
       logError() << "Data name must have the form \"filename:/dataset\"";
@@ -544,8 +550,10 @@ class PUML {
     checkH5Err(H5Pclose(h5plist));
     checkH5Err(H5Pclose(h5alist));
 
+    int id = -1;
     switch (type) {
     case CELL: {
+      id = m_cellData.size();
       m_cellData.push_back(data);
       m_cellDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -555,6 +563,7 @@ class PUML {
 #endif
     } break;
     case VERTEX: {
+      id = m_originalVertexData.size();
       m_originalVertexData.push_back(data);
       m_vertexDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -564,6 +573,7 @@ class PUML {
 #endif
     } break;
     }
+    return id;
   }
 
   void partition(const int* partition) {
@@ -1066,6 +1076,10 @@ class PUML {
    * @return Original user vertex data
    */
   auto originalVertexData(unsigned int index) const -> const void* {
+    if (index >= m_originalVertexData.size()) {
+      logError() << "Requested vertex data at index" << index
+                 << ", but only so many exist:" << m_originalVertexData.size();
+    }
     return m_originalVertexData[index];
   }
 
@@ -1092,12 +1106,24 @@ class PUML {
   /**
    * @return User cell data
    */
-  auto cellData(unsigned int index) const -> const void* { return m_cellData[index]; }
+  auto cellData(unsigned int index) const -> const void* {
+    if (index >= m_cellData.size()) {
+      logError() << "Requested cell data at index" << index
+                 << ", but only so many exist:" << m_cellData.size();
+    }
+    return m_cellData[index];
+  }
 
   /**
    * @return User vertex data
    */
-  auto vertexData(unsigned int index) const -> const void* { return m_vertexData[index]; }
+  auto vertexData(unsigned int index) const -> const void* {
+    if (index >= m_vertexData.size()) {
+      logError() << "Requested vertex data at index" << index
+                 << ", but only so many exist:" << m_vertexData.size();
+    }
+    return m_vertexData[index];
+  }
 
   /**
    * @param vertexIds A list of local vertex ids
@@ -1465,6 +1491,16 @@ class PUML {
     if (status < 0) {
       logError() << utils::nospace << "An HDF5 error occurred in PUML (" << file << ": " << line
                  << ") on rank " << rank;
+    }
+  }
+
+  public:
+  void identify(int dataId) {
+    const auto* identifiers = reinterpret_cast<const unsigned long*>(vertexData(dataId));
+    for (std::size_t i = 0; i < m_originalSize[0]; ++i) {
+      for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
+        m_originalCells[i][j] = identifiers[m_cells[i].m_vertices[j]];
+      }
     }
   }
 };
