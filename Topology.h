@@ -58,7 +58,7 @@ class Topology {
   static constexpr auto facevertices() -> unsigned int;
 
   /**
-   * @return The number vertices for a face
+   * @return The spatial dimension of the simplex (either 2D or 3D).
    */
   static constexpr auto dimension() -> unsigned int;
 };
