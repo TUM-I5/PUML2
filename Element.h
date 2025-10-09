@@ -77,12 +77,12 @@ class BoundaryElement : public Element<Utype> {
   [[nodiscard]] auto shared() const -> const std::vector<int>& { return m_sharedRanks; }
 };
 
+template <TopoType Topo>
 class Vertex : public BoundaryElement<std::vector<int>> {
-  template <TopoType Topo>
-  friend class PUML;
+  friend class PUML<Topo>;
 
   private:
-  double m_coordinate[3]{};
+  double m_coordinate[internal::Topology<Topo>::dimension()]{};
 
   public:
   /**

@@ -57,10 +57,10 @@ class PartitionParhip : public PartitionBase<Topo> {
     auto cellCount = graph.localVertexCount();
 
     if (!target.vertexWeightsUniform()) {
-      logWarning(rank) << "Node weights (target vertex weights) are currently ignored by ParHIP.";
+      logWarning() << "Node weights (target vertex weights) are currently ignored by ParHIP.";
     }
     if (graph.vertexWeights().size() > graph.localVertexCount()) {
-      logWarning(rank) << "Multiple vertex weights are currently ignored by ParHIP.";
+      logWarning() << "Multiple vertex weights are currently ignored by ParHIP.";
     }
 
     int edgecut = 0;

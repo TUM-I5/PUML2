@@ -20,7 +20,7 @@ namespace PUML {
 /**
  * The topology types
  */
-enum TopoType { TETRAHEDRON, HEXAHEDRON };
+enum TopoType { TRIANGLE, QUADRANGLE, TETRAHEDRON, HEXAHEDRON };
 
 namespace internal {
 
@@ -56,6 +56,11 @@ class Topology {
    * @return The number vertices for a face
    */
   static constexpr auto facevertices() -> unsigned int;
+
+  /**
+   * @return The spatial dimension of the simplex (either 2D or 3D).
+   */
+  static constexpr auto dimension() -> unsigned int;
 };
 
 template <>
@@ -96,6 +101,70 @@ constexpr auto Topology<TETRAHEDRON>::facevertices() -> unsigned int {
 template <>
 constexpr auto Topology<HEXAHEDRON>::facevertices() -> unsigned int {
   return 4;
+}
+
+template <>
+constexpr auto Topology<TETRAHEDRON>::dimension() -> unsigned int {
+  return 3;
+}
+
+template <>
+constexpr auto Topology<HEXAHEDRON>::dimension() -> unsigned int {
+  return 3;
+}
+
+template <>
+constexpr auto Topology<TRIANGLE>::cellvertices() -> unsigned int {
+  return 3;
+}
+
+template <>
+constexpr auto Topology<QUADRANGLE>::cellvertices() -> unsigned int {
+  return 4;
+}
+
+template <>
+constexpr auto Topology<TRIANGLE>::cellfaces() -> unsigned int {
+  return 4;
+}
+
+template <>
+constexpr auto Topology<QUADRANGLE>::cellfaces() -> unsigned int {
+  return 4;
+}
+
+template <>
+constexpr auto Topology<TRIANGLE>::celledges() -> unsigned int {
+  // 2D
+  return 0;
+}
+
+template <>
+constexpr auto Topology<QUADRANGLE>::celledges() -> unsigned int {
+  // 2D
+  return 0;
+}
+
+template <>
+constexpr auto Topology<TRIANGLE>::facevertices() -> unsigned int {
+  // 2D
+  return 2;
+}
+
+template <>
+constexpr auto Topology<QUADRANGLE>::facevertices() -> unsigned int {
+  // 2D
+  return 2;
+}
+
+template <>
+constexpr auto Topology<TRIANGLE>::dimension() -> unsigned int {
+  return 2;
+}
+
+template <>
+constexpr auto Topology<QUADRANGLE>::dimension() -> unsigned int {
+  return 2;
 }
 
 } // namespace internal
