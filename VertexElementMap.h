@@ -15,6 +15,7 @@
 #ifndef PUML_VERTEXELEMENTMAP_H
 #define PUML_VERTEXELEMENTMAP_H
 
+#include "DownElement.h"
 #include <algorithm>
 #include <cstring>
 #include <functional>
@@ -33,16 +34,13 @@ class VertexElementMap {
    */
   struct Element {
     /** The vertices that define this element */
-    unsigned int vertices[N]{};
+    std::array<unsigned int, N> vertices{};
 
-    Element(const unsigned int vertices[N]) {
-      memcpy(this->vertices, vertices, N * sizeof(unsigned int));
-      std::sort(this->vertices, this->vertices + N);
+    Element(const std::array<unsigned int, N>& vertices) : vertices(vertices) {
+      selectionSort<unsigned int, N>(this->vertices.data());
     }
 
-    auto operator==(const Element& other) const -> bool {
-      return memcmp(vertices, other.vertices, N * sizeof(unsigned int)) == 0;
-    }
+    auto operator==(const Element& other) const -> bool { return this->vertices == other.vertices; }
   };
 
   struct ElementHash {
@@ -61,13 +59,12 @@ class VertexElementMap {
   public:
   VertexElementMap() = default;
 
-  auto add(const unsigned int vertices[N]) -> unsigned int {
+  auto add(const std::array<unsigned int, N>& vertices) -> unsigned int {
     const Element e(vertices);
 
-    typename std::unordered_map<Element, unsigned int, ElementHash>::const_iterator it =
-        m_elements.find(e);
+    auto it = m_elements.find(e);
     if (it == m_elements.end()) {
-      unsigned int id = m_elements.size();
+      const unsigned int id = m_elements.size();
       it = m_elements.emplace(e, id).first;
     }
 
@@ -76,9 +73,8 @@ class VertexElementMap {
 
   [[nodiscard]] auto size() const -> size_t { return m_elements.size(); }
 
-  auto find(unsigned int vertices[N]) const -> int {
-    typename std::unordered_map<Element, unsigned int, ElementHash>::const_iterator it =
-        m_elements.find(vertices);
+  auto find(const std::array<unsigned int, N>& vertices) const -> int {
+    const auto it = m_elements.find(vertices);
 
     if (it == m_elements.end()) {
       return -1;

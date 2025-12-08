@@ -40,10 +40,10 @@ class Downward {
   static void
       faces(const PUML<Topo>& puml, const typename PUML<Topo>::cell_t& cell, unsigned int* lid) {
     for (unsigned int i = 0; i < internal::Topology<Topo>::cellfaces(); i++) {
-      unsigned int v[internal::Topology<Topo>::facevertices()];
-      faceVertices(puml, cell, i, v);
+      std::array<unsigned int, internal::Topology<Topo>::facevertices()> v{};
+      faceVertices(puml, cell, i, v.data());
 
-      int id = puml.faceByVertices(v);
+      const int id = puml.faceByVertices(v);
       assert(id >= 0);
       lid[i] = id;
     }
@@ -110,7 +110,7 @@ class Downward {
                            unsigned int faceSide,
                            unsigned int* lid) {
     assert(faceSide < internal::Topology<Topo>::cellfaces());
-    for (unsigned int i = 0; i < internal::Topology<Topo>::facevertices(); i++) {
+    for (std::size_t i = 0; i < internal::Topology<Topo>::facevertices(); i++) {
       lid[i] = cell.m_vertices[internal::Numbering<Topo>::facevertices()[faceSide][i]];
     }
   }

@@ -960,19 +960,19 @@ class PUML {
       std::vector<std::set<unsigned int>> edgeUpward;
       std::vector<std::set<unsigned int>> vertexUpward(m_vertices.size());
 
-      for (unsigned int i = 0; i < m_originalSize[0]; i++) {
+      for (std::size_t i = 0; i < m_originalSize[0]; i++) {
         m_cells[i].m_gid = i + cellOffset;
 
-        for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
+        for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
           m_cells[i].m_vertices[j] = m_verticesg2l[m_originalCells[i][j]];
         }
 
         // Faces
-        unsigned int v[internal::Topology<Topo>::dimension()];
-        unsigned int faces[internal::Topology<Topo>::cellfaces()];
-        for (unsigned int j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
+        std::array<unsigned int, internal::Topology<Topo>::dimension()> v{};
+        std::array<unsigned int, internal::Topology<Topo>::cellfaces()> faces{};
+        for (std::size_t j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
           const auto& face = internal::Numbering<Topo>::facevertices()[j];
-          for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
+          for (std::size_t d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
             v[d] = m_cells[i].m_vertices[face[d]];
           }
           faces[j] = addFace(m_v2f.add(v), i);
@@ -985,13 +985,13 @@ class PUML {
 
         // Edges + Vertex upward information
         if constexpr (internal::Topology<Topo>::dimension() == 3) {
-          unsigned int w[internal::Topology<Topo>::dimension() - 1];
-          for (unsigned int j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
+          std::array<unsigned int, internal::Topology<Topo>::dimension() - 1> w{};
+          for (std::size_t j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
             const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
             const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
             w[0] = m_cells[i].m_vertices[edge[0]];
             w[1] = m_cells[i].m_vertices[edge[1]];
-            unsigned int edgeIdx =
+            const auto edgeIdx =
                 addEdge(edgeUpward, m_v2e.add(w), faces[edgeadj[0]], faces[edgeadj[1]]);
             vertexUpward[w[0]].insert(edgeIdx);
             vertexUpward[w[1]].insert(edgeIdx);
@@ -1004,23 +1004,24 @@ class PUML {
 
       if constexpr (internal::Topology<Topo>::dimension() == 3) {
         m_edges.resize(edgeUpward.size());
-        for (unsigned int i = 0; i < m_edges.size(); i++) {
+        for (std::size_t i = 0; i < m_edges.size(); i++) {
           assert(m_edges[i].m_upward.empty());
           m_edges[i].m_upward.resize(edgeUpward[i].size());
-          unsigned int j = 0;
-          for (auto it = edgeUpward[i].begin(); it != edgeUpward[i].end(); ++it, j++) {
-            m_edges[i].m_upward[j] = *it;
+          std::size_t j = 0;
+          for (const auto& eu : edgeUpward[i]) {
+            m_edges[i].m_upward[j] = eu;
+            ++j;
           }
         }
         edgeUpward.clear(); // Free memory
       }
 
       // Set vertex upward information
-      for (unsigned int i = 0; i < m_vertices.size(); i++) {
+      for (std::size_t i = 0; i < m_vertices.size(); i++) {
         m_vertices[i].m_upward.resize(vertexUpward[i].size());
-        unsigned int j = 0;
-        for (auto it = vertexUpward[i].begin(); it != vertexUpward[i].end(); ++it, j++) {
-          m_vertices[i].m_upward[j] = *it;
+        std::size_t j = 0;
+        for (const auto& eu : vertexUpward[i]) {
+          m_vertices[i].m_upward[j] = eu;
         }
       }
     }
@@ -1132,7 +1133,8 @@ class PUML {
    * @return The local face id for the given set of vertices or <code>-1</code> if
    *  the face does not exist
    */
-  auto faceByVertices(unsigned int vertexIds[internal::Topology<Topo>::facevertices()]) const
+  auto faceByVertices(
+      const std::array<unsigned int, internal::Topology<Topo>::facevertices()>& vertexIds) const
       -> int {
     return m_v2f.find(vertexIds);
   }
