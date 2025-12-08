@@ -27,7 +27,7 @@ namespace PUML::internal {
   Also, we only sort _very_ small arrays here (N < 10 in all cases).
  */
 template <typename T, std::size_t N>
-void selectionSort(T* data) {
+constexpr void selectionSort(T* data) {
   for (std::size_t i = 0; i < N; ++i) {
     std::size_t currIdx = i;
     for (std::size_t j = i + 1; j < N; ++j) {
@@ -50,16 +50,18 @@ struct DownElement {
   /** The global ids of the downward elements */
   std::array<unsigned long, N> down{};
 
-  DownElement(const unsigned long* pointer) {
+  constexpr DownElement(const unsigned long* pointer) {
     std::copy_n(pointer, N, this->down.data());
     selectionSort<unsigned long, N>(this->down.data());
   }
 
-  DownElement(const std::array<unsigned long, N>& inDown) : down(inDown) {
+  constexpr DownElement(const std::array<unsigned long, N>& inDown) : down(inDown) {
     selectionSort<unsigned long, N>(this->down.data());
   }
 
-  auto operator==(const DownElement& other) const -> bool { return this->down == other.down; }
+  constexpr auto operator==(const DownElement& other) const -> bool {
+    return this->down == other.down;
+  }
 };
 
 template <unsigned int N>
