@@ -22,6 +22,26 @@
 namespace PUML::internal {
 
 /**
+  A simple selection sort implementation for a fixed array size.
+  std::sort had thrown strange errors in some contexts otherwise.
+  Also, we only sort _very_ small arrays here (N < 10 in all cases).
+ */
+template <typename T, std::size_t N>
+void selectionSort(T* output, const T* input) {
+  std::array<bool, N> taken{};
+  for (std::size_t i = 0; i < N; ++i) {
+    std::size_t currIdx = N;
+    for (std::size_t j = 0; j < N; ++j) {
+      if (!taken[j] && (currIdx == N || input[currIdx] > input[j])) {
+        currIdx = j;
+      }
+    }
+    taken[currIdx] = true;
+    output[i] = input[currIdx];
+  }
+}
+
+/**
  * A hashable element defined by the global ids of
  * the down elements
  *
@@ -30,16 +50,17 @@ namespace PUML::internal {
 template <unsigned int N>
 struct DownElement {
   /** The global ids of the downward elements */
-  unsigned long down[N]{};
+  std::array<unsigned long, N> down{};
 
-  DownElement(const unsigned long down[N]) {
-    memcpy(this->down, down, N * sizeof(unsigned long));
-    std::sort(this->down, this->down + N);
+  DownElement(const unsigned long* pointer) {
+    selectionSort<unsigned long, N>(this->down.data(), pointer);
   }
 
-  auto operator==(const DownElement& other) const -> bool {
-    return memcmp(down, other.down, N * sizeof(unsigned long)) == 0;
+  DownElement(const std::array<unsigned long, N>& inDown) {
+    selectionSort<unsigned long, N>(this->down.data(), inDown.data());
   }
+
+  auto operator==(const DownElement& other) const -> bool { return this->down == other.down; }
 };
 
 template <unsigned int N>
