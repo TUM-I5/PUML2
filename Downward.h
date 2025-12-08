@@ -59,7 +59,7 @@ class Downward {
   template <TopoType Topo>
   static void
       vertices(const PUML<Topo>& puml, const typename PUML<Topo>::cell_t& cell, unsigned int* lid) {
-    memcpy(lid, cell.m_vertices, internal::Topology<Topo>::cellvertices() * sizeof(unsigned int));
+    std::copy(cell.m_vertices.begin(), cell.m_vertices.end(), lid);
   }
 
   /**

@@ -941,7 +941,7 @@ class PUML {
     k = 0;
     for (unsigned int i = 0; i < totalVertices; i++) {
       m_vertices[i].m_gid = requiredVertices[i];
-      memcpy(m_vertices[i].m_coordinate, recvVertices[i], sizeof(overtex_t));
+      memcpy(m_vertices[i].m_coordinate.data(), recvVertices[i], sizeof(overtex_t));
       m_vertices[i].m_sharedRanks.resize(recvNsharedRanks[i] - 1);
       unsigned int l = 0;
       for (unsigned int j = 0; j < recvNsharedRanks[i]; j++) {
@@ -1196,76 +1196,78 @@ class PUML {
    * @param down The downward elements
    * @tparam N The number of downward elements
    */
-  template <typename E, typename D, unsigned int N>
+  template <typename E, typename D, std::size_t N>
   void generatedSharedAndGID(std::vector<E>& elements, const std::vector<D>& down) {
 #ifdef USE_MPI
-    // Collect all shared ranks for each element and downward gids
-    const auto** allShared = new const std::vector<int>*[elements.size() * N];
-    memset(allShared, 0, elements.size() * N * sizeof(std::vector<int>*));
-    auto* downward = new unsigned long[elements.size() * N];
-    auto* downPos = new unsigned int[elements.size()];
-    memset(downPos, 0, elements.size() * sizeof(unsigned int));
+    std::vector<std::array<unsigned long, N>> downward(elements.size());
 
-    for (typename std::vector<D>::const_iterator it = down.begin(); it != down.end(); ++it) {
-      for (auto it2 = it->m_upward.begin(); it2 != it->m_upward.end(); ++it2) {
-        assert(downPos[*it2] < N);
-        allShared[(*it2 * N) + downPos[*it2]] = &it->m_sharedRanks;
-        downward[(*it2 * N) + downPos[*it2]] = it->m_gid;
-        downPos[*it2]++;
+    MPI_Datatype type = MPI_DATATYPE_NULL;
+    MPI_Type_contiguous(N, MPI_UNSIGNED_LONG, &type);
+    MPI_Type_commit(&type);
+
+    {
+      // Collect all shared ranks for each element and downward gids
+      std::vector<std::array<const std::vector<int>*, N>> allShared(elements.size());
+
+      {
+        std::vector<std::size_t> downPos(elements.size());
+
+        for (const auto& downElem : down) {
+          for (const auto& upwardElem : downElem.m_upward) {
+            assert(downPos[upwardElem] < N);
+            allShared[upwardElem][downPos[upwardElem]] = &downElem.m_sharedRanks;
+            downward[upwardElem][downPos[upwardElem]] = downElem.m_gid;
+            ++downPos[upwardElem];
+          }
+        }
+      }
+
+      // Create the intersection of the shared ranks and update the elements
+      assert(N >= 2);
+      for (std::size_t i = 0; i < elements.size(); ++i) {
+        assert(allShared[i] != nullptr);
+        assert(allShared[i][1] != nullptr);
+
+        std::set_intersection(allShared[i][0]->begin(),
+                              allShared[i][0]->end(),
+                              allShared[i][1]->begin(),
+                              allShared[i][1]->end(),
+                              std::back_inserter(elements[i].m_sharedRanks));
+
+        std::vector<int> buffer;
+        for (std::size_t j = 2; j < N; ++j) {
+          buffer.clear();
+
+          assert(allShared[i][j] != nullptr);
+          std::set_intersection(elements[i].m_sharedRanks.begin(),
+                                elements[i].m_sharedRanks.end(),
+                                allShared[i][j]->begin(),
+                                allShared[i][j]->end(),
+                                std::back_inserter(buffer));
+
+          std::swap(elements[i].m_sharedRanks, buffer);
+        }
       }
     }
-
-    delete[] downPos;
-
-    // Create the intersection of the shared ranks and update the elements
-    assert(N >= 2);
-    for (unsigned int i = 0; i < elements.size(); i++) {
-      assert(allShared[i * N]);
-      assert(allShared[i * N + 1]);
-
-      std::set_intersection(allShared[i * N]->begin(),
-                            allShared[i * N]->end(),
-                            allShared[(i * N) + 1]->begin(),
-                            allShared[(i * N) + 1]->end(),
-                            std::back_inserter(elements[i].m_sharedRanks));
-
-      std::vector<int> buffer;
-      for (unsigned int j = 2; j < N; j++) {
-        buffer.clear();
-
-        assert(allShared[i * N + j]);
-        std::set_intersection(elements[i].m_sharedRanks.begin(),
-                              elements[i].m_sharedRanks.end(),
-                              allShared[(i * N) + j]->begin(),
-                              allShared[(i * N) + j]->end(),
-                              std::back_inserter(buffer));
-
-        std::swap(elements[i].m_sharedRanks, buffer);
-      }
-    }
-
-    delete[] allShared;
 
     // Eliminate false positves
-    int rank;
-    int procs;
+    int rank{};
+    int procs{};
     MPI_Comm_rank(m_comm, &rank);
     MPI_Comm_size(m_comm, &procs);
 
-    int* nShared = new int[procs];
-    memset(nShared, 0, procs * sizeof(int));
-    for (typename std::vector<E>::const_iterator it = elements.begin(); it != elements.end();
-         ++it) {
-      for (auto it2 = it->m_sharedRanks.begin(); it2 != it->m_sharedRanks.end(); ++it2) {
-        nShared[*it2]++;
+    std::vector<int> nShared(procs);
+    for (const auto& element : elements) {
+      for (const auto& rank : element.m_sharedRanks) {
+        ++nShared[rank];
       }
     }
 
-    int* nRecvShared = new int[procs];
-    MPI_Alltoall(nShared, 1, MPI_INT, nRecvShared, 1, MPI_INT, m_comm);
+    std::vector<int> nRecvShared(procs);
+    MPI_Alltoall(nShared.data(), 1, MPI_INT, nRecvShared.data(), 1, MPI_INT, m_comm);
 
-    int* sDispls = new int[procs];
-    int* rDispls = new int[procs];
+    std::vector<int> sDispls(procs);
+    std::vector<int> rDispls(procs);
     sDispls[0] = 0;
     rDispls[0] = 0;
     for (int i = 1; i < procs; i++) {
@@ -1273,82 +1275,73 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + nRecvShared[i - 1];
     }
 
-    const unsigned int totalShared = sDispls[procs - 1] + nShared[procs - 1];
+    const auto totalShared = sDispls[procs - 1] + nShared[procs - 1];
+    const auto totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
 
-    auto* sharedPos = new unsigned int[procs];
-    memset(sharedPos, 0, procs * sizeof(unsigned int));
+    {
+      std::vector<std::array<unsigned long, N>> recvShared(totalRecvShared);
 
-    auto* sendShared = new unsigned long[totalShared * N];
+      {
+        std::vector<std::array<unsigned long, N>> sendShared(totalShared);
 
-    for (unsigned int i = 0; i < elements.size(); i++) {
-      for (auto it = elements[i].m_sharedRanks.begin(); it != elements[i].m_sharedRanks.end();
-           ++it) {
-        assert(sharedPos[*it] < static_cast<unsigned>(nShared[*it]));
-        memcpy(&sendShared[(sDispls[*it] + sharedPos[*it]) * N],
-               &downward[i * N],
-               N * sizeof(unsigned long));
-        sharedPos[*it]++;
-      }
-    }
+        {
+          std::vector<unsigned int> sharedPos(procs);
 
-    delete[] sharedPos;
-
-    const unsigned int totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
-
-    auto* recvShared = new unsigned long[totalRecvShared * N];
-
-    MPI_Datatype type = MPI_DATATYPE_NULL;
-    MPI_Type_contiguous(N, MPI_UNSIGNED_LONG, &type);
-    MPI_Type_commit(&type);
-
-    MPI_Alltoallv(
-        sendShared, nShared, sDispls, type, recvShared, nRecvShared, rDispls, type, m_comm);
-
-    delete[] nShared;
-    delete[] sendShared;
-
-    auto* hashedElements =
-        new std::unordered_set<internal::DownElement<N>, internal::DownElementHash<N>>[procs];
-
-    unsigned int k = 0;
-    for (int i = 0; i < procs; i++) {
-      assert(i != rank || nRecvShared[i] == 0);
-      for (int j = 0; j < nRecvShared[i]; j++) {
-        assert(k < totalRecvShared);
-        assert(hashedElements[i].find(&recvShared[k * N]) == hashedElements[i].end());
-        hashedElements[i].emplace(&recvShared[k * N]);
-        k++;
-      }
-    }
-
-    delete[] nRecvShared;
-    delete[] recvShared;
-
-    unsigned int e = 0;
-    for (unsigned int i = 0; i < elements.size(); i++) {
-      internal::DownElement<N> delem(&downward[i * N]);
-
-      auto it = elements[i].m_sharedRanks.begin();
-      while (it != elements[i].m_sharedRanks.end()) {
-        if (hashedElements[*it].find(delem) == hashedElements[*it].end()) {
-          if ((rank == 0 && *it == 3) || (rank == 3 && *it == 0)) {
-            e++;
+          for (std::size_t i = 0; i < elements.size(); ++i) {
+            for (const auto& rank : elements[i].m_sharedRanks) {
+              assert(sharedPos[rank] < static_cast<unsigned>(nShared[rank]));
+              sendShared[sDispls[rank] + sharedPos[rank]] = downward[i];
+              ++sharedPos[rank];
+            }
           }
-          it = elements[i].m_sharedRanks.erase(it);
-        } else {
-          ++it;
+        }
+
+        MPI_Alltoallv(sendShared.data(),
+                      nShared.data(),
+                      sDispls.data(),
+                      type,
+                      recvShared.data(),
+                      nRecvShared.data(),
+                      rDispls.data(),
+                      type,
+                      m_comm);
+      }
+
+      {
+        std::vector<std::unordered_set<internal::DownElement<N>, internal::DownElementHash<N>>>
+            hashedElements(procs);
+
+        unsigned int k = 0;
+        for (int i = 0; i < procs; i++) {
+          assert(i != rank || nRecvShared[i] == 0);
+          for (int j = 0; j < nRecvShared[i]; j++) {
+            assert(k < totalRecvShared);
+            assert(hashedElements[i].find(recvShared[k]) == hashedElements[i].end());
+            hashedElements[i].emplace(recvShared[k]);
+            k++;
+          }
+        }
+
+        for (std::size_t i = 0; i < elements.size(); i++) {
+          internal::DownElement<N> delem(downward[i]);
+
+          auto it = elements[i].m_sharedRanks.begin();
+          while (it != elements[i].m_sharedRanks.end()) {
+            if (hashedElements[*it].find(delem) == hashedElements[*it].end()) {
+              it = elements[i].m_sharedRanks.erase(it);
+            } else {
+              ++it;
+            }
+          }
         }
       }
     }
 
-    delete[] hashedElements;
-
     // Count owned elements
-    unsigned int owned = 0;
-    for (typename std::vector<E>::const_iterator it = elements.begin(); it != elements.end();
-         ++it) {
-      if (it->m_sharedRanks.empty() || it->m_sharedRanks[0] > rank) {
-        owned++;
+    std::size_t owned = 0;
+    for (const auto& element : elements) {
+      if (element.m_sharedRanks.empty() || element.m_sharedRanks[0] > rank) {
+        ++owned;
       }
     }
 
@@ -1358,22 +1351,20 @@ class PUML {
     gidOffset -= owned;
 
     // Set global ids for owned elements and count the number of elements we need to forward
-    int* nSendGid = new int[procs];
-    memset(nSendGid, 0, procs * sizeof(int));
-    int* nRecvGid = new int[procs];
-    memset(nRecvGid, 0, procs * sizeof(int));
-    for (typename std::vector<E>::iterator it = elements.begin(); it != elements.end(); ++it) {
-      if (it->m_sharedRanks.empty() || it->m_sharedRanks[0] > rank) {
-        it->m_gid = gidOffset++;
+    std::vector<int> nSendGid(procs);
+    std::vector<int> nRecvGid(procs);
+    for (auto& element : elements) {
+      if (element.m_sharedRanks.empty() || element.m_sharedRanks[0] > rank) {
+        element.m_gid = gidOffset++;
 
-        for (auto it2 = it->m_sharedRanks.begin(); it2 != it->m_sharedRanks.end(); ++it2) {
-          nSendGid[*it2]++;
+        for (const auto& rank : element.m_sharedRanks) {
+          nSendGid[rank]++;
         }
       } else {
-        it->m_gid = std::numeric_limits<unsigned long>::max();
+        element.m_gid = std::numeric_limits<unsigned long>::max();
 
-        if (!it->m_sharedRanks.empty()) {
-          nRecvGid[it->m_sharedRanks[0]]++;
+        if (!element.m_sharedRanks.empty()) {
+          nRecvGid[element.m_sharedRanks[0]]++;
         }
       }
     }
@@ -1386,83 +1377,74 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + nRecvGid[i - 1];
     }
 
-    const unsigned int totalSendGid = sDispls[procs - 1] + nSendGid[procs - 1];
-    const unsigned int totalRecvGid = rDispls[procs - 1] + nRecvGid[procs - 1];
+    const std::size_t totalSendGid = sDispls[procs - 1] + nSendGid[procs - 1];
+    const std::size_t totalRecvGid = rDispls[procs - 1] + nRecvGid[procs - 1];
+    std::unordered_map<internal::DownElement<N>, unsigned long, internal::DownElementHash<N>> dg2g;
 
-    // Collect send data
-    auto* sendPos = new unsigned int[procs];
-    memset(sendPos, 0, procs * sizeof(unsigned int));
+    {
+      std::vector<unsigned long> recvGid(totalRecvGid);
+      std::vector<std::array<unsigned long, N>> recvDGid(totalRecvGid);
 
-    auto* sendGid = new unsigned long[totalSendGid];
-    auto* sendDGid = new unsigned long[totalSendGid * N];
-    for (unsigned int i = 0; i < elements.size(); i++) {
-      if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
-        for (auto it = elements[i].m_sharedRanks.begin(); it != elements[i].m_sharedRanks.end();
-             ++it) {
-          assert(sendPos[*it] < static_cast<unsigned>(nSendGid[*it]));
+      // Collect send data
+      {
+        std::vector<unsigned long> sendGid(totalSendGid);
+        std::vector<std::array<unsigned long, N>> sendDGid(totalSendGid);
+        {
+          std::vector<unsigned int> sendPos(procs);
 
-          sendGid[sDispls[*it] + sendPos[*it]] = elements[i].m_gid;
-          memcpy(&sendDGid[(sDispls[*it] + sendPos[*it]) * N],
-                 &downward[i * N],
-                 N * sizeof(unsigned long));
-          sendPos[*it]++;
+          for (std::size_t i = 0; i < elements.size(); i++) {
+            if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
+              for (const auto& rank : elements[i].m_sharedRanks) {
+                assert(sendPos[rank] < static_cast<unsigned>(nSendGid[rank]));
+
+                sendGid[sDispls[rank] + sendPos[rank]] = elements[i].m_gid;
+                sendDGid[sDispls[rank] + sendPos[rank]] = downward[i];
+                ++sendPos[rank];
+              }
+            }
+          }
         }
+
+        MPI_Alltoallv(sendGid.data(),
+                      nSendGid.data(),
+                      sDispls.data(),
+                      MPI_UNSIGNED_LONG,
+                      recvGid.data(),
+                      nRecvGid.data(),
+                      rDispls.data(),
+                      MPI_UNSIGNED_LONG,
+                      m_comm);
+
+        MPI_Alltoallv(sendDGid.data(),
+                      nSendGid.data(),
+                      sDispls.data(),
+                      type,
+                      recvDGid.data(),
+                      nRecvGid.data(),
+                      rDispls.data(),
+                      type,
+                      m_comm);
+      }
+
+      // Create a hash map from the received elements
+      for (std::size_t i = 0; i < totalRecvGid; i++) {
+        dg2g.emplace(recvDGid[i], recvGid[i]);
       }
     }
 
-    delete[] sendPos;
-
-    // Exchange cell data
-    auto* recvGid = new unsigned long[totalRecvGid];
-    auto* recvDGid = new unsigned long[totalRecvGid * N];
-
-    MPI_Alltoallv(sendGid,
-                  nSendGid,
-                  sDispls,
-                  MPI_UNSIGNED_LONG,
-                  recvGid,
-                  nRecvGid,
-                  rDispls,
-                  MPI_UNSIGNED_LONG,
-                  m_comm);
-
-    MPI_Alltoallv(sendDGid, nSendGid, sDispls, type, recvDGid, nRecvGid, rDispls, type, m_comm);
-
-    MPI_Type_free(&type);
-
-    delete[] sendGid;
-    delete[] sendDGid;
-    delete[] nSendGid;
-    delete[] nRecvGid;
-    delete[] sDispls;
-    delete[] rDispls;
-
-    // Create a hash map from the received elements
-    std::unordered_map<internal::DownElement<N>, unsigned long, internal::DownElementHash<N>> dg2g;
-    for (unsigned int i = 0; i < totalRecvGid; i++) {
-      dg2g.emplace(&recvDGid[i * N], recvGid[i]);
-    }
-
-    delete[] recvGid;
-    delete[] recvDGid;
-
     // Assign gids
-    for (unsigned int i = 0; i < elements.size(); i++) {
+    for (std::size_t i = 0; i < elements.size(); i++) {
       if (!elements[i].m_sharedRanks.empty() && elements[i].m_sharedRanks[0] < rank) {
         assert(elements[i].m_gid == std::numeric_limits<unsigned long>::max());
 
-        internal::DownElement<N> delem(&downward[i * N]);
-        typename std::unordered_map<internal::DownElement<N>,
-                                    unsigned long,
-                                    internal::DownElementHash<N>>::const_iterator it =
-            dg2g.find(delem);
+        internal::DownElement<N> delem(downward[i]);
+        const auto it = dg2g.find(delem);
         assert(it != dg2g.end());
 
         elements[i].m_gid = it->second;
       }
     }
-
-    delete[] downward;
+    MPI_Type_free(&type);
 #endif // USE_MPI
   }
 

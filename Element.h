@@ -82,14 +82,14 @@ class Vertex : public BoundaryElement<std::vector<int>> {
   friend class PUML<Topo>;
 
   private:
-  double m_coordinate[internal::Topology<Topo>::dimension()]{};
+  std::array<double, internal::Topology<Topo>::dimension()> m_coordinate{};
 
   public:
   /**
    * @return A pointer to an array with 3 components containing
    *  x, y and z
    */
-  [[nodiscard]] auto coordinate() const -> const double* { return m_coordinate; }
+  [[nodiscard]] auto coordinate() const -> const double* { return m_coordinate.data(); }
 };
 
 class Edge : public BoundaryElement<std::vector<int>> {
@@ -97,7 +97,7 @@ class Edge : public BoundaryElement<std::vector<int>> {
   friend class PUML;
 };
 
-class Face : public BoundaryElement<int[2]> {
+class Face : public BoundaryElement<std::array<int, 2>> {
   template <TopoType Topo>
   friend class PUML;
 };
@@ -108,7 +108,7 @@ class Cell : public Element<std::array<int, 0>> {
   friend class Downward;
 
   private:
-  unsigned int m_vertices[internal::Topology<Topo>::cellvertices()]{};
+  std::array<unsigned int, internal::Topology<Topo>::cellvertices()> m_vertices{};
 };
 
 } // namespace PUML

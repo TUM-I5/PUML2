@@ -37,7 +37,7 @@ class Upward {
    */
   template <TopoType Topo>
   static void cells(const PUML<Topo>& puml, const typename PUML<Topo>::face_t& face, int* lid) {
-    memcpy(lid, face.m_upward, 2 * sizeof(int));
+    std::copy(face.m_upward.begin(), face.m_upward.end(), lid);
   }
 
   template <TopoType Topo, bool M = false>
