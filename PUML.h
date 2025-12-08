@@ -149,12 +149,6 @@ class PUML {
   MPI_Comm m_comm{MPI_COMM_WORLD};
 #endif // USE_MPI
 
-  /** The original cells from the file */
-  ocell_t* m_originalCells{nullptr};
-
-  /** The original vertices from the file */
-  overtex_t* m_originalVertices{nullptr};
-
   /** The original number of cells/vertices on each node */
   unsigned int m_originalSize[2]{};
 
@@ -212,6 +206,15 @@ class PUML {
   std::vector<bool> m_vertexDataTypeDerived;
 #endif
 
+  // data names; supersede number indexing
+  std::unordered_map<std::string, std::size_t> m_cellDataIndex;
+
+  // data names; supersede number indexing
+  std::unordered_map<std::string, std::size_t> m_vertexDataIndex;
+
+  int m_cellDataLegacyIndex{0};
+  int m_vertexDataLegacyIndex{0};
+
   auto createDatatypeArray(MPI_Datatype baseType, std::size_t elemSize)
       -> std::pair<MPI_Datatype, bool> {
     if (elemSize == 1) {
@@ -231,9 +234,6 @@ class PUML {
   PUML(PUML&&) = delete;
 
   virtual ~PUML() {
-    delete[] m_originalCells;
-    delete[] m_originalVertices;
-
     for (const auto& i : m_cellData) {
       std::free(i);
     }
@@ -265,7 +265,7 @@ class PUML {
   void setComm(MPI_Comm comm) { m_comm = comm; }
 #endif // USE_MPI
 
-  void open(const char* cellName, const char* vertexName) {
+  void open(const std::string& cellName, const std::string& vertexName) {
     int rank = 0;
     int procs = 1;
 #ifdef USE_MPI
@@ -317,26 +317,13 @@ class PUML {
     auto [offsetCells, sizeCells] = cellDistributor.offsetAndSize(rank);
     m_originalSize[0] = sizeCells;
 
-    hsize_t start[2] = {offsetCells, 0};
-    hsize_t count[2] = {m_originalSize[0], internal::Topology<Topo>::cellvertices()};
-
-    checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, nullptr, count, nullptr));
-
-    hid_t h5memspace = H5Screate_simple(2, count, nullptr);
-    checkH5Err(h5memspace);
-
     hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
     checkH5Err(h5alist);
 #ifdef USE_MPI
     checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-    m_originalCells = new ocell_t[m_originalSize[0]];
-    checkH5Err(H5Dread(h5dataset, H5T_NATIVE_ULONG, h5memspace, h5space, h5alist, m_originalCells));
-
     // Close cells
-    checkH5Err(H5Sclose(h5space));
-    checkH5Err(H5Sclose(h5memspace));
     checkH5Err(H5Dclose(h5dataset));
     checkH5Err(H5Fclose(h5file));
 
@@ -368,28 +355,17 @@ class PUML {
     auto [offsetVertices, sizeVertices] = vertexDistributor.offsetAndSize(rank);
     m_originalSize[1] = sizeVertices;
 
-    start[0] = offsetVertices;
-    count[0] = m_originalSize[1];
-    count[1] = internal::Topology<Topo>::dimension();
-
-    checkH5Err(H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start, nullptr, count, nullptr));
-
-    h5memspace = H5Screate_simple(2, count, nullptr);
-    checkH5Err(h5memspace);
-
-    m_originalVertices = new overtex_t[m_originalSize[1]];
-    checkH5Err(
-        H5Dread(h5dataset, H5T_NATIVE_DOUBLE, h5memspace, h5space, h5alist, m_originalVertices));
-
-    // Close vertices
-    checkH5Err(H5Sclose(h5space));
-    checkH5Err(H5Sclose(h5memspace));
     checkH5Err(H5Dclose(h5dataset));
     checkH5Err(H5Fclose(h5file));
 
     // Close other H5 stuff
     checkH5Err(H5Pclose(h5plist));
     checkH5Err(H5Pclose(h5alist));
+
+    // now actually read the data
+    addData<unsigned long>(
+        "connectivity", DataType::CELL, {internal::Topology<Topo>::cellvertices()});
+    addData<double>("geometry", DataType::VERTEX, {internal::Topology<Topo>::dimension()});
   }
 
   template <typename T>
@@ -401,6 +377,43 @@ class PUML {
                     MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
                         ) -> int {
+    std::string name = "_";
+    int ret = 0;
+    switch (type) {
+    case CELL: {
+      ret = m_cellDataLegacyIndex;
+      ++m_cellDataLegacyIndex;
+    }
+    case VERTEX: {
+      ret = m_vertexDataLegacyIndex;
+      ++m_vertexDataLegacyIndex;
+    }
+    };
+    name += std::to_string(ret);
+
+    addDataArray<T>(name,
+                    rawData,
+                    type,
+                    sizes
+#ifdef USE_MPI
+                    ,
+                    mpiType
+#endif
+    );
+
+    return ret;
+  }
+
+  template <typename T>
+  void addDataArray(const std::string& name,
+                    const T* rawData,
+                    DataType type,
+                    const std::vector<size_t>& sizes
+#ifdef USE_MPI
+                    ,
+                    MPI_Datatype mpiType = MPITypeInfer<T>::type()
+#endif
+  ) {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
@@ -422,10 +435,9 @@ class PUML {
     void* data = std::malloc(sizeof(T) * localSize * elemSize);
     std::memcpy(data, rawData, sizeof(T) * localSize * elemSize);
 
-    int id = -1;
     switch (type) {
     case CELL: {
-      id = m_cellData.size();
+      m_cellDataIndex[name] = m_cellData.size();
       m_cellData.push_back(data);
       m_cellDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -435,7 +447,7 @@ class PUML {
 #endif
     } break;
     case VERTEX: {
-      id = m_originalVertexData.size();
+      m_vertexDataIndex[name] = m_originalVertexData.size();
       m_originalVertexData.push_back(data);
       m_vertexDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -445,12 +457,10 @@ class PUML {
 #endif
     } break;
     }
-
-    return id;
   }
 
-  template <typename T = int>
-  auto addData(const char* dataName,
+  template <typename T>
+  auto addData(const std::string& path,
                DataType type,
                const std::vector<size_t>& sizes
 #ifdef USE_MPI
@@ -459,6 +469,45 @@ class PUML {
 #endif
                    ,
                hid_t hdf5Type = HDF5TypeInfer<T>::type()) -> int {
+    std::string name = "_";
+    int ret = 0;
+    switch (type) {
+    case CELL: {
+      ret = m_cellDataLegacyIndex;
+      ++m_cellDataLegacyIndex;
+    }
+    case VERTEX: {
+      ret = m_vertexDataLegacyIndex;
+      ++m_vertexDataLegacyIndex;
+    }
+    };
+    name += std::to_string(ret);
+
+    addData<T>(name,
+               path,
+               type,
+               sizes
+#ifdef USE_MPI
+               ,
+               mpiType
+#endif
+               ,
+               hdf5Type);
+
+    return ret;
+  }
+
+  template <typename T = int>
+  void addData(const std::string& name,
+               const std::string& path,
+               DataType type,
+               const std::vector<size_t>& sizes
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpiType = MPITypeInfer<T>::type()
+#endif
+                   ,
+               hid_t hdf5Type = HDF5TypeInfer<T>::type()) {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
@@ -470,9 +519,10 @@ class PUML {
 #endif // USE_MPI
 
     auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
-    std::vector<std::string> dataNames = utils::StringUtils::split(dataName, ':');
+    std::vector<std::string> dataNames = utils::StringUtils::split(path, ':');
     if (dataNames.size() != 2) {
-      logError() << "Data name must have the form \"filename:/dataset\"";
+      logError() << "Data" << name << "must have the form \"filename:/dataset\", but it has"
+                 << path;
     }
 
     // Open the cell file
@@ -555,7 +605,7 @@ class PUML {
     int id = -1;
     switch (type) {
     case CELL: {
-      id = m_cellData.size();
+      m_cellDataIndex[name] = m_cellData.size();
       m_cellData.push_back(data);
       m_cellDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -565,7 +615,7 @@ class PUML {
 #endif
     } break;
     case VERTEX: {
-      id = m_originalVertexData.size();
+      m_vertexDataIndex[name] = m_originalVertexData.size();
       m_originalVertexData.push_back(data);
       m_vertexDataSize.push_back(sizeof(T) * elemSize);
 #ifdef USE_MPI
@@ -575,7 +625,6 @@ class PUML {
 #endif
     } break;
     }
-    return id;
   }
 
   void partition(const int* partition) {
@@ -596,14 +645,7 @@ class PUML {
         return partition[i1] < partition[i2];
       });
 
-      // Sort cells
-      for (std::size_t i = 0; i < m_originalSize[0]; i++) {
-        std::memcpy(newCells[i], m_originalCells[indices[i]], sizeof(ocell_t));
-      }
-      delete[] m_originalCells;
-      m_originalCells = newCells;
-
-      // Sort other data
+      // Sort cell data
       for (std::size_t j = 0; j < m_cellData.size(); ++j) {
         void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
         for (std::size_t i = 0; i < m_originalSize[0]; i++) {
@@ -644,27 +686,6 @@ class PUML {
     m_originalSize[0] = rDispls[procs - 1] + recvCount[procs - 1];
 
 #ifdef USE_MPI
-    // Exchange the cells
-    MPI_Datatype cellType = MPI_DATATYPE_NULL;
-    MPI_Type_contiguous(internal::Topology<Topo>::cellvertices(), MPI_UNSIGNED_LONG, &cellType);
-    MPI_Type_commit(&cellType);
-
-    newCells = new ocell_t[m_originalSize[0]];
-    MPI_Alltoallv(m_originalCells,
-                  sendCount.data(),
-                  sDispls.data(),
-                  cellType,
-                  newCells,
-                  recvCount.data(),
-                  rDispls.data(),
-                  cellType,
-                  m_comm);
-
-    delete[] m_originalCells;
-    m_originalCells = newCells;
-
-    MPI_Type_free(&cellType);
-
     // Exchange cell data
     for (std::size_t j = 0; j < m_cellData.size(); ++j) {
       void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
@@ -685,15 +706,16 @@ class PUML {
   }
 
   void generateMesh() {
-    distributeVertices();
-    constructMesh();
+    distributeVertices({"connectivity"});
+    constructGeometry("geometry");
+    constructMesh("connectivity");
   }
 
   /**
     Distribute all vertex data (including geometric positions)
     to all cells that need it.
    */
-  void distributeVertices() {
+  void distributeVertices(const std::vector<std::string>& indexDataNames) {
     int rank = 0;
     int procs = 1;
 #ifdef USE_MPI
@@ -703,13 +725,20 @@ class PUML {
 
     const auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
     // Generate a list of vertices we need from other processors
+    using IndexType = unsigned long;
     std::vector<std::unordered_set<unsigned long>> requiredVertexSets(procs);
-    for (std::size_t i = 0; i < m_originalSize[0]; i++) {
-      for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-        int proc = vertexDistributor.rankOfEntity(m_originalCells[i][j]);
-        assert(proc < procs);
+    for (const auto& indexDataName : indexDataNames) {
+      const auto dataIndex = m_cellDataIndex.at(indexDataName);
+      const auto elemCount = m_cellDataSize[dataIndex] / sizeof(IndexType);
+      const auto* data = reinterpret_cast<const IndexType*>(m_cellData[dataIndex]);
+      for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+        for (std::size_t j = 0; j < elemCount; j++) {
+          const auto index = data[i * elemCount + j];
+          const auto proc = vertexDistributor.rankOfEntity(index);
+          assert(proc < procs);
 
-        requiredVertexSets[proc].insert(m_originalCells[i][j]); // Convert to local vid
+          requiredVertexSets[proc].insert(index);
+        }
       }
     }
 
@@ -766,7 +795,6 @@ class PUML {
 #endif // USE_MPI
 
     // Send back vertex coordinates (and other data)
-    std::vector<overtex_t> distribVertices(totalRecv);
     std::vector<void*> distribData;
     distribData.resize(m_originalVertexData.size());
     for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
@@ -780,7 +808,6 @@ class PUML {
         distribVertexIds[k] = vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
 
         assert(distribVertexIds[k] < m_originalSize[1]);
-        std::memcpy(distribVertices[k], m_originalVertices[distribVertexIds[k]], sizeof(overtex_t));
 
         // Handle other vertex data
         for (unsigned int l = 0; l < m_originalVertexData.size(); l++) {
@@ -797,8 +824,6 @@ class PUML {
       }
     }
 
-    std::vector<overtex_t> recvVertices(totalVertices);
-
     for (auto& it : m_vertexData) {
       std::free(it);
     }
@@ -807,22 +832,6 @@ class PUML {
       m_vertexData[i] = std::malloc(totalVertices * m_vertexDataSize[i]);
     }
 #ifdef USE_MPI
-    MPI_Datatype vertexType = MPI_DATATYPE_NULL;
-    MPI_Type_contiguous(internal::Topology<Topo>::dimension(), MPI_DOUBLE, &vertexType);
-    MPI_Type_commit(&vertexType);
-
-    MPI_Alltoallv(distribVertices.data(),
-                  recvCount.data(),
-                  rDispls.data(),
-                  vertexType,
-                  recvVertices.data(),
-                  sendCount.data(),
-                  sDispls.data(),
-                  vertexType,
-                  m_comm);
-
-    MPI_Type_free(&vertexType);
-
     for (std::size_t i = 0; i < m_originalVertexData.size(); i++) {
       MPI_Alltoallv(distribData[i],
                     recvCount.data(),
@@ -924,7 +933,6 @@ class PUML {
     k = 0;
     for (unsigned int i = 0; i < totalVertices; i++) {
       m_vertices[i].m_gid = requiredVertices[i];
-      memcpy(m_vertices[i].m_coordinate.data(), recvVertices[i], sizeof(overtex_t));
       m_vertices[i].m_sharedRanks.resize(recvNsharedRanks[i] - 1);
       std::size_t l = 0;
       for (unsigned int j = 0; j < recvNsharedRanks[i]; j++) {
@@ -941,9 +949,22 @@ class PUML {
   }
 
   /**
+    Given all locally-needed vertex data, set up all geometric information.
+    Not needed for purely-topological mesh construction.
+   */
+  void constructGeometry(const std::string& geometryName) {
+    const auto* data = reinterpret_cast<const overtex_t*>(vertexData(geometryName));
+    for (std::size_t i = 0; i < m_vertices.size(); ++i) {
+      std::memcpy(m_vertices[i].m_coordinate.data(), data[i], sizeof(overtex_t));
+    }
+  }
+
+  /**
     Given all locally-needed vertex data, construct edge and face topology.
    */
-  void constructMesh() {
+  void constructMesh(const std::string& cellDataName) {
+    const auto* originalCells = reinterpret_cast<const ocell_t*>(cellData(cellDataName));
+
     // Create the cell, face and edge list
     m_cells.resize(m_originalSize[0]);
     m_v2f.clear();
@@ -964,7 +985,7 @@ class PUML {
         m_cells[i].m_gid = i + cellOffset;
 
         for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-          m_cells[i].m_vertices[j] = m_verticesg2l[m_originalCells[i][j]];
+          m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
         }
 
         // Faces
@@ -1061,30 +1082,12 @@ class PUML {
    *
    * @note The pointer gets invalid when {@link partition()} is called
    */
-  auto originalCells() const -> const ocell_t* { return m_originalCells; }
+  auto originalCells() const -> const ocell_t* { return cellData("connectivity"); }
 
   /**
    * @return The original vertices on this rank
    */
-  auto originalVertices() const -> const overtex_t* { return m_originalVertices; }
-
-  /**
-   * @return Original user cell data
-   */
-  auto originalCellData(unsigned int index) const -> const void* {
-    return cellData(index); // This is the same
-  }
-
-  /**
-   * @return Original user vertex data
-   */
-  auto originalVertexData(unsigned int index) const -> const void* {
-    if (index >= m_originalVertexData.size()) {
-      logError() << "Requested vertex data at index" << index
-                 << ", but only so many exist:" << m_originalVertexData.size();
-    }
-    return m_originalVertexData[index];
-  }
+  auto originalVertices() const -> const overtex_t* { return vertexData("geometry"); }
 
   /**
    * @return The cells of the mesh
@@ -1109,23 +1112,31 @@ class PUML {
   /**
    * @return User cell data
    */
+  auto cellData(const std::string& name) const -> const void* {
+    return m_cellData[m_cellDataIndex.at(name)];
+  }
+
+  /**
+   * @return User vertex data
+   */
+  auto vertexData(const std::string& name) const -> const void* {
+    return m_vertexData[m_vertexDataIndex.at(name)];
+  }
+
+  /**
+   * @return User cell data
+   */
   auto cellData(unsigned int index) const -> const void* {
-    if (index >= m_cellData.size()) {
-      logError() << "Requested cell data at index" << index
-                 << ", but only so many exist:" << m_cellData.size();
-    }
-    return m_cellData[index];
+    const std::string altName = "_" + std::to_string(index);
+    return cellData(altName);
   }
 
   /**
    * @return User vertex data
    */
   auto vertexData(unsigned int index) const -> const void* {
-    if (index >= m_vertexData.size()) {
-      logError() << "Requested vertex data at index" << index
-                 << ", but only so many exist:" << m_vertexData.size();
-    }
-    return m_vertexData[index];
+    const std::string altName = "_" + std::to_string(index);
+    return vertexData(altName);
   }
 
   /**
@@ -1483,10 +1494,17 @@ class PUML {
 
   public:
   void identify(int dataId) {
-    const auto* identifiers = reinterpret_cast<const unsigned long*>(vertexData(dataId));
+    // use the convention for legacy names
+    identify("connectivity", "_" + std::to_string(dataId));
+  }
+
+  void identify(const std::string& connectivityToUpdate, const std::string& identify) {
+    const auto* identifiers = reinterpret_cast<const unsigned long*>(vertexData(identify));
+    auto* connectivity =
+        reinterpret_cast<ocell_t*>(m_cellData[m_cellDataIndex.at(connectivityToUpdate)]);
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {
       for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
-        m_originalCells[i][j] = identifiers[m_cells[i].m_vertices[j]];
+        connectivity[i][j] = identifiers[m_cells[i].m_vertices[j]];
       }
     }
   }
