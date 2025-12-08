@@ -20,6 +20,7 @@
 #include <cstring>
 #include <hdf5.h>
 #include <iterator>
+#include <numeric>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -585,57 +586,54 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    // Create sorting indices
-    auto* indices = new unsigned int[m_originalSize[0]];
-    for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-      indices[i] = i;
-    }
-
-    std::sort(indices, indices + m_originalSize[0], [&](unsigned int i1, unsigned int i2) {
-      return partition[i1] < partition[i2];
-    });
-
-    // Sort cells
     auto* newCells = new ocell_t[m_originalSize[0]];
-    for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-      std::memcpy(newCells[i], m_originalCells[indices[i]], sizeof(ocell_t));
-    }
-    delete[] m_originalCells;
-    m_originalCells = newCells;
+    {
+      // Create sorting indices
+      std::vector<unsigned int> indices(m_originalSize[0]);
+      std::iota(indices.begin(), indices.end(), 0);
 
-    // Sort other data
-    for (std::size_t j = 0; j < m_cellData.size(); ++j) {
-      void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
-      for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-        std::memcpy(reinterpret_cast<char*>(newData) + (m_cellDataSize[j] * i),
-                    reinterpret_cast<char*>(m_cellData[j]) + (m_cellDataSize[j] * indices[i]),
-                    m_cellDataSize[j]);
+      std::sort(indices.begin(), indices.end(), [&](const auto& i1, const auto& i2) {
+        return partition[i1] < partition[i2];
+      });
+
+      // Sort cells
+      for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+        std::memcpy(newCells[i], m_originalCells[indices[i]], sizeof(ocell_t));
       }
+      delete[] m_originalCells;
+      m_originalCells = newCells;
 
-      std::free(m_cellData[j]);
-      m_cellData[j] = newData;
+      // Sort other data
+      for (std::size_t j = 0; j < m_cellData.size(); ++j) {
+        void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
+        for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+          std::memcpy(reinterpret_cast<char*>(newData) + (m_cellDataSize[j] * i),
+                      reinterpret_cast<char*>(m_cellData[j]) + (m_cellDataSize[j] * indices[i]),
+                      m_cellDataSize[j]);
+        }
+
+        std::free(m_cellData[j]);
+        m_cellData[j] = newData;
+      }
     }
-
-    delete[] indices;
 
     // Compute exchange info
-    int* sendCount = new int[procs];
-    memset(sendCount, 0, procs * sizeof(int));
+    std::vector<int> sendCount(procs);
+    std::vector<int> recvCount(procs);
 
-    for (unsigned int i = 0; i < m_originalSize[0]; i++) {
+    for (std::size_t i = 0; i < m_originalSize[0]; i++) {
       assert(partition[i] < procs);
-      sendCount[partition[i]]++;
+      ++sendCount[partition[i]];
     }
 
-    int* recvCount = new int[procs];
 #ifdef USE_MPI
-    MPI_Alltoall(sendCount, 1, MPI_INT, recvCount, 1, MPI_INT, m_comm);
+    MPI_Alltoall(sendCount.data(), 1, MPI_INT, recvCount.data(), 1, MPI_INT, m_comm);
 #else  // USE_MPI
     recvCount[0] = sendCount[0];
 #endif // USE_MPI
 
-    int* sDispls = new int[procs];
-    int* rDispls = new int[procs];
+    std::vector<int> sDispls(procs);
+    std::vector<int> rDispls(procs);
     sDispls[0] = 0;
     rDispls[0] = 0;
     for (int i = 1; i < procs; i++) {
@@ -653,12 +651,12 @@ class PUML {
 
     newCells = new ocell_t[m_originalSize[0]];
     MPI_Alltoallv(m_originalCells,
-                  sendCount,
-                  sDispls,
+                  sendCount.data(),
+                  sDispls.data(),
                   cellType,
                   newCells,
-                  recvCount,
-                  rDispls,
+                  recvCount.data(),
+                  rDispls.data(),
                   cellType,
                   m_comm);
 
@@ -671,12 +669,12 @@ class PUML {
     for (std::size_t j = 0; j < m_cellData.size(); ++j) {
       void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
       MPI_Alltoallv(m_cellData[j],
-                    sendCount,
-                    sDispls,
+                    sendCount.data(),
+                    sDispls.data(),
                     m_cellDataType[j],
                     newData,
-                    recvCount,
-                    rDispls,
+                    recvCount.data(),
+                    rDispls.data(),
                     m_cellDataType[j],
                     m_comm);
 
@@ -684,14 +682,18 @@ class PUML {
       m_cellData[j] = newData;
     }
 #endif // USE_MPI
-
-    delete[] sendCount;
-    delete[] recvCount;
-    delete[] sDispls;
-    delete[] rDispls;
   }
 
   void generateMesh() {
+    distributeVertices();
+    constructMesh();
+  }
+
+  /**
+    Distribute all vertex data (including geometric positions)
+    to all cells that need it.
+   */
+  void distributeVertices() {
     int rank = 0;
     int procs = 1;
 #ifdef USE_MPI
@@ -699,11 +701,11 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
+    const auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
     // Generate a list of vertices we need from other processors
-    auto* requiredVertexSets = new std::unordered_set<unsigned long>[procs];
-    for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-      for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
+    std::vector<std::unordered_set<unsigned long>> requiredVertexSets(procs);
+    for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+      for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
         int proc = vertexDistributor.rankOfEntity(m_originalCells[i][j]);
         assert(proc < procs);
 
@@ -712,36 +714,35 @@ class PUML {
     }
 
     // Generate information for requesting vertices
-    unsigned int totalVertices = requiredVertexSets[0].size();
+    std::size_t totalVertices = requiredVertexSets[0].size();
     for (int i = 1; i < procs; i++) {
       totalVertices += requiredVertexSets[i].size();
     }
 
-    int* sendCount = new int[procs];
+    std::vector<int> sendCount(procs);
+    std::vector<int> recvCount(procs);
 
-    auto* requiredVertices = new unsigned long[totalVertices];
-    unsigned int k = 0;
+    std::vector<unsigned long> requiredVertices(totalVertices);
+
+    std::size_t k = 0;
     for (int i = 0; i < procs; i++) {
       sendCount[i] = requiredVertexSets[i].size();
 
-      for (unsigned long it : requiredVertexSets[i]) {
+      for (const auto& it : requiredVertexSets[i]) {
         assert(k < totalVertices);
-        requiredVertices[k++] = it;
+        requiredVertices[++k] = it;
       }
     }
 
-    delete[] requiredVertexSets;
-
     // Exchange required vertex information
-    int* recvCount = new int[procs];
 #ifdef USE_MPI
-    MPI_Alltoall(sendCount, 1, MPI_INT, recvCount, 1, MPI_INT, m_comm);
+    MPI_Alltoall(sendCount.data(), 1, MPI_INT, recvCount.data(), 1, MPI_INT, m_comm);
 #else  // USE_MPI
     recvCount[0] = sendCount[0];
 #endif // USE_MPI
 
-    int* sDispls = new int[procs];
-    int* rDispls = new int[procs];
+    std::vector<int> sDispls(procs);
+    std::vector<int> rDispls(procs);
     sDispls[0] = 0;
     rDispls[0] = 0;
     for (int i = 1; i < procs; i++) {
@@ -751,27 +752,27 @@ class PUML {
 
     const unsigned int totalRecv = rDispls[procs - 1] + recvCount[procs - 1];
 
-    auto* distribVertexIds = new unsigned long[totalRecv];
+    std::vector<unsigned long> distribVertexIds(totalRecv);
 #ifdef USE_MPI
-    MPI_Alltoallv(requiredVertices,
-                  sendCount,
-                  sDispls,
+    MPI_Alltoallv(requiredVertices.data(),
+                  sendCount.data(),
+                  sDispls.data(),
                   MPI_UNSIGNED_LONG,
-                  distribVertexIds,
-                  recvCount,
-                  rDispls,
+                  distribVertexIds.data(),
+                  recvCount.data(),
+                  rDispls.data(),
                   MPI_UNSIGNED_LONG,
                   m_comm);
 #endif // USE_MPI
 
     // Send back vertex coordinates (and other data)
-    auto* distribVertices = new overtex_t[totalRecv];
+    std::vector<overtex_t> distribVertices(totalRecv);
     std::vector<void*> distribData;
     distribData.resize(m_originalVertexData.size());
     for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
       distribData[i] = std::malloc(totalRecv * m_vertexDataSize[i]);
     }
-    auto* sharedRanks = new std::vector<int>[m_originalSize[1]];
+    std::vector<std::vector<int>> sharedRanks(m_originalSize[1]);
     k = 0;
     for (int i = 0; i < procs; i++) {
       for (int j = 0; j < recvCount[i]; j++) {
@@ -796,7 +797,7 @@ class PUML {
       }
     }
 
-    auto* recvVertices = new overtex_t[totalVertices];
+    std::vector<overtex_t> recvVertices(totalVertices);
 
     for (auto& it : m_vertexData) {
       std::free(it);
@@ -810,66 +811,63 @@ class PUML {
     MPI_Type_contiguous(internal::Topology<Topo>::dimension(), MPI_DOUBLE, &vertexType);
     MPI_Type_commit(&vertexType);
 
-    MPI_Alltoallv(distribVertices,
-                  recvCount,
-                  rDispls,
+    MPI_Alltoallv(distribVertices.data(),
+                  recvCount.data(),
+                  rDispls.data(),
                   vertexType,
-                  recvVertices,
-                  sendCount,
-                  sDispls,
+                  recvVertices.data(),
+                  sendCount.data(),
+                  sDispls.data(),
                   vertexType,
                   m_comm);
 
     MPI_Type_free(&vertexType);
 
-    for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
+    for (std::size_t i = 0; i < m_originalVertexData.size(); i++) {
       MPI_Alltoallv(distribData[i],
-                    recvCount,
-                    rDispls,
+                    recvCount.data(),
+                    rDispls.data(),
                     m_vertexDataType[i],
                     m_vertexData[i],
-                    sendCount,
-                    sDispls,
+                    sendCount.data(),
+                    sDispls.data(),
                     m_vertexDataType[i],
                     m_comm);
     }
 #endif // USE_MPI
 
-    delete[] distribVertices;
     for (auto& it : distribData) {
       std::free(it);
     }
     distribData.clear();
 
     // Send back the number of shared ranks for each vertex
-    auto* distNsharedRanks = new unsigned int[totalRecv];
-    unsigned int distTotalSharedRanks = 0;
+    std::vector<unsigned int> distNsharedRanks(totalRecv);
+    std::size_t distTotalSharedRanks = 0;
     for (unsigned int i = 0; i < totalRecv; i++) {
       assert(distribVertexIds[i] < m_originalSize[1]);
       distNsharedRanks[i] = sharedRanks[distribVertexIds[i]].size();
       distTotalSharedRanks += distNsharedRanks[i];
     }
 
-    auto* recvNsharedRanks = new unsigned int[totalVertices];
+    std::vector<unsigned int> recvNsharedRanks(totalVertices);
 #ifdef USE_MPI
-    MPI_Alltoallv(distNsharedRanks,
-                  recvCount,
-                  rDispls,
+    MPI_Alltoallv(distNsharedRanks.data(),
+                  recvCount.data(),
+                  rDispls.data(),
                   MPI_UNSIGNED,
-                  recvNsharedRanks,
-                  sendCount,
-                  sDispls,
+                  recvNsharedRanks.data(),
+                  sendCount.data(),
+                  sDispls.data(),
                   MPI_UNSIGNED,
                   m_comm);
 #endif // USE_MPI
 
-    delete[] distNsharedRanks;
-
     // Setup buffers for exchanging shared ranks
-    int* sharedSendCount = new int[procs];
-    memset(sharedSendCount, 0, procs * sizeof(int));
+    std::vector<int> sharedSendCount(procs);
+    std::vector<int> sharedRecvCount(procs);
 
-    int* distSharedRanks = new int[distTotalSharedRanks];
+    std::vector<int> distSharedRanks(distTotalSharedRanks);
     k = 0;
     unsigned int l = 0;
     for (int i = 0; i < procs; i++) {
@@ -887,14 +885,7 @@ class PUML {
       }
     }
 
-    delete[] distribVertexIds;
-    delete[] sharedRanks;
-    delete[] recvCount;
-
-    int* sharedRecvCount = new int[procs];
-    memset(sharedRecvCount, 0, procs * sizeof(int));
-
-    unsigned int recvTotalSharedRanks = 0;
+    std::size_t recvTotalSharedRanks = 0;
     k = 0;
     for (int i = 0; i < procs; i++) {
       for (int j = 0; j < sendCount[i]; j++) {
@@ -906,9 +897,7 @@ class PUML {
       }
     }
 
-    delete[] sendCount;
-
-    int* recvSharedRanks = new int[recvTotalSharedRanks];
+    std::vector<int> recvSharedRanks(recvTotalSharedRanks);
 
     sDispls[0] = 0;
     rDispls[0] = 0;
@@ -918,22 +907,16 @@ class PUML {
     }
 
 #ifdef USE_MPI
-    MPI_Alltoallv(distSharedRanks,
-                  sharedSendCount,
-                  sDispls,
+    MPI_Alltoallv(distSharedRanks.data(),
+                  sharedSendCount.data(),
+                  sDispls.data(),
                   MPI_INT,
-                  recvSharedRanks,
-                  sharedRecvCount,
-                  rDispls,
+                  recvSharedRanks.data(),
+                  sharedRecvCount.data(),
+                  rDispls.data(),
                   MPI_INT,
                   m_comm);
 #endif // USE_MPI
-
-    delete[] distSharedRanks;
-    delete[] sharedSendCount;
-    delete[] sharedRecvCount;
-    delete[] sDispls;
-    delete[] rDispls;
 
     // Generate the vertex array
     m_vertices.resize(totalVertices);
@@ -943,7 +926,7 @@ class PUML {
       m_vertices[i].m_gid = requiredVertices[i];
       memcpy(m_vertices[i].m_coordinate.data(), recvVertices[i], sizeof(overtex_t));
       m_vertices[i].m_sharedRanks.resize(recvNsharedRanks[i] - 1);
-      unsigned int l = 0;
+      std::size_t l = 0;
       for (unsigned int j = 0; j < recvNsharedRanks[i]; j++) {
         if (recvSharedRanks[k] != rank) {
           m_vertices[i].m_sharedRanks[l++] = recvSharedRanks[k];
@@ -953,14 +936,14 @@ class PUML {
       std::sort(m_vertices[i].m_sharedRanks.begin(), m_vertices[i].m_sharedRanks.end());
     }
 
-    delete[] requiredVertices;
-    delete[] recvVertices;
-    delete[] recvSharedRanks;
-    delete[] recvNsharedRanks;
-
     // Construct to g2l map for the vertices
     constructG2L(m_vertices, m_verticesg2l);
+  }
 
+  /**
+    Given all locally-needed vertex data, construct edge and face topology.
+   */
+  void constructMesh() {
     // Create the cell, face and edge list
     m_cells.resize(m_originalSize[0]);
     m_v2f.clear();
@@ -973,73 +956,74 @@ class PUML {
 #endif // USE_MPI
     cellOffset -= m_originalSize[0];
 
-    std::vector<std::set<unsigned int>> edgeUpward;
-    auto* vertexUpward = new std::set<unsigned int>[m_vertices.size()];
+    {
+      std::vector<std::set<unsigned int>> edgeUpward;
+      std::vector<std::set<unsigned int>> vertexUpward(m_vertices.size());
 
-    for (unsigned int i = 0; i < m_originalSize[0]; i++) {
-      m_cells[i].m_gid = i + cellOffset;
+      for (unsigned int i = 0; i < m_originalSize[0]; i++) {
+        m_cells[i].m_gid = i + cellOffset;
 
-      for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-        m_cells[i].m_vertices[j] = m_verticesg2l[m_originalCells[i][j]];
-      }
-
-      // Faces
-      unsigned int v[internal::Topology<Topo>::dimension()];
-      unsigned int faces[internal::Topology<Topo>::cellfaces()];
-      for (unsigned int j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
-        const auto& face = internal::Numbering<Topo>::facevertices()[j];
-        for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
-          v[d] = m_cells[i].m_vertices[face[d]];
+        for (unsigned int j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
+          m_cells[i].m_vertices[j] = m_verticesg2l[m_originalCells[i][j]];
         }
-        faces[j] = addFace(m_v2f.add(v), i);
-        if constexpr (internal::Topology<Topo>::dimension() == 2) {
+
+        // Faces
+        unsigned int v[internal::Topology<Topo>::dimension()];
+        unsigned int faces[internal::Topology<Topo>::cellfaces()];
+        for (unsigned int j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
+          const auto& face = internal::Numbering<Topo>::facevertices()[j];
           for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
-            vertexUpward[v[d]].insert(faces[j]);
+            v[d] = m_cells[i].m_vertices[face[d]];
+          }
+          faces[j] = addFace(m_v2f.add(v), i);
+          if constexpr (internal::Topology<Topo>::dimension() == 2) {
+            for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
+              vertexUpward[v[d]].insert(faces[j]);
+            }
+          }
+        }
+
+        // Edges + Vertex upward information
+        if constexpr (internal::Topology<Topo>::dimension() == 3) {
+          unsigned int w[internal::Topology<Topo>::dimension() - 1];
+          for (unsigned int j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
+            const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
+            const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
+            w[0] = m_cells[i].m_vertices[edge[0]];
+            w[1] = m_cells[i].m_vertices[edge[1]];
+            unsigned int edgeIdx =
+                addEdge(edgeUpward, m_v2e.add(w), faces[edgeadj[0]], faces[edgeadj[1]]);
+            vertexUpward[w[0]].insert(edgeIdx);
+            vertexUpward[w[1]].insert(edgeIdx);
           }
         }
       }
 
-      // Edges + Vertex upward information
+      // Create edges
+      m_edges.clear();
+
       if constexpr (internal::Topology<Topo>::dimension() == 3) {
-        unsigned int w[internal::Topology<Topo>::dimension() - 1];
-        for (unsigned int j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
-          const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
-          const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
-          w[0] = m_cells[i].m_vertices[edge[0]];
-          w[1] = m_cells[i].m_vertices[edge[1]];
-          unsigned int edgeIdx =
-              addEdge(edgeUpward, m_v2e.add(w), faces[edgeadj[0]], faces[edgeadj[1]]);
-          vertexUpward[w[0]].insert(edgeIdx);
-          vertexUpward[w[1]].insert(edgeIdx);
+        m_edges.resize(edgeUpward.size());
+        for (unsigned int i = 0; i < m_edges.size(); i++) {
+          assert(m_edges[i].m_upward.empty());
+          m_edges[i].m_upward.resize(edgeUpward[i].size());
+          unsigned int j = 0;
+          for (auto it = edgeUpward[i].begin(); it != edgeUpward[i].end(); ++it, j++) {
+            m_edges[i].m_upward[j] = *it;
+          }
         }
+        edgeUpward.clear(); // Free memory
       }
-    }
 
-    // Create edges
-    m_edges.clear();
-
-    if constexpr (internal::Topology<Topo>::dimension() == 3) {
-      m_edges.resize(edgeUpward.size());
-      for (unsigned int i = 0; i < m_edges.size(); i++) {
-        assert(m_edges[i].m_upward.empty());
-        m_edges[i].m_upward.resize(edgeUpward[i].size());
+      // Set vertex upward information
+      for (unsigned int i = 0; i < m_vertices.size(); i++) {
+        m_vertices[i].m_upward.resize(vertexUpward[i].size());
         unsigned int j = 0;
-        for (auto it = edgeUpward[i].begin(); it != edgeUpward[i].end(); ++it, j++) {
-          m_edges[i].m_upward[j] = *it;
+        for (auto it = vertexUpward[i].begin(); it != vertexUpward[i].end(); ++it, j++) {
+          m_vertices[i].m_upward[j] = *it;
         }
       }
-      edgeUpward.clear(); // Free memory
     }
-
-    // Set vertex upward information
-    for (unsigned int i = 0; i < m_vertices.size(); i++) {
-      m_vertices[i].m_upward.resize(vertexUpward[i].size());
-      unsigned int j = 0;
-      for (auto it = vertexUpward[i].begin(); it != vertexUpward[i].end(); ++it, j++) {
-        m_vertices[i].m_upward[j] = *it;
-      }
-    }
-    delete[] vertexUpward;
 
     if constexpr (internal::Topology<Topo>::dimension() == 3) {
       // Generate shared information and global ids for edges
@@ -1255,8 +1239,8 @@ class PUML {
     }
 
     // Eliminate false positves
-    int rank{};
-    int procs{};
+    int rank = 0;
+    int procs = 1;
     MPI_Comm_rank(m_comm, &rank);
     MPI_Comm_size(m_comm, &procs);
 
