@@ -266,13 +266,6 @@ class PUML {
 #endif // USE_MPI
 
   void open(const std::string& cellName, const std::string& vertexName) {
-    int rank = 0;
-    int procs = 1;
-#ifdef USE_MPI
-    MPI_Comm_rank(m_comm, &rank);
-    MPI_Comm_size(m_comm, &procs);
-#endif // USE_MPI
-
     const auto cellNames = utils::StringUtils::split(cellName, ':');
     if (cellNames.size() != 2) {
       logError() << "Cells name must have the form \"filename:/dataset\"";
@@ -283,6 +276,33 @@ class PUML {
       logError() << "Vertices name must have the form \"filename:/dataset\"";
     }
 
+    // infer sizes from the data
+    inferSize(DataType::CELL, cellName);
+    inferSize(DataType::VERTEX, vertexName);
+
+    logInfo() << "Found" << m_originalTotalSize[DataType::CELL] << "cells";
+    logInfo() << "Found" << m_originalTotalSize[DataType::VERTEX] << "vertices";
+
+    // now actually read the data
+    addData<unsigned long>(
+        "connectivity", cellName, DataType::CELL, {internal::Topology<Topo>::cellvertices()});
+    addData<double>(
+        "geometry", vertexName, DataType::VERTEX, {internal::Topology<Topo>::dimension()});
+  }
+
+  void inferSize(DataType type, const std::string& dataset) {
+    int rank = 0;
+    int procs = 1;
+#ifdef USE_MPI
+    MPI_Comm_rank(m_comm, &rank);
+    MPI_Comm_size(m_comm, &procs);
+#endif // USE_MPI
+
+    const auto names = utils::StringUtils::split(dataset, ':');
+    if (names.size() != 2) {
+      logError() << "Dataset to infer size name must have the form \"filename:/dataset\"";
+    }
+
     // Open the cell file
     hid_t h5plist = H5Pcreate(H5P_FILE_ACCESS);
     checkH5Err(h5plist);
@@ -290,82 +310,46 @@ class PUML {
     checkH5Err(H5Pset_fapl_mpio(h5plist, m_comm, MPI_INFO_NULL));
 #endif // USE_MPI
 
-    hid_t h5file = H5Fopen(cellNames[0].c_str(), H5F_ACC_RDONLY, h5plist);
+    hid_t h5file = H5Fopen(names[0].c_str(), H5F_ACC_RDONLY, h5plist);
     checkH5Err(h5file);
 
     // Get cell dataset
-    hid_t h5dataset = H5Dopen(h5file, cellNames[1].c_str(), H5P_DEFAULT);
+    hid_t h5dataset = H5Dopen(h5file, names[1].c_str(), H5P_DEFAULT);
     checkH5Err(h5dataset);
 
     // Check the size of cell dataset
     hid_t h5space = H5Dget_space(h5dataset);
+    const auto ndims = H5Sget_simple_extent_ndims(h5space);
     checkH5Err(h5space);
-    if (H5Sget_simple_extent_ndims(h5space) != 2) {
-      logError() << "Cell dataset must have 2 dimensions";
+    if (H5Sget_simple_extent_ndims(h5space) < 1) {
+      logError() << "Size inference dataset must have at least one dimension";
     }
-    hsize_t dims[2];
-    checkH5Err(H5Sget_simple_extent_dims(h5space, dims, nullptr));
-    if (dims[1] != internal::Topology<Topo>::cellvertices()) {
-      logError() << "Each cell must have" << internal::Topology<Topo>::cellvertices() << "vertices";
-    }
+    std::vector<hsize_t> dims(ndims);
+    checkH5Err(H5Sget_simple_extent_dims(h5space, dims.data(), nullptr));
 
-    logInfo() << "Found" << dims[0] << "cells";
     auto cellDistributor = Distributor(dims[0], procs);
 
     // Read the cells
-    m_originalTotalSize[0] = dims[0];
+    m_originalTotalSize[type] = dims[0];
     auto [offsetCells, sizeCells] = cellDistributor.offsetAndSize(rank);
-    m_originalSize[0] = sizeCells;
-
-    hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
-    checkH5Err(h5alist);
-#ifdef USE_MPI
-    checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
-#endif // USE_MPI
+    m_originalSize[type] = sizeCells;
 
     // Close cells
     checkH5Err(H5Dclose(h5dataset));
     checkH5Err(H5Fclose(h5file));
 
-    // Open the vertex file
-    h5file = H5Fopen(vertexNames[0].c_str(), H5F_ACC_RDONLY, h5plist);
-    checkH5Err(h5file);
-
-    // Get vertex dataset
-    h5dataset = H5Dopen(h5file, vertexNames[1].c_str(), H5P_DEFAULT);
-    checkH5Err(h5dataset);
-
-    // Check the size of vertex dataset
-    h5space = H5Dget_space(h5dataset);
-    checkH5Err(h5space);
-    if (H5Sget_simple_extent_ndims(h5space) != 2) {
-      logError() << "Vertex dataset must have 2 dimensions";
-    }
-    checkH5Err(H5Sget_simple_extent_dims(h5space, dims, nullptr));
-    if (dims[1] != internal::Topology<Topo>::dimension()) {
-      logError() << "Each vertex must have" << internal::Topology<Topo>::dimension()
-                 << "coordinate entries";
-    }
-
-    logInfo() << "Found" << dims[0] << "vertices";
-    auto vertexDistributor = Distributor(dims[0], procs);
-
-    // Read the vertices
-    m_originalTotalSize[1] = dims[0];
-    auto [offsetVertices, sizeVertices] = vertexDistributor.offsetAndSize(rank);
-    m_originalSize[1] = sizeVertices;
-
-    checkH5Err(H5Dclose(h5dataset));
-    checkH5Err(H5Fclose(h5file));
-
     // Close other H5 stuff
     checkH5Err(H5Pclose(h5plist));
-    checkH5Err(H5Pclose(h5alist));
+  }
 
-    // now actually read the data
-    addData<unsigned long>(
-        "connectivity", DataType::CELL, {internal::Topology<Topo>::cellvertices()});
-    addData<double>("geometry", DataType::VERTEX, {internal::Topology<Topo>::dimension()});
+  void setSize(DataType type, std::size_t value) {
+    const auto index = type == DataType::VERTEX ? 1 : 0;
+    m_originalSize[index] = value;
+    m_originalTotalSize[index] = value;
+
+#ifdef USE_MPI
+    MPI_Allreduce(MPI_IN_PLACE, &m_originalTotalSize[index], 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
+#endif
   }
 
   template <typename T>
