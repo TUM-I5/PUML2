@@ -46,30 +46,14 @@ constexpr void selectionSort(T* data) {
  * @tparam N The number of down elements
  */
 template <unsigned int N>
-struct DownElement {
-  /** The global ids of the downward elements */
-  std::array<unsigned long, N> down{};
-
-  constexpr DownElement(const unsigned long* pointer) {
-    std::copy_n(pointer, N, this->down.data());
-    selectionSort<unsigned long, N>(this->down.data());
-  }
-
-  constexpr DownElement(const std::array<unsigned long, N>& inDown) : down(inDown) {
-    selectionSort<unsigned long, N>(this->down.data());
-  }
-
-  constexpr auto operator==(const DownElement& other) const -> bool {
-    return this->down == other.down;
-  }
-};
+using DownElement = std::array<unsigned long, N>;
 
 template <unsigned int N>
 struct DownElementHash {
   auto operator()(const DownElement<N>& element) const -> std::size_t {
-    std::size_t h = std::hash<unsigned long>{}(element.down[0]);
+    std::size_t h = std::hash<unsigned long>{}(element[0]);
     for (unsigned int i = 1; i < N; i++) {
-      hashCombine(h, element.down[i]);
+      hashCombine(h, element[i]);
     }
 
     return h;

@@ -1250,6 +1250,10 @@ class PUML {
       }
     }
 
+    for (auto& downData : downward) {
+      internal::selectionSort<unsigned long, N>(downData.data());
+    }
+
     // Eliminate false positves
     int rank{};
     int procs{};
@@ -1275,8 +1279,8 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + nRecvShared[i - 1];
     }
 
-    const auto totalShared = sDispls[procs - 1] + nShared[procs - 1];
-    const auto totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
+    const std::size_t totalShared = sDispls[procs - 1] + nShared[procs - 1];
+    const std::size_t totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
 
     {
       std::vector<std::array<unsigned long, N>> recvShared(totalRecvShared);
@@ -1285,11 +1289,11 @@ class PUML {
         std::vector<std::array<unsigned long, N>> sendShared(totalShared);
 
         {
-          std::vector<unsigned int> sharedPos(procs);
+          std::vector<std::size_t> sharedPos(procs);
 
           for (std::size_t i = 0; i < elements.size(); ++i) {
             for (const auto& rank : elements[i].m_sharedRanks) {
-              assert(sharedPos[rank] < static_cast<unsigned>(nShared[rank]));
+              assert(sharedPos[rank] < static_cast<std::size_t>(nShared[rank]));
               sendShared[sDispls[rank] + sharedPos[rank]] = downward[i];
               ++sharedPos[rank];
             }
@@ -1323,11 +1327,9 @@ class PUML {
         }
 
         for (std::size_t i = 0; i < elements.size(); i++) {
-          internal::DownElement<N> delem(downward[i]);
-
           auto it = elements[i].m_sharedRanks.begin();
           while (it != elements[i].m_sharedRanks.end()) {
-            if (hashedElements[*it].find(delem) == hashedElements[*it].end()) {
+            if (hashedElements[*it].find(downward[i]) == hashedElements[*it].end()) {
               it = elements[i].m_sharedRanks.erase(it);
             } else {
               ++it;
@@ -1364,7 +1366,7 @@ class PUML {
         element.m_gid = std::numeric_limits<unsigned long>::max();
 
         if (!element.m_sharedRanks.empty()) {
-          nRecvGid[element.m_sharedRanks[0]]++;
+          ++nRecvGid[element.m_sharedRanks[0]];
         }
       }
     }
@@ -1390,12 +1392,12 @@ class PUML {
         std::vector<unsigned long> sendGid(totalSendGid);
         std::vector<std::array<unsigned long, N>> sendDGid(totalSendGid);
         {
-          std::vector<unsigned int> sendPos(procs);
+          std::vector<std::size_t> sendPos(procs);
 
           for (std::size_t i = 0; i < elements.size(); i++) {
             if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
               for (const auto& rank : elements[i].m_sharedRanks) {
-                assert(sendPos[rank] < static_cast<unsigned>(nSendGid[rank]));
+                assert(sendPos[rank] < static_cast<std::size_t>(nSendGid[rank]));
 
                 sendGid[sDispls[rank] + sendPos[rank]] = elements[i].m_gid;
                 sendDGid[sDispls[rank] + sendPos[rank]] = downward[i];
@@ -1437,8 +1439,7 @@ class PUML {
       if (!elements[i].m_sharedRanks.empty() && elements[i].m_sharedRanks[0] < rank) {
         assert(elements[i].m_gid == std::numeric_limits<unsigned long>::max());
 
-        internal::DownElement<N> delem(downward[i]);
-        const auto it = dg2g.find(delem);
+        const auto it = dg2g.find(downward[i]);
         assert(it != dg2g.end());
 
         elements[i].m_gid = it->second;
