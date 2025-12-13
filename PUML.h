@@ -929,7 +929,8 @@ class PUML {
       std::size_t l = 0;
       for (unsigned int j = 0; j < recvNsharedRanks[i]; j++) {
         if (recvSharedRanks[k] != rank) {
-          m_vertices[i].m_sharedRanks[l++] = recvSharedRanks[k];
+          m_vertices[i].m_sharedRanks[l] = recvSharedRanks[k];
+          ++l;
         }
         k++;
       }
@@ -1022,6 +1023,7 @@ class PUML {
         std::size_t j = 0;
         for (const auto& eu : vertexUpward[i]) {
           m_vertices[i].m_upward[j] = eu;
+          ++j;
         }
       }
     }
