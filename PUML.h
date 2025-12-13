@@ -1213,7 +1213,7 @@ class PUML {
       // Create the intersection of the shared ranks and update the elements
       assert(N >= 2);
       for (std::size_t i = 0; i < elements.size(); ++i) {
-        assert(allShared[i] != nullptr);
+        assert(allShared[i][0] != nullptr);
         assert(allShared[i][1] != nullptr);
 
         std::set_intersection(allShared[i][0]->begin(),
