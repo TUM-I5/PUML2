@@ -48,7 +48,11 @@
 
 namespace PUML {
 
-enum DataType { CELL = 0, VERTEX = 1 };
+enum class DataType { Cell = 0, Vertex = 1 };
+
+// some constexprs for legacy reasons
+constexpr DataType CELL = DataType::Cell;
+constexpr DataType VERTEX = DataType::Vertex;
 
 /**
  * Distributes a number of mesh entities (i.e. elements or vertices) to  a given number of ranks
@@ -127,10 +131,10 @@ template <TopoType Topo>
 class PUML {
   public:
   /** The cell type from the file */
-  using ocell_t = unsigned long[internal::Topology<Topo>::cellvertices()];
+  using ocell_t = std::array<unsigned long, internal::Topology<Topo>::cellvertices()>;
 
   /** The vertex type from the file */
-  using overtex_t = double[internal::Topology<Topo>::dimension()];
+  using overtex_t = std::array<double, internal::Topology<Topo>::dimension()>;
 
   /** Internal cell type */
   using cell_t = Cell<Topo>;
@@ -150,10 +154,10 @@ class PUML {
 #endif // USE_MPI
 
   /** The original number of cells/vertices on each node */
-  unsigned int m_originalSize[2]{};
+  std::array<unsigned int, 2> m_originalSize{};
 
   /** The original number of total cells/vertices */
-  unsigned long m_originalTotalSize[2]{};
+  std::array<unsigned long, 2> m_originalTotalSize{};
 
   using g2l_t = std::unordered_map<unsigned long, unsigned int>;
 
@@ -204,6 +208,7 @@ class PUML {
 
   std::vector<MPI_Datatype> m_vertexDataType;
   std::vector<bool> m_vertexDataTypeDerived;
+
 #endif
 
   // data names; supersede number indexing
@@ -265,6 +270,10 @@ class PUML {
   void setComm(MPI_Comm comm) { m_comm = comm; }
 #endif // USE_MPI
 
+  /*
+    Opens a cell and vertex dataset. Can, by now, be replaced by calls to
+    setSize/inferSize and calls to addData/addArrayData .
+  */
   void open(const std::string& cellName, const std::string& vertexName) {
     const auto cellNames = utils::StringUtils::split(cellName, ':');
     if (cellNames.size() != 2) {
@@ -277,17 +286,17 @@ class PUML {
     }
 
     // infer sizes from the data
-    inferSize(DataType::CELL, cellName);
-    inferSize(DataType::VERTEX, vertexName);
+    inferSize(DataType::Cell, cellName);
+    inferSize(DataType::Vertex, vertexName);
 
-    logInfo() << "Found" << m_originalTotalSize[DataType::CELL] << "cells";
-    logInfo() << "Found" << m_originalTotalSize[DataType::VERTEX] << "vertices";
+    logInfo() << "Found" << m_originalTotalSize[static_cast<int>(DataType::Cell)] << "cells";
+    logInfo() << "Found" << m_originalTotalSize[static_cast<int>(DataType::Vertex)] << "vertices";
 
     // now actually read the data
     addData<unsigned long>(
-        "connectivity", cellName, DataType::CELL, {internal::Topology<Topo>::cellvertices()});
+        "connectivity", cellName, DataType::Cell, {internal::Topology<Topo>::cellvertices()});
     addData<double>(
-        "geometry", vertexName, DataType::VERTEX, {internal::Topology<Topo>::dimension()});
+        "geometry", vertexName, DataType::Vertex, {internal::Topology<Topo>::dimension()});
   }
 
   void inferSize(DataType type, const std::string& dataset) {
@@ -330,9 +339,9 @@ class PUML {
     auto cellDistributor = Distributor(dims[0], procs);
 
     // Read the cells
-    m_originalTotalSize[type] = dims[0];
+    m_originalTotalSize[static_cast<int>(type)] = dims[0];
     auto [offsetCells, sizeCells] = cellDistributor.offsetAndSize(rank);
-    m_originalSize[type] = sizeCells;
+    m_originalSize[static_cast<int>(type)] = sizeCells;
 
     // Close cells
     checkH5Err(H5Dclose(h5dataset));
@@ -343,7 +352,7 @@ class PUML {
   }
 
   void setSize(DataType type, std::size_t value) {
-    const auto index = type == DataType::VERTEX ? 1 : 0;
+    const auto index = type == DataType::Vertex ? 1 : 0;
     m_originalSize[index] = value;
     m_originalTotalSize[index] = value;
 
@@ -364,11 +373,11 @@ class PUML {
     std::string name = "_";
     int ret = 0;
     switch (type) {
-    case CELL: {
+    case DataType::Cell: {
       ret = m_cellDataLegacyIndex;
       ++m_cellDataLegacyIndex;
     }
-    case VERTEX: {
+    case DataType::Vertex: {
       ret = m_vertexDataLegacyIndex;
       ++m_vertexDataLegacyIndex;
     }
@@ -408,7 +417,7 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
+    auto cellDistributor = Distributor(m_originalTotalSize[static_cast<int>(type)], procs);
     auto [offset, localSize] = cellDistributor.offsetAndSize(rank);
 
     size_t elemSize = 1;
@@ -420,7 +429,7 @@ class PUML {
     std::memcpy(data, rawData, sizeof(T) * localSize * elemSize);
 
     switch (type) {
-    case CELL: {
+    case DataType::Cell: {
       m_cellDataIndex[name] = m_cellData.size();
       m_cellData.push_back(data);
       m_cellDataSize.push_back(sizeof(T) * elemSize);
@@ -430,7 +439,7 @@ class PUML {
       m_cellDataTypeDerived.push_back(derived);
 #endif
     } break;
-    case VERTEX: {
+    case DataType::Vertex: {
       m_vertexDataIndex[name] = m_originalVertexData.size();
       m_originalVertexData.push_back(data);
       m_vertexDataSize.push_back(sizeof(T) * elemSize);
@@ -456,11 +465,11 @@ class PUML {
     std::string name = "_";
     int ret = 0;
     switch (type) {
-    case CELL: {
+    case DataType::Cell: {
       ret = m_cellDataLegacyIndex;
       ++m_cellDataLegacyIndex;
     }
-    case VERTEX: {
+    case DataType::Vertex: {
       ret = m_vertexDataLegacyIndex;
       ++m_vertexDataLegacyIndex;
     }
@@ -502,7 +511,7 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    auto cellDistributor = Distributor(m_originalTotalSize[type], procs);
+    const auto cellDistributor = Distributor(m_originalTotalSize[static_cast<int>(type)], procs);
     std::vector<std::string> dataNames = utils::StringUtils::split(path, ':');
     if (dataNames.size() != 2) {
       logError() << "Data" << name << "must have the form \"filename:/dataset\", but it has"
@@ -519,7 +528,7 @@ class PUML {
     hid_t h5file = H5Fopen(dataNames[0].c_str(), H5F_ACC_RDONLY, h5plist);
     checkH5Err(h5file);
 
-    unsigned long totalSize = m_originalTotalSize[type];
+    const unsigned long totalSize = m_originalTotalSize[static_cast<int>(type)];
 
     // Get cell dataset
     hid_t h5dataset = H5Dopen(h5file, dataNames[1].c_str(), H5P_DEFAULT);
@@ -586,9 +595,8 @@ class PUML {
     checkH5Err(H5Pclose(h5plist));
     checkH5Err(H5Pclose(h5alist));
 
-    int id = -1;
     switch (type) {
-    case CELL: {
+    case DataType::Cell: {
       m_cellDataIndex[name] = m_cellData.size();
       m_cellData.push_back(data);
       m_cellDataSize.push_back(sizeof(T) * elemSize);
@@ -598,7 +606,7 @@ class PUML {
       m_cellDataTypeDerived.push_back(derived);
 #endif
     } break;
-    case VERTEX: {
+    case DataType::Vertex: {
       m_vertexDataIndex[name] = m_originalVertexData.size();
       m_originalVertexData.push_back(data);
       m_vertexDataSize.push_back(sizeof(T) * elemSize);
@@ -619,7 +627,6 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    auto* newCells = new ocell_t[m_originalSize[0]];
     {
       // Create sorting indices
       std::vector<unsigned int> indices(m_originalSize[0]);
@@ -737,13 +744,16 @@ class PUML {
 
     std::vector<unsigned long> requiredVertices(totalVertices);
 
-    std::size_t k = 0;
-    for (int i = 0; i < procs; i++) {
-      sendCount[i] = requiredVertexSets[i].size();
+    {
+      std::size_t k = 0;
+      for (int i = 0; i < procs; i++) {
+        sendCount[i] = requiredVertexSets[i].size();
 
-      for (const auto& it : requiredVertexSets[i]) {
-        assert(k < totalVertices);
-        requiredVertices[++k] = it;
+        for (const auto& it : requiredVertexSets[i]) {
+          assert(k < totalVertices);
+          requiredVertices[k] = it;
+          ++k;
+        }
       }
     }
 
@@ -781,30 +791,32 @@ class PUML {
     // Send back vertex coordinates (and other data)
     std::vector<void*> distribData;
     distribData.resize(m_originalVertexData.size());
-    for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
+    for (std::size_t i = 0; i < m_originalVertexData.size(); i++) {
       distribData[i] = std::malloc(totalRecv * m_vertexDataSize[i]);
     }
     std::vector<std::vector<int>> sharedRanks(m_originalSize[1]);
-    k = 0;
-    for (int i = 0; i < procs; i++) {
-      for (int j = 0; j < recvCount[i]; j++) {
-        assert(k < totalRecv);
-        distribVertexIds[k] = vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
+    {
+      std::size_t k = 0;
+      for (int i = 0; i < procs; i++) {
+        for (int j = 0; j < recvCount[i]; j++) {
+          assert(k < totalRecv);
+          distribVertexIds[k] = vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
 
-        assert(distribVertexIds[k] < m_originalSize[1]);
+          assert(distribVertexIds[k] < m_originalSize[1]);
 
-        // Handle other vertex data
-        for (unsigned int l = 0; l < m_originalVertexData.size(); l++) {
-          std::memcpy(reinterpret_cast<char*>(distribData[l]) + (m_vertexDataSize[l] * k),
-                      reinterpret_cast<char*>(m_originalVertexData[l]) +
-                          (m_vertexDataSize[l] * distribVertexIds[k]),
-                      m_vertexDataSize[l]);
+          // Handle other vertex data
+          for (std::size_t l = 0; l < m_originalVertexData.size(); l++) {
+            std::memcpy(reinterpret_cast<char*>(distribData[l]) + (m_vertexDataSize[l] * k),
+                        reinterpret_cast<char*>(m_originalVertexData[l]) +
+                            (m_vertexDataSize[l] * distribVertexIds[k]),
+                        m_vertexDataSize[l]);
+          }
+
+          // Save all ranks for each vertex
+          sharedRanks[distribVertexIds[k]].push_back(i);
+
+          ++k;
         }
-
-        // Save all ranks for each vertex
-        sharedRanks[distribVertexIds[k]].push_back(i);
-
-        k++;
       }
     }
 
@@ -861,32 +873,36 @@ class PUML {
     std::vector<int> sharedRecvCount(procs);
 
     std::vector<int> distSharedRanks(distTotalSharedRanks);
-    k = 0;
-    unsigned int l = 0;
-    for (int i = 0; i < procs; i++) {
-      for (int j = 0; j < recvCount[i]; j++) {
-        assert(k < totalRecv);
-        assert(l + sharedRanks[distribVertexIds[k]].size() <= distTotalSharedRanks);
-        memcpy(&distSharedRanks[l],
-               sharedRanks[distribVertexIds[k]].data(),
-               sharedRanks[distribVertexIds[k]].size() * sizeof(int));
-        l += sharedRanks[distribVertexIds[k]].size();
+    {
+      std::size_t k = 0;
+      std::size_t l = 0;
+      for (int i = 0; i < procs; i++) {
+        for (int j = 0; j < recvCount[i]; j++) {
+          assert(k < totalRecv);
+          assert(l + sharedRanks[distribVertexIds[k]].size() <= distTotalSharedRanks);
+          memcpy(&distSharedRanks[l],
+                 sharedRanks[distribVertexIds[k]].data(),
+                 sharedRanks[distribVertexIds[k]].size() * sizeof(int));
+          l += sharedRanks[distribVertexIds[k]].size();
 
-        sharedSendCount[i] += sharedRanks[distribVertexIds[k]].size();
+          sharedSendCount[i] += sharedRanks[distribVertexIds[k]].size();
 
-        k++;
+          ++k;
+        }
       }
     }
 
     std::size_t recvTotalSharedRanks = 0;
-    k = 0;
-    for (int i = 0; i < procs; i++) {
-      for (int j = 0; j < sendCount[i]; j++) {
-        assert(k < totalVertices);
-        recvTotalSharedRanks += recvNsharedRanks[k];
-        sharedRecvCount[i] += recvNsharedRanks[k];
+    {
+      std::size_t k = 0;
+      for (int i = 0; i < procs; i++) {
+        for (int j = 0; j < sendCount[i]; j++) {
+          assert(k < totalVertices);
+          recvTotalSharedRanks += recvNsharedRanks[k];
+          sharedRecvCount[i] += recvNsharedRanks[k];
 
-        k++;
+          ++k;
+        }
       }
     }
 
@@ -914,18 +930,21 @@ class PUML {
     // Generate the vertex array
     m_vertices.resize(totalVertices);
 
-    k = 0;
-    for (unsigned int i = 0; i < totalVertices; i++) {
-      m_vertices[i].m_gid = requiredVertices[i];
-      m_vertices[i].m_sharedRanks.resize(recvNsharedRanks[i] - 1);
-      std::size_t l = 0;
-      for (unsigned int j = 0; j < recvNsharedRanks[i]; j++) {
-        if (recvSharedRanks[k] != rank) {
-          m_vertices[i].m_sharedRanks[l++] = recvSharedRanks[k];
+    {
+      std::size_t k = 0;
+      for (std::size_t i = 0; i < totalVertices; i++) {
+        m_vertices[i].m_gid = requiredVertices[i];
+        m_vertices[i].m_sharedRanks.resize(recvNsharedRanks[i] - 1);
+        std::size_t l = 0;
+        for (unsigned int j = 0; j < recvNsharedRanks[i]; j++) {
+          if (recvSharedRanks[k] != rank) {
+            m_vertices[i].m_sharedRanks[l] = recvSharedRanks[k];
+            ++l;
+          }
+          ++k;
         }
-        k++;
+        std::sort(m_vertices[i].m_sharedRanks.begin(), m_vertices[i].m_sharedRanks.end());
       }
-      std::sort(m_vertices[i].m_sharedRanks.begin(), m_vertices[i].m_sharedRanks.end());
     }
 
     // Construct to g2l map for the vertices
@@ -935,11 +954,13 @@ class PUML {
   /**
     Given all locally-needed vertex data, set up all geometric information.
     Not needed for purely-topological mesh construction.
+
+    Deprecated.
    */
   void constructGeometry(const std::string& geometryName) {
     const auto* data = reinterpret_cast<const overtex_t*>(vertexData(geometryName));
     for (std::size_t i = 0; i < m_vertices.size(); ++i) {
-      std::memcpy(m_vertices[i].m_coordinate.data(), data[i], sizeof(overtex_t));
+      std::copy(data[i].begin(), data[i].end(), m_vertices[i].m_coordinate.begin());
     }
   }
 
@@ -1151,8 +1172,12 @@ class PUML {
    */
   auto addFace(unsigned int lid, unsigned int plid) -> unsigned int {
     if (lid < m_faces.size()) {
-      // Update an old face
-      assert(m_faces[lid].m_upward[1] == -1);
+      // Update an old face (but make sure that only happens once)
+
+      if (m_faces[lid].m_upward[1] != -1) {
+        logError() << "Mesh construction error: a face has more than two adjacent cells.";
+      }
+
       m_faces[lid].m_upward[1] = plid;
       if (m_faces[lid].m_upward[1] < m_faces[lid].m_upward[0]) {
         std::swap(m_faces[lid].m_upward[0], m_faces[lid].m_upward[1]);
