@@ -17,6 +17,7 @@
 
 #include <vector>
 
+#include "SmallVector.h"
 #include "Topology.h"
 #include "Types.h"
 
@@ -79,7 +80,7 @@ class BoundaryElement : public Element<Utype> {
 };
 
 template <TopoType Topo>
-class Vertex : public BoundaryElement<std::vector<LocalId>> {
+class Vertex : public BoundaryElement<internal::SmallVector<LocalId, 16>> {
   friend class PUML<Topo>;
 
   private:
@@ -93,7 +94,7 @@ class Vertex : public BoundaryElement<std::vector<LocalId>> {
   [[nodiscard]] auto coordinate() const -> const double* { return m_coordinate.data(); }
 };
 
-class Edge : public BoundaryElement<std::vector<LocalId>> {
+class Edge : public BoundaryElement<internal::SmallVector<LocalId, 6>> {
   template <TopoType Topo>
   friend class PUML;
 };

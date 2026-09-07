@@ -109,22 +109,20 @@ class Upward {
   }
 
   private:
-  template <bool M>
-  static void merge(std::vector<LocalId>& res, const std::vector<LocalId>& v);
+  template <bool M, typename UpwardT>
+  static void merge(std::vector<LocalId>& res, const UpwardT& v);
 };
 
-template <>
-inline void Upward::merge<false>(std::vector<LocalId>& res, const std::vector<LocalId>& v) {
-  res = v;
+template <bool M, typename UpwardT>
+inline void Upward::merge(std::vector<LocalId>& res, const UpwardT& v) {
+  if constexpr (M) {
+    std::vector<LocalId> merged;
+    std::set_union(res.begin(), res.end(), v.begin(), v.end(), std::back_inserter(merged));
+    std::swap(merged, res);
+  } else {
+    res.assign(v.begin(), v.end());
+  }
 }
-
-template <>
-inline void Upward::merge<true>(std::vector<LocalId>& res, const std::vector<LocalId>& v) {
-  std::vector<LocalId> tmp;
-  std::set_union(v.begin(), v.end(), res.begin(), res.end(), std::back_inserter(tmp));
-  std::swap(tmp, res);
-}
-
 } // namespace PUML
 
 #endif // PUML_UPWARD_H

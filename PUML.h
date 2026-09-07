@@ -18,6 +18,7 @@
 #include "DataBuffer.h"
 #include "DataHandle.h"
 #include "TypeInference.h"
+#include "UpwardBuilder.h"
 #include "Types.h"
 #include <cstddef>
 #include <cstring>
@@ -990,8 +991,15 @@ class PUML {
     cellOffset -= m_originalSize[0];
 
     {
-      std::vector<std::set<LocalId>> edgeUpward;
-      std::vector<std::set<LocalId>> vertexUpward(m_vertices.size());
+      internal::UpwardBuilder edgeUpward;
+      internal::UpwardBuilder vertexUpward;
+      if constexpr (internal::Topology<Topo>::dimension() == 3) {
+        edgeUpward.reserve(2 * internal::Topology<Topo>::celledges() * m_originalSize[0]);
+        vertexUpward.reserve(2 * internal::Topology<Topo>::celledges() * m_originalSize[0]);
+      } else {
+        vertexUpward.reserve(internal::Topology<Topo>::dimension() *
+                             internal::Topology<Topo>::cellfaces() * m_originalSize[0]);
+      }
 
       for (std::size_t i = 0; i < m_originalSize[0]; i++) {
         m_cells[i].m_gid = i + cellOffset;
@@ -1011,7 +1019,7 @@ class PUML {
           faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
           if constexpr (internal::Topology<Topo>::dimension() == 2) {
             for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
-              vertexUpward[v[d]].insert(faces[j]);
+              vertexUpward.add(v[d], faces[j]);
             }
           }
         }
@@ -1024,10 +1032,11 @@ class PUML {
             const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
             w[0] = m_cells[i].m_vertices[edge[0]];
             w[1] = m_cells[i].m_vertices[edge[1]];
-            const auto edgeIdx =
-                addEdge(edgeUpward, m_v2e.add(w), faces[edgeadj[0]], faces[edgeadj[1]]);
-            vertexUpward[w[0]].insert(edgeIdx);
-            vertexUpward[w[1]].insert(edgeIdx);
+            const auto edgeIdx = m_v2e.add(w);
+            edgeUpward.add(edgeIdx, faces[edgeadj[0]]);
+            edgeUpward.add(edgeIdx, faces[edgeadj[1]]);
+            vertexUpward.add(w[0], edgeIdx);
+            vertexUpward.add(w[1], edgeIdx);
           }
         }
       }
@@ -1036,27 +1045,19 @@ class PUML {
       m_edges.clear();
 
       if constexpr (internal::Topology<Topo>::dimension() == 3) {
-        m_edges.resize(edgeUpward.size());
-        for (std::size_t i = 0; i < m_edges.size(); i++) {
+        edgeUpward.finish(m_v2e.size());
+        m_edges.resize(m_v2e.size());
+        for (LocalId i = 0; i < m_edges.size(); i++) {
           assert(m_edges[i].m_upward.empty());
-          m_edges[i].m_upward.resize(edgeUpward[i].size());
-          std::size_t j = 0;
-          for (const auto& eu : edgeUpward[i]) {
-            m_edges[i].m_upward[j] = eu;
-            ++j;
-          }
+          m_edges[i].m_upward.assign(edgeUpward.begin(i), edgeUpward.end(i));
         }
-        edgeUpward.clear(); // Free memory
+        edgeUpward.clear();
       }
 
       // Set vertex upward information
-      for (std::size_t i = 0; i < m_vertices.size(); i++) {
-        m_vertices[i].m_upward.resize(vertexUpward[i].size());
-        std::size_t j = 0;
-        for (const auto& eu : vertexUpward[i]) {
-          m_vertices[i].m_upward[j] = eu;
-          ++j;
-        }
+      vertexUpward.finish(m_vertices.size());
+      for (LocalId i = 0; i < m_vertices.size(); i++) {
+        m_vertices[i].m_upward.assign(vertexUpward.begin(i), vertexUpward.end(i));
       }
     }
 
