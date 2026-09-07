@@ -61,7 +61,7 @@ class Numbering<TETRAHEDRON> {
 template <>
 class Numbering<TRIANGLE> {
   public:
-  typedef unsigned int face_t[Topology<TETRAHEDRON>::facevertices()];
+  typedef unsigned int face_t[Topology<TRIANGLE>::facevertices()];
   typedef unsigned int edge_t[2];
   typedef unsigned int faceadj_t[2];
 
@@ -85,7 +85,7 @@ class Numbering<TRIANGLE> {
 template <>
 class Numbering<QUADRANGLE> {
   public:
-  typedef unsigned int face_t[Topology<TETRAHEDRON>::facevertices()];
+  typedef unsigned int face_t[Topology<QUADRANGLE>::facevertices()];
   typedef unsigned int edge_t[2];
   typedef unsigned int faceadj_t[2];
 

@@ -125,7 +125,8 @@ constexpr auto Topology<QUADRANGLE>::cellvertices() -> unsigned int {
 
 template <>
 constexpr auto Topology<TRIANGLE>::cellfaces() -> unsigned int {
-  return 4;
+  // 2D
+  return 3;
 }
 
 template <>
