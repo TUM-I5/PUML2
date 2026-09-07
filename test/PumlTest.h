@@ -16,6 +16,7 @@
 #include <mpi.h>
 #endif // USE_MPI
 
+#include "CellType.h"
 #include "PUML.h"
 #include "Upward.h"
 
@@ -332,6 +333,8 @@ struct MixedMesh {
   std::size_t numVertices{0};
   std::size_t numHexCells{0};
   std::size_t numTetCells{0};
+  std::size_t numPyramidCells{0};
+  std::size_t numWedgeCells{0};
   long numFaces{0};
   long numEdges{0};
   long numBoundaryFaces{0};
@@ -385,6 +388,120 @@ inline auto makeMixedMesh(int n) -> MixedMesh {
   // Two blocks that do not touch, so the Euler characteristic counts twice.
   mesh.numEdges =
       static_cast<long>(mesh.numVertices) + mesh.numFaces - static_cast<long>(mesh.numCells) - 2;
+  return mesh;
+}
+
+/// A hexahedral grid where the cells of the first layer are each split into six
+/// pyramids with their apex in the middle. The base of every pyramid is a face
+/// of the hexahedron it came from, so the mesh stays conforming across the
+/// boundary between the two kinds.
+inline auto makeHexPyramidMesh(int n) -> MixedMesh {
+  const auto hex = makeHexCubeMesh(n);
+  const auto& faces = PUML::internal::shapeOf(PUML::CellType::Hexahedron).faceVertices;
+
+  MixedMesh mesh;
+  mesh.geometry = hex.geometry;
+  mesh.numVertices = hex.numVertices;
+
+  const auto pad = [&mesh](const std::array<unsigned long, 8>& corner, std::size_t count) {
+    for (std::size_t i = 0; i < 8; ++i) {
+      mesh.connect.push_back(i < count ? corner[i] : corner[0]);
+    }
+  };
+
+  long splitCells = 0;
+  for (std::size_t c = 0; c < hex.numCells; ++c) {
+    const auto* corner = hex.connect.data() + 8 * c;
+    // The cells of the first layer are the ones with the lowest index.
+    const bool split = (c % static_cast<std::size_t>(n)) == 0;
+
+    if (!split) {
+      std::array<unsigned long, 8> cell{};
+      std::copy(corner, corner + 8, cell.begin());
+      pad(cell, 8);
+      mesh.types.push_back(static_cast<std::uint8_t>(PUML::CellType::Hexahedron));
+      ++mesh.numHexCells;
+      continue;
+    }
+
+    // One vertex in the middle of the hexahedron, shared by its six pyramids.
+    const auto apex = static_cast<unsigned long>(mesh.numVertices);
+    ++mesh.numVertices;
+    for (std::size_t d = 0; d < 3; ++d) {
+      double sum = 0.0;
+      for (std::size_t v = 0; v < 8; ++v) {
+        sum += hex.geometry[3 * corner[v] + d];
+      }
+      mesh.geometry.push_back(sum / 8.0);
+    }
+
+    for (std::size_t f = 0; f < 6; ++f) {
+      std::array<unsigned long, 8> cell{};
+      for (std::size_t v = 0; v < 4; ++v) {
+        cell[v] = corner[faces[f][v]];
+      }
+      cell[4] = apex;
+      pad(cell, 5);
+      mesh.types.push_back(static_cast<std::uint8_t>(PUML::CellType::Pyramid));
+    }
+    mesh.numPyramidCells += 6;
+    ++splitCells;
+  }
+
+  mesh.numCells = mesh.types.size();
+  mesh.numBoundaryFaces = hex.numBoundaryFaces();
+
+  // Six faces per hexahedron and five per pyramid, an interior face brought by
+  // both of its cells.
+  mesh.numFaces = (6L * static_cast<long>(mesh.numHexCells) +
+                   5L * static_cast<long>(mesh.numPyramidCells) + mesh.numBoundaryFaces) /
+                  2;
+  // One connected body.
+  mesh.numEdges =
+      static_cast<long>(mesh.numVertices) + mesh.numFaces - static_cast<long>(mesh.numCells) - 1;
+  static_cast<void>(splitCells);
+  return mesh;
+}
+
+/// A triangular mesh extruded into wedges, layer by layer.
+inline auto makeWedgeMesh(int n) -> MixedMesh {
+  const auto flat = makeSquareMesh(n);
+
+  MixedMesh mesh;
+  mesh.numVertices = flat.numVertices * static_cast<std::size_t>(n + 1);
+  for (int layer = 0; layer <= n; ++layer) {
+    for (std::size_t v = 0; v < flat.numVertices; ++v) {
+      mesh.geometry.push_back(flat.geometry[3 * v + 0]);
+      mesh.geometry.push_back(flat.geometry[3 * v + 1]);
+      mesh.geometry.push_back(layer);
+    }
+  }
+
+  for (int layer = 0; layer < n; ++layer) {
+    const auto below = static_cast<unsigned long>(layer) * flat.numVertices;
+    const auto above = below + flat.numVertices;
+    for (std::size_t c = 0; c < flat.numCells; ++c) {
+      const auto* tri = flat.connect.data() + 3 * c;
+      for (std::size_t v = 0; v < 3; ++v) {
+        mesh.connect.push_back(tri[v] + below);
+      }
+      for (std::size_t v = 0; v < 3; ++v) {
+        mesh.connect.push_back(tri[v] + above);
+      }
+      mesh.connect.push_back(tri[0] + below);
+      mesh.connect.push_back(tri[0] + below);
+      mesh.types.push_back(static_cast<std::uint8_t>(PUML::CellType::Wedge));
+    }
+  }
+
+  mesh.numWedgeCells = mesh.types.size();
+  mesh.numCells = mesh.types.size();
+
+  // The triangles of the top and bottom layer, plus the sides of the column.
+  mesh.numBoundaryFaces = 2L * static_cast<long>(flat.numCells) + flat.numBoundaryFaces() * n;
+  mesh.numFaces = (5L * static_cast<long>(mesh.numCells) + mesh.numBoundaryFaces) / 2;
+  mesh.numEdges =
+      static_cast<long>(mesh.numVertices) + mesh.numFaces - static_cast<long>(mesh.numCells) - 1;
   return mesh;
 }
 

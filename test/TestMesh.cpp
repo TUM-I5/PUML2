@@ -180,6 +180,71 @@ TEST(Mesh, InMemoryMixed) {
   }
 }
 
+/// Hexahedra and pyramids that share faces: the base of a pyramid is a face of
+/// the hexahedron it replaces, so the mesh stays conforming across the two
+/// kinds.
+TEST(Mesh, InMemoryConformingHexPyramid) {
+  for (const int n : {2, 3}) {
+    const auto mesh = makeHexPyramidMesh(n);
+    PUML::MIXEDPUML puml;
+    feed(puml,
+         mesh,
+         evenSplit(mesh.numCells, commRank(), commSize()),
+         evenSplit(mesh.numVertices, commRank(), commSize()));
+    puml.generateMesh();
+
+    const auto counts = measure(puml);
+
+    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.faces, mesh.numFaces);
+    EXPECT_EQ(counts.edges, mesh.numEdges);
+    EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces);
+    EXPECT_EQ(counts.unusedFaces, 0);
+    EXPECT_EQ(counts.euler(), 1) << "one connected body";
+
+    EXPECT_GT(mesh.numHexCells, 0U);
+    EXPECT_GT(mesh.numPyramidCells, 0U);
+
+    // Faces of three and of four vertices sit in the same mesh.
+    long triangles = 0;
+    long quadrilaterals = 0;
+    for (const auto& face : puml.faces()) {
+      if (face.vertexCount() == 3) {
+        ++triangles;
+      } else {
+        EXPECT_EQ(face.vertexCount(), 4U);
+        ++quadrilaterals;
+      }
+    }
+    EXPECT_GT(globalSum(triangles), 0);
+    EXPECT_GT(globalSum(quadrilaterals), 0);
+  }
+}
+
+/// A triangular mesh extruded into wedges. Every cell has faces of both kinds.
+TEST(Mesh, InMemoryWedges) {
+  for (const int n : {2, 3}) {
+    const auto mesh = makeWedgeMesh(n);
+    PUML::MIXEDPUML puml;
+    feed(puml,
+         mesh,
+         evenSplit(mesh.numCells, commRank(), commSize()),
+         evenSplit(mesh.numVertices, commRank(), commSize()));
+    puml.generateMesh();
+
+    const auto counts = measure(puml);
+
+    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.faces, mesh.numFaces);
+    EXPECT_EQ(counts.edges, mesh.numEdges);
+    EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces);
+    EXPECT_EQ(counts.unusedFaces, 0);
+    EXPECT_EQ(counts.euler(), 1);
+  }
+}
+
 /// A triangular face and a quadrilateral one never match, however their keys
 /// are padded.
 TEST(Mesh, MixedFacesDoNotMatchAcrossKinds) {

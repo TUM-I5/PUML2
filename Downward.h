@@ -22,6 +22,7 @@
 #include "Element.h"
 #include "Numbering.h"
 #include <array>
+#include <utility>
 
 #include "PUML.h"
 #include "Types.h"
@@ -124,13 +125,18 @@ class Downward {
     return lid;
   }
 
-  /// The vertices of a face.
+  /**
+   * The vertices of a face. A mixed mesh has faces of three and of four
+   * vertices, so the buffer is as wide as the wider kind and the face says how
+   * much of it is used.
+   */
   template <TopoType Topo>
   static auto vertices(const PUML<Topo>& puml, const typename PUML<Topo>::face_t& face)
-      -> std::array<LocalId, internal::Topology<Topo>::facevertices()> {
+      -> std::pair<std::array<LocalId, internal::Topology<Topo>::facevertices()>, unsigned int> {
     std::array<LocalId, internal::Topology<Topo>::facevertices()> lid{};
+    lid.fill(InvalidLocalId);
     vertices(puml, face, lid.data());
-    return lid;
+    return {lid, face.vertexCount()};
   }
 
   /**

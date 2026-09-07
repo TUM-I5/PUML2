@@ -16,6 +16,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "Numbering.h"
 #include "Topology.h"
@@ -95,20 +96,67 @@ auto makeShape() -> CellShape {
 }
 
 /**
+ * Builds a shape from tables written down here.
+ *
+ * A pyramid and a wedge only ever appear next to other kinds, so no Numbering
+ * describes them and these tables are their only description. Both have faces
+ * of three and of four vertices, which is why the count sits per face.
+ */
+inline auto makeShape(unsigned int vertexCount,
+                      const std::vector<std::vector<unsigned int>>& faces,
+                      const std::vector<std::array<unsigned int, 2>>& edges,
+                      const std::vector<std::array<unsigned int, 2>>& edgeFaces) -> CellShape {
+  CellShape shape;
+  shape.vertexCount = vertexCount;
+  shape.faceCount = static_cast<unsigned int>(faces.size());
+  shape.edgeCount = static_cast<unsigned int>(edges.size());
+
+  for (unsigned int f = 0; f < shape.faceCount; ++f) {
+    shape.faceVertexCount[f] = static_cast<unsigned int>(faces[f].size());
+    for (unsigned int v = 0; v < faces[f].size(); ++v) {
+      shape.faceVertices[f][v] = faces[f][v];
+    }
+  }
+  for (unsigned int e = 0; e < shape.edgeCount; ++e) {
+    shape.edgeVertices[e] = edges[e];
+    shape.edgeFaces[e] = edgeFaces[e];
+  }
+  return shape;
+}
+
+inline auto makePyramid() -> CellShape {
+  return makeShape(5,
+                   {{0, 3, 2, 1}, {0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}},
+                   {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {0, 4}, {1, 4}, {2, 4}, {3, 4}},
+                   {{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 4}, {1, 2}, {2, 3}, {3, 4}});
+}
+
+inline auto makeWedge() -> CellShape {
+  return makeShape(6,
+                   {{0, 2, 1}, {3, 4, 5}, {0, 1, 4, 3}, {1, 2, 5, 4}, {2, 0, 3, 5}},
+                   {{0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 5}, {5, 3}, {0, 3}, {1, 4}, {2, 5}},
+                   {{0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 4}, {2, 3}, {3, 4}});
+}
+
+/**
  * Describes the given kind of cell.
  */
 inline auto shapeOf(CellType type) -> const CellShape& {
-  static const std::array<CellShape, 2> Shapes = {makeShape<TETRAHEDRON>(),
-                                                  makeShape<HEXAHEDRON>()};
+  static const std::array<CellShape, 4> Shapes = {
+      makeShape<TETRAHEDRON>(), makePyramid(), makeWedge(), makeShape<HEXAHEDRON>()};
   switch (type) {
   case CellType::Tetrahedron:
     return Shapes[0];
-  case CellType::Hexahedron:
+  case CellType::Pyramid:
     return Shapes[1];
+  case CellType::Wedge:
+    return Shapes[2];
+  case CellType::Hexahedron:
+    return Shapes[3];
   default:
     break;
   }
-  // Pyramids and wedges are not described yet; the caller checks the kind.
+  // The caller checks the kind before asking.
   return Shapes[0];
 }
 
@@ -116,7 +164,8 @@ inline auto shapeOf(CellType type) -> const CellShape& {
  * Whether a mixed mesh can be built from cells of this kind.
  */
 inline auto isSupported(CellType type) -> bool {
-  return type == CellType::Tetrahedron || type == CellType::Hexahedron;
+  return type == CellType::Tetrahedron || type == CellType::Pyramid || type == CellType::Wedge ||
+         type == CellType::Hexahedron;
 }
 
 inline auto nameOf(CellType type) -> const char* {

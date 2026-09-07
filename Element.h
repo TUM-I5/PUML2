@@ -102,6 +102,16 @@ class Edge : public BoundaryElement<internal::SmallVector<LocalId, 6>> {
 };
 
 class Face : public BoundaryElement<std::array<LocalId, 2>> {
+  public:
+  /**
+   * @return The number of vertices bounding this face
+   */
+  [[nodiscard]] auto vertexCount() const -> unsigned int { return m_vertexCount; }
+
+  private:
+  /** Three for a triangle, four for a quadrilateral */
+  std::uint8_t m_vertexCount{0};
+
   template <TopoType Topo>
   friend class PUML;
 };

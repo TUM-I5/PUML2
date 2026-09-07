@@ -1072,7 +1072,7 @@ class PUML {
             for (std::size_t d = 0; d < shape.faceVertexCount[j]; ++d) {
               v[d] = m_cells[i].m_vertices[shape.faceVertices[j][d]];
             }
-            faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
+            faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i), shape.faceVertexCount[j]);
           }
 
           for (std::size_t j = 0; j < shape.edgeCount; ++j) {
@@ -1101,7 +1101,8 @@ class PUML {
             for (std::size_t d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
               v[d] = m_cells[i].m_vertices[face[d]];
             }
-            faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
+            faces[j] = addFace(
+                m_v2f.add(v), static_cast<LocalId>(i), internal::Topology<Topo>::facevertices());
             if constexpr (internal::Topology<Topo>::dimension() == 2) {
               for (unsigned int d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
                 vertexUpward.add(v[d], faces[j]);
@@ -1271,7 +1272,7 @@ class PUML {
    * @param plid The local id of the parent
    * @return The local id of the face
    */
-  auto addFace(LocalId lid, LocalId plid) -> LocalId {
+  auto addFace(LocalId lid, LocalId plid, unsigned int vertexCount) -> LocalId {
     if (lid < m_faces.size()) {
       // Update an old face (but make sure that only happens once)
 
@@ -1305,6 +1306,7 @@ class PUML {
       face_t face;
       face.m_upward[0] = plid;
       face.m_upward[1] = InvalidLocalId;
+      face.m_vertexCount = static_cast<std::uint8_t>(vertexCount);
       m_faces.push_back(face);
     }
 
