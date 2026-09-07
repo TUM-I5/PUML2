@@ -25,9 +25,9 @@ namespace PUML::internal {
 template <TopoType Topo>
 class Numbering {
   public:
-  typedef unsigned int face_t[Topology<Topo>::facevertices()];
-  typedef unsigned int edge_t[2];
-  typedef unsigned int faceadj_t[2];
+  using face_t = unsigned int[Topology<Topo>::facevertices()];
+  using edge_t = unsigned int[2];
+  using faceadj_t = unsigned int[2];
 
   static auto facevertices() -> const face_t*;
   static auto edgevertices() -> const edge_t*;
@@ -37,9 +37,9 @@ class Numbering {
 template <>
 class Numbering<TETRAHEDRON> {
   public:
-  typedef unsigned int face_t[Topology<TETRAHEDRON>::facevertices()];
-  typedef unsigned int edge_t[2];
-  typedef unsigned int faceadj_t[2];
+  using face_t = unsigned int[Topology<TETRAHEDRON>::facevertices()];
+  using edge_t = unsigned int[2];
+  using faceadj_t = unsigned int[2];
 
   static auto facevertices() -> const face_t* {
     static const face_t Vertices[] = {{1, 0, 2}, {0, 1, 3}, {1, 2, 3}, {2, 0, 3}};
@@ -64,14 +64,12 @@ class Numbering<TETRAHEDRON> {
   }
 };
 
-// TODO(someone): adapt for HEXAHEDRON. Also, maybe edgefaces() can be removed or inferred
-
 template <>
 class Numbering<HEXAHEDRON> {
   public:
-  typedef unsigned int face_t[Topology<HEXAHEDRON>::facevertices()];
-  typedef unsigned int edge_t[2];
-  typedef unsigned int faceadj_t[2];
+  using face_t = unsigned int[Topology<HEXAHEDRON>::facevertices()];
+  using edge_t = unsigned int[2];
+  using faceadj_t = unsigned int[2];
 
   static auto facevertices() -> const face_t* {
     static const face_t Vertices[] = {
@@ -122,9 +120,9 @@ class Numbering<HEXAHEDRON> {
 template <>
 class Numbering<TRIANGLE> {
   public:
-  typedef unsigned int face_t[Topology<TRIANGLE>::facevertices()];
-  typedef unsigned int edge_t[2];
-  typedef unsigned int faceadj_t[2];
+  using face_t = unsigned int[Topology<TRIANGLE>::facevertices()];
+  using edge_t = unsigned int[2];
+  using faceadj_t = unsigned int[2];
 
   static auto facevertices() -> const face_t* {
     static const face_t Vertices[] = {{1, 0}, {2, 1}, {0, 2}};
@@ -148,9 +146,9 @@ class Numbering<TRIANGLE> {
 template <>
 class Numbering<QUADRANGLE> {
   public:
-  typedef unsigned int face_t[Topology<QUADRANGLE>::facevertices()];
-  typedef unsigned int edge_t[2];
-  typedef unsigned int faceadj_t[2];
+  using face_t = unsigned int[Topology<QUADRANGLE>::facevertices()];
+  using edge_t = unsigned int[2];
+  using faceadj_t = unsigned int[2];
 
   static auto facevertices() -> const face_t* {
     static const face_t Vertices[] = {{1, 0}, {2, 1}, {3, 2}, {0, 3}};
