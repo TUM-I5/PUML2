@@ -1,0 +1,147 @@
+# SPDX-FileCopyrightText: 2026 Technical University of Munich
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Running as root is normal inside the runner image.
+  OMPI_ALLOW_RUN_AS_ROOT: 1
+  OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+  OMPI_MCA_rmaps_base_oversubscribe: 1
+
+jobs:
+  build:
+    name: ${{ matrix.compiler }} ${{ matrix.build_type }} MPI=${{ matrix.mpi }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+        mpi: [ON, OFF]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libhdf5-dev
+          if [ "${{ matrix.mpi }}" = "ON" ]; then
+            sudo apt-get install -y --no-install-recommends \
+              libopenmpi-dev openmpi-bin libhdf5-openmpi-dev
+          fi
+
+      - name: Select the compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            echo "CC=gcc" >> $GITHUB_ENV
+            echo "CXX=g++" >> $GITHUB_ENV
+          else
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "CXX=clang++" >> $GITHUB_ENV
+          fi
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DPUML_USE_MPI=${{ matrix.mpi }} \
+            -DPUML_TESTING=ON
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libopenmpi-dev openmpi-bin libhdf5-openmpi-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DPUML_USE_MPI=ON \
+            -DPUML_TESTING=ON \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Test
+        working-directory: build
+        env:
+          # MPI itself keeps allocations alive past finalisation.
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --output-on-failure
+
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pre-commit/action@v3.0.1
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+    # The checks in .clang-tidy are stricter than the current headers. The job
+    # reports its findings without gating the pipeline until they are cleared.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang-tidy libopenmpi-dev openmpi-bin libhdf5-openmpi-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DPUML_USE_MPI=ON \
+            -DPUML_TESTING=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy
+        run: |
+          run-clang-tidy -p build -header-filter='.*/(PUML|Downward|Upward|Neighbor|Element|Topology|Numbering|VertexElementMap|TypeInference|Utils|Partition.*|FaceIterator|DownElement)\.h' \
+            $(git ls-files 'test/Test*.cpp')

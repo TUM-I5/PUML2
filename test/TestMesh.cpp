@@ -1,0 +1,132 @@
+// SPDX-FileCopyrightText: 2026 Technical University of Munich
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+#include <algorithm>
+#include <array>
+#include <set>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+#include "Downward.h"
+#include "PumlTest.h"
+#include "Upward.h"
+
+namespace {
+
+using namespace puml::test;
+
+/// Builds a cube mesh in memory and checks the topology PUML derives from it.
+void checkCubeMesh(int n, Split (*split)(std::size_t, int, int)) {
+  const int rank = commRank();
+  const int procs = commSize();
+  const auto mesh = makeCubeMesh(n);
+
+  PUML::TETPUML puml;
+  feed(puml, mesh, split(mesh.numCells, rank, procs), split(mesh.numVertices, rank, procs));
+  puml.generateMesh();
+
+  const auto counts = measure(puml);
+
+  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+  EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
+  EXPECT_EQ(counts.unusedFaces, 0);
+
+  // A tetrahedral mesh filling a ball is contractible.
+  EXPECT_EQ(counts.euler(), 1);
+
+  // Every face is used by four cell-face slots in total, counting each interior
+  // face twice.
+  EXPECT_EQ(2 * counts.faces - counts.boundaryFaces, 4 * counts.cells);
+
+  // The global ids of each entity kind are unique and gapless.
+  for (const auto& gids :
+       {allGids(puml.faces()), allGids(puml.edges()), allGids(puml.vertices())}) {
+    EXPECT_TRUE(isContiguousFromZero(gids));
+  }
+}
+
+TEST(Mesh, InMemoryCubeEvenSplit) {
+  checkCubeMesh(2, evenSplit);
+  checkCubeMesh(4, evenSplit);
+}
+
+TEST(Mesh, InMemoryCubeLopsidedSplit) {
+  checkCubeMesh(2, lopsidedSplit);
+  checkCubeMesh(4, lopsidedSplit);
+}
+
+TEST(Mesh, UpwardListsAreSortedAndFreeOfDuplicates) {
+  const auto mesh = makeCubeMesh(3);
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  for (const auto& vertex : puml.vertices()) {
+    std::vector<int> edges;
+    PUML::Upward::edges(puml, vertex, edges);
+    EXPECT_TRUE(std::is_sorted(edges.begin(), edges.end()));
+    EXPECT_EQ(std::set<int>(edges.begin(), edges.end()).size(), edges.size());
+    EXPECT_FALSE(edges.empty());
+  }
+
+  for (const auto& edge : puml.edges()) {
+    std::vector<int> faces;
+    PUML::Upward::faces(puml, edge, faces);
+    EXPECT_TRUE(std::is_sorted(faces.begin(), faces.end()));
+    EXPECT_EQ(std::set<int>(faces.begin(), faces.end()).size(), faces.size());
+  }
+}
+
+/// Walking down to a face and back up has to find the cell again.
+TEST(Mesh, DownwardAndUpwardAgree) {
+  const auto mesh = makeCubeMesh(3);
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  for (unsigned int cell = 0; cell < puml.cells().size(); ++cell) {
+    std::array<unsigned int, 4> faces{};
+    PUML::Downward::faces(puml, puml.cells()[cell], faces.data());
+
+    for (const auto face : faces) {
+      std::array<int, 2> adjacent{};
+      PUML::Upward::cells(puml, puml.faces()[face], adjacent.data());
+      EXPECT_TRUE(adjacent[0] == static_cast<int>(cell) || adjacent[1] == static_cast<int>(cell))
+          << "cell " << cell << " is missing from face " << face;
+    }
+  }
+}
+
+/// Rebuilding the mesh from the same input has to give the same result.
+TEST(Mesh, GenerateMeshIsRepeatable) {
+  const auto mesh = makeCubeMesh(3);
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+
+  puml.generateMesh();
+  const auto first = measure(puml);
+  const auto firstFaceGids = allGids(puml.faces());
+
+  puml.generateMesh();
+  const auto second = measure(puml);
+
+  EXPECT_EQ(first.cells, second.cells);
+  EXPECT_EQ(first.faces, second.faces);
+  EXPECT_EQ(first.edges, second.edges);
+  EXPECT_EQ(first.vertices, second.vertices);
+  EXPECT_EQ(firstFaceGids, allGids(puml.faces()));
+}
+
+} // namespace
