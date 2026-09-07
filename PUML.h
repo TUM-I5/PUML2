@@ -1048,6 +1048,7 @@ class PUML {
         std::size_t j = 0;
         for (const auto& eu : vertexUpward[i]) {
           m_vertices[i].m_upward[j] = eu;
+          ++j;
         }
       }
     }
