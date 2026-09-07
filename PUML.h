@@ -220,6 +220,7 @@ class PUML {
   int m_cellDataLegacyIndex{0};
   int m_vertexDataLegacyIndex{0};
 
+#ifdef USE_MPI
   auto createDatatypeArray(MPI_Datatype baseType, std::size_t elemSize)
       -> std::pair<MPI_Datatype, bool> {
     if (elemSize == 1) {
@@ -230,6 +231,7 @@ class PUML {
     MPI_Type_commit(&newType);
     return {newType, true};
   }
+#endif // USE_MPI
 
   public:
   PUML() = default;
