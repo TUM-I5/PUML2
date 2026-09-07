@@ -24,7 +24,7 @@ add_executable(puml-tests
   TestClone.cpp
   TestLocalize.cpp)
 
-target_link_libraries(puml-tests PRIVATE PUML::PUML GTest::gtest)
+target_link_libraries(puml-tests PRIVATE PUML::Hdf5 GTest::gtest)
 target_compile_definitions(puml-tests
   PRIVATE PUML_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
@@ -35,7 +35,7 @@ endif()
 # Built, but not run: it needs a mesh file on the command line.
 if(PUML_USE_MPI)
   add_executable(puml-example-simple simple-test/puml.cpp)
-  target_link_libraries(puml-example-simple PRIVATE PUML::PUML)
+  target_link_libraries(puml-example-simple PRIVATE PUML::Hdf5)
 endif()
 
 if(PUML_USE_MPI)

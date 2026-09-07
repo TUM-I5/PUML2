@@ -10,6 +10,7 @@ project(PUML
         LANGUAGES CXX)
 
 option(PUML_USE_MPI "Distribute the mesh over MPI ranks" ON)
+option(PUML_USE_HDF5 "Build the HDF5 reader, exported as PUML::Hdf5" ON)
 option(PUML_TESTING "Build the test suite" OFF)
 
 set(PUML_PARTITIONER "none" CACHE STRING "Graph partitioner to link against")
@@ -28,17 +29,23 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/submodules/utils/logger.h")
     "submodules/utils is missing. Run: git submodule update --init --recursive")
 endif()
 
-set(HDF5_PREFER_PARALLEL ${PUML_USE_MPI})
-find_package(HDF5 REQUIRED COMPONENTS C)
-target_include_directories(PUML INTERFACE ${HDF5_C_INCLUDE_DIRS})
-target_link_libraries(PUML INTERFACE ${HDF5_C_LIBRARIES})
-
 if(PUML_USE_MPI)
   find_package(MPI REQUIRED COMPONENTS CXX)
   target_compile_definitions(PUML INTERFACE USE_MPI)
   target_link_libraries(PUML INTERFACE MPI::MPI_CXX)
+endif()
 
-  if(NOT HDF5_IS_PARALLEL)
+# The mesh itself needs no HDF5; only the reader does.
+if(PUML_USE_HDF5)
+  set(HDF5_PREFER_PARALLEL ${PUML_USE_MPI})
+  find_package(HDF5 REQUIRED COMPONENTS C)
+
+  add_library(PUML-hdf5 INTERFACE)
+  add_library(PUML::Hdf5 ALIAS PUML-hdf5)
+  target_link_libraries(PUML-hdf5 INTERFACE PUML::PUML ${HDF5_C_LIBRARIES})
+  target_include_directories(PUML-hdf5 INTERFACE ${HDF5_C_INCLUDE_DIRS})
+
+  if(PUML_USE_MPI AND NOT HDF5_IS_PARALLEL)
     message(WARNING
       "HDF5 was built without MPI support. Reading a mesh will fall back to "
       "the serial driver on every rank.")
@@ -75,6 +82,9 @@ if(NOT PUML_PARTITIONER STREQUAL "none")
 endif()
 
 if(PUML_TESTING)
+  if(NOT PUML_USE_HDF5)
+    message(FATAL_ERROR "PUML_TESTING needs PUML_USE_HDF5=ON for the reader tests")
+  endif()
   enable_testing()
   add_subdirectory(test)
 endif()

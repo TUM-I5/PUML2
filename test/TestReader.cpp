@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include "Hdf5Reader.h"
 #include "PumlTest.h"
 
 namespace {
@@ -19,7 +20,8 @@ TEST(Reader, ReadsTheSampleMesh) {
 #ifdef USE_MPI
   puml.setComm(MPI_COMM_WORLD);
 #endif // USE_MPI
-  puml.open(meshFile() + ":/connect", meshFile() + ":/geometry");
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> reader(puml);
+  reader.open(meshFile() + ":/connect", meshFile() + ":/geometry");
   puml.generateMesh();
 
   const auto counts = measure(puml);
@@ -43,9 +45,10 @@ TEST(Reader, CellDataFollowsTheCells) {
 #ifdef USE_MPI
   puml.setComm(MPI_COMM_WORLD);
 #endif // USE_MPI
-  puml.open(meshFile() + ":/connect", meshFile() + ":/geometry");
-  puml.addData<int>("group", meshFile() + ":/group", PUML::CELL, {});
-  puml.addData<int>("boundary", meshFile() + ":/boundary", PUML::CELL, {});
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> reader(puml);
+  reader.open(meshFile() + ":/connect", meshFile() + ":/geometry");
+  reader.addData<int>("group", meshFile() + ":/group", PUML::CELL, {});
+  reader.addData<int>("boundary", meshFile() + ":/boundary", PUML::CELL, {});
   puml.generateMesh();
 
   const auto* group = reinterpret_cast<const int*>(puml.cellData("group"));

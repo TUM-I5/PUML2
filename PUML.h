@@ -19,7 +19,6 @@
 #include "TypeInference.h"
 #include <cstddef>
 #include <cstring>
-#include <hdf5.h>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -181,8 +180,6 @@ class Distributor {
   std::vector<unsigned long> offsets;
 };
 
-#define checkH5Err(...) checkH5ErrImpl(__VA_ARGS__, __FILE__, __LINE__, rank)
-
 /**
  * @todo Handle non-MPI case correct
  */
@@ -290,14 +287,6 @@ class PUML {
       logError() << "The number of entities has to be known before data can be added; call "
                     "setSize or inferSize first.";
     }
-  }
-
-  /**
-   * Gives the entity distribution for cells or vertices.
-   */
-  [[nodiscard]] auto distributor(DataType type) const -> const Distributor& {
-    requireEntityCount(type);
-    return *m_distributor[static_cast<int>(type)];
   }
 
   /**
@@ -411,36 +400,19 @@ class PUML {
   void setComm(MPI_Comm comm) { m_comm = comm; }
 #endif // USE_MPI
 
-  /*
-    Opens a cell and vertex dataset. Can, by now, be replaced by calls to
-    setSize/inferSize and calls to addData/addArrayData .
-  */
-  void open(const std::string& cellName, const std::string& vertexName) {
-    const auto cellNames = utils::StringUtils::split(cellName, ':');
-    if (cellNames.size() != 2) {
-      logError() << "Cells name must have the form \"filename:/dataset\"";
-    }
-
-    const auto vertexNames = utils::StringUtils::split(vertexName, ':');
-    if (vertexNames.size() != 2) {
-      logError() << "Vertices name must have the form \"filename:/dataset\"";
-    }
-
-    // infer sizes from the data
-    inferSize(DataType::Cell, cellName);
-    inferSize(DataType::Vertex, vertexName);
-
-    logInfo() << "Found" << m_originalTotalSize[static_cast<int>(DataType::Cell)] << "cells";
-    logInfo() << "Found" << m_originalTotalSize[static_cast<int>(DataType::Vertex)] << "vertices";
-
-    // now actually read the data
-    addData<unsigned long>(
-        "connectivity", cellName, DataType::Cell, {internal::Topology<Topo>::cellvertices()});
-    addData<double>(
-        "geometry", vertexName, DataType::Vertex, {internal::Topology<Topo>::dimension()});
+  /**
+   * Gives the entity distribution for cells or vertices.
+   */
+  [[nodiscard]] auto distributor(DataType type) const -> const Distributor& {
+    requireEntityCount(type);
+    return *m_distributor[static_cast<int>(type)];
   }
 
-  void inferSize(DataType type, const std::string& dataset) {
+  /**
+   * Spreads the given total number of entities evenly over the ranks, which is
+   * the split a reader of one shared file produces.
+   */
+  void setTotalSize(DataType type, std::size_t total) {
     int rank = 0;
     int procs = 1;
 #ifdef USE_MPI
@@ -448,56 +420,32 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    const auto names = utils::StringUtils::split(dataset, ':');
-    if (names.size() != 2) {
-      logError() << "Dataset to infer size name must have the form \"filename:/dataset\"";
-    }
-
-    // Open the cell file
-    hid_t h5plist = H5Pcreate(H5P_FILE_ACCESS);
-    checkH5Err(h5plist);
-#ifdef USE_MPI
-    checkH5Err(H5Pset_fapl_mpio(h5plist, m_comm, MPI_INFO_NULL));
-#endif // USE_MPI
-
-    hid_t h5file = H5Fopen(names[0].c_str(), H5F_ACC_RDONLY, h5plist);
-    checkH5Err(h5file);
-
-    // Get cell dataset
-    hid_t h5dataset = H5Dopen(h5file, names[1].c_str(), H5P_DEFAULT);
-    checkH5Err(h5dataset);
-
-    // Check the size of cell dataset
-    hid_t h5space = H5Dget_space(h5dataset);
-    const auto ndims = H5Sget_simple_extent_ndims(h5space);
-    checkH5Err(h5space);
-    if (H5Sget_simple_extent_ndims(h5space) < 1) {
-      logError() << "Size inference dataset must have at least one dimension";
-    }
-    std::vector<hsize_t> dims(ndims);
-    checkH5Err(H5Sget_simple_extent_dims(h5space, dims.data(), nullptr));
-
     const auto index = static_cast<int>(type);
-    m_distributor[index] = Distributor(dims[0], procs);
-
-    // Read the cells
-    m_originalTotalSize[index] = dims[0];
-    const auto [offsetCells, sizeCells] = m_distributor[index]->offsetAndSize(rank);
-    m_originalSize[index] = sizeCells;
-
-    // Close cells
-    checkH5Err(H5Dclose(h5dataset));
-    checkH5Err(H5Fclose(h5file));
-
-    // Close other H5 stuff
-    checkH5Err(H5Pclose(h5plist));
+    m_distributor[index] = Distributor(total, procs);
+    m_originalTotalSize[index] = total;
+    m_originalSize[index] = m_distributor[index]->offsetAndSize(rank).second;
   }
 
+  /**
+   * Sets the number of entities this rank holds.
+   */
   void setSize(DataType type, std::size_t value) {
     const auto index = type == DataType::Vertex ? 1 : 0;
     m_originalSize[index] = value;
     m_distributor[index] = makeDistributor(value);
     m_originalTotalSize[index] = m_distributor[index]->totalSize();
+  }
+
+  /**
+   * Reserves the next name of the legacy numbering for the given entity type.
+   *
+   * @return The name and the index it stands for
+   */
+  auto nextLegacyName(DataType type) -> std::pair<std::string, int> {
+    int& counter = (type == DataType::Vertex) ? m_vertexDataLegacyIndex : m_cellDataLegacyIndex;
+    const int index = counter;
+    ++counter;
+    return {"_" + std::to_string(index), index};
   }
 
   template <typename T>
@@ -509,21 +457,7 @@ class PUML {
                     MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
                         ) -> int {
-    std::string name = "_";
-    int ret = 0;
-    switch (type) {
-    case DataType::Cell: {
-      ret = m_cellDataLegacyIndex;
-      ++m_cellDataLegacyIndex;
-      break;
-    }
-    case DataType::Vertex: {
-      ret = m_vertexDataLegacyIndex;
-      ++m_vertexDataLegacyIndex;
-      break;
-    }
-    };
-    name += std::to_string(ret);
+    const auto [name, ret] = nextLegacyName(type);
 
     addDataArray<T>(name,
                     rawData,
@@ -568,157 +502,6 @@ class PUML {
 #endif // USE_MPI
     );
     std::memcpy(data, rawData, sizeof(T) * m_originalSize[static_cast<int>(type)] * elemSize);
-  }
-
-  template <typename T>
-  auto addData(const std::string& path,
-               DataType type,
-               const std::vector<size_t>& sizes
-#ifdef USE_MPI
-               ,
-               MPI_Datatype mpiType = MPITypeInfer<T>::type()
-#endif
-                   ,
-               hid_t hdf5Type = HDF5TypeInfer<T>::type()) -> int {
-    std::string name = "_";
-    int ret = 0;
-    switch (type) {
-    case DataType::Cell: {
-      ret = m_cellDataLegacyIndex;
-      ++m_cellDataLegacyIndex;
-      break;
-    }
-    case DataType::Vertex: {
-      ret = m_vertexDataLegacyIndex;
-      ++m_vertexDataLegacyIndex;
-      break;
-    }
-    };
-    name += std::to_string(ret);
-
-    addData<T>(name,
-               path,
-               type,
-               sizes
-#ifdef USE_MPI
-               ,
-               mpiType
-#endif
-               ,
-               hdf5Type);
-
-    return ret;
-  }
-
-  template <typename T = int>
-  void addData(const std::string& name,
-               const std::string& path,
-               DataType type,
-               const std::vector<size_t>& sizes
-#ifdef USE_MPI
-               ,
-               MPI_Datatype mpiType = MPITypeInfer<T>::type()
-#endif
-                   ,
-               hid_t hdf5Type = HDF5TypeInfer<T>::type()) {
-    static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
-    static_assert(std::is_trivially_default_constructible_v<T>,
-                  "T needs to be trivially default constructible");
-    int rank = 0;
-#ifdef USE_MPI
-    MPI_Comm_rank(m_comm, &rank);
-#endif // USE_MPI
-
-    const auto& cellDistributor = distributor(type);
-    std::vector<std::string> dataNames = utils::StringUtils::split(path, ':');
-    if (dataNames.size() != 2) {
-      logError() << "Data" << name << "must have the form \"filename:/dataset\", but it has"
-                 << path;
-    }
-
-    // Open the cell file
-    hid_t h5plist = H5Pcreate(H5P_FILE_ACCESS);
-    checkH5Err(h5plist);
-#ifdef USE_MPI
-    checkH5Err(H5Pset_fapl_mpio(h5plist, m_comm, MPI_INFO_NULL));
-#endif // USE_MPI
-
-    hid_t h5file = H5Fopen(dataNames[0].c_str(), H5F_ACC_RDONLY, h5plist);
-    checkH5Err(h5file);
-
-    const unsigned long totalSize = m_originalTotalSize[static_cast<int>(type)];
-
-    // Get cell dataset
-    hid_t h5dataset = H5Dopen(h5file, dataNames[1].c_str(), H5P_DEFAULT);
-    checkH5Err(h5dataset);
-
-    // Check the size of cell dataset
-    hid_t h5space = H5Dget_space(h5dataset);
-    checkH5Err(h5space);
-    const auto dimcount = H5Sget_simple_extent_ndims(h5space);
-    if (dimcount != 1 + sizes.size()) {
-      logError() << "Dataset must have" << 1 + sizes.size() << "dimension(s), but it has"
-                 << dimcount;
-    }
-    std::vector<hsize_t> dim(1 + sizes.size());
-    checkH5Err(H5Sget_simple_extent_dims(h5space, dim.data(), nullptr));
-    if (dim[0] != totalSize) {
-      logError() << "Dataset has the wrong size:" << dim[0] << "vs." << totalSize;
-    }
-    for (std::size_t i = 0; i < sizes.size(); ++i) {
-      if (dim[i + 1] != sizes[i]) {
-        const std::vector<hsize_t> subdims(dim.begin() + 1, dim.end());
-        logError() << "Dataset has the wrong subsize:" << subdims << "vs." << sizes;
-      }
-    }
-
-    // Read the cells
-    auto [offset, localSize] = cellDistributor.offsetAndSize(rank);
-
-    size_t elemSize = 1;
-    for (auto size : sizes) {
-      elemSize *= size;
-    }
-
-    std::vector<hsize_t> start = {offset};
-    std::vector<hsize_t> count = {localSize};
-
-    for (auto size : sizes) {
-      start.push_back(0);
-      count.push_back(size);
-    }
-
-    checkH5Err(
-        H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
-
-    hid_t h5memspace = H5Screate_simple(count.size(), count.data(), nullptr);
-    checkH5Err(h5memspace);
-
-    hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
-    checkH5Err(h5alist);
-#ifdef USE_MPI
-    checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
-#endif // USE_MPI
-
-    T* data = allocateData<T>(name,
-                              type,
-                              sizes
-#ifdef USE_MPI
-                              ,
-                              mpiType
-#endif // USE_MPI
-    );
-    checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, data));
-
-    // Close data
-    checkH5Err(H5Sclose(h5space));
-    checkH5Err(H5Sclose(h5memspace));
-    checkH5Err(H5Dclose(h5dataset));
-    checkH5Err(H5Fclose(h5file));
-
-    // Close other H5 stuff
-    checkH5Err(H5Pclose(h5plist));
-    checkH5Err(H5Pclose(h5alist));
   }
 
   void partition(const int* partition) {
@@ -1622,14 +1405,6 @@ class PUML {
     }
   }
 
-  template <typename TT>
-  static void checkH5ErrImpl(TT status, const char* file, int line, int rank) {
-    if (status < 0) {
-      logError() << utils::nospace << "An HDF5 error occurred in PUML (" << file << ": " << line
-                 << ") on rank " << rank;
-    }
-  }
-
   public:
   void identify(int dataId) {
     // use the convention for legacy names
@@ -1676,8 +1451,6 @@ class PUML {
     }
   }
 };
-
-#undef checkH5Err
 
 /** Convenient typedef for tetrahrdral meshes */
 using TETPUML = PUML<TETRAHEDRON>;
