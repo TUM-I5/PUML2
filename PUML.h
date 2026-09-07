@@ -55,18 +55,57 @@ constexpr DataType CELL = DataType::Cell;
 constexpr DataType VERTEX = DataType::Vertex;
 
 /**
- * Distributes a number of mesh entities (i.e. elements or vertices) to  a given number of ranks
- * For E entities and R ranks, the first E%R ranks will read E/R+1 entities.
- * The remaining ranks will read E/R entities.
+ * Describes how a number of mesh entities (i.e. elements or vertices) is spread
+ * over the ranks.
+ *
+ * Two layouts are supported. An even split gives E/R+1 entities to the first
+ * E%R of the R ranks and E/R entities to the remaining ones. An explicit split
+ * is described by the entity offset of every rank, and lets a rank hold any
+ * number of entities, including none.
  */
 class Distributor {
   public:
   Distributor() = delete;
+
+  /**
+   * Creates an even split of newNumEntities entities over newNumRanks ranks.
+   */
   Distributor(unsigned long newNumEntities, unsigned long newNumRanks)
       : numEntities(newNumEntities), numRanks(newNumRanks), entitiesPerRank(numEntities / numRanks),
         missingEntities(numEntities % numRanks) {
-    assert(numEntities > numRanks);
+    assert(numRanks > 0);
   }
+
+  /**
+   * Creates an explicit split from the entity offset of every rank, followed by
+   * the total number of entities. newOffsets therefore holds one entry more
+   * than there are ranks, in ascending order.
+   */
+  explicit Distributor(std::vector<unsigned long> newOffsets)
+      : numEntities(newOffsets.back()), numRanks(newOffsets.size() - 1), entitiesPerRank(0),
+        missingEntities(0), offsets(std::move(newOffsets)) {
+    assert(numRanks > 0);
+    assert(std::is_sorted(offsets.begin(), offsets.end()));
+  }
+
+#ifdef USE_MPI
+  /**
+   * Creates an explicit split by gathering the entity count of every rank.
+   */
+  static auto fromLocalSize(unsigned long localSize, MPI_Comm comm) -> Distributor {
+    int procs = 1;
+    MPI_Comm_size(comm, &procs);
+
+    std::vector<unsigned long> newOffsets(static_cast<std::size_t>(procs) + 1);
+    newOffsets[0] = 0;
+    MPI_Allgather(
+        &localSize, 1, MPI_UNSIGNED_LONG, newOffsets.data() + 1, 1, MPI_UNSIGNED_LONG, comm);
+    for (std::size_t i = 1; i < newOffsets.size(); ++i) {
+      newOffsets[i] += newOffsets[i - 1];
+    }
+    return Distributor(std::move(newOffsets));
+  }
+#endif // USE_MPI
 
   /**
    * Gives the offset and size of data where the rank should read data.
@@ -74,6 +113,10 @@ class Distributor {
   [[nodiscard]] auto offsetAndSize(unsigned long rank) const
       -> std::pair<unsigned long, unsigned long> {
     assert(rank < numRanks);
+    if (!offsets.empty()) {
+      return {offsets[rank], offsets[rank + 1] - offsets[rank]};
+    }
+
     unsigned long offset = 0;
     unsigned long size = 0;
     if (rank < missingEntities) {
@@ -92,6 +135,12 @@ class Distributor {
    */
   [[nodiscard]] auto rankOfEntity(unsigned long globalId) const -> unsigned long {
     assert(globalId < numEntities);
+    if (!offsets.empty()) {
+      const auto it = std::upper_bound(offsets.begin(), offsets.end(), globalId);
+      assert(it != offsets.begin());
+      return static_cast<unsigned long>(std::distance(offsets.begin(), it)) - 1;
+    }
+
     unsigned long rank = 0;
     if (globalId < missingEntities * (entitiesPerRank + 1)) {
       rank = globalId / (entitiesPerRank + 1);
@@ -115,11 +164,19 @@ class Distributor {
     return globalId - offset;
   }
 
+  /**
+   * Gives the total number of entities over all ranks.
+   */
+  [[nodiscard]] auto totalSize() const -> unsigned long { return numEntities; }
+
   private:
   unsigned long numEntities;
   unsigned long numRanks;
   unsigned long entitiesPerRank;
   unsigned long missingEntities;
+
+  /** The entity offsets of an explicit split; empty for an even split */
+  std::vector<unsigned long> offsets;
 };
 
 #define checkH5Err(...) checkH5ErrImpl(__VA_ARGS__, __FILE__, __LINE__, rank)
