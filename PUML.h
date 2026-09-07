@@ -304,25 +304,27 @@ class PUML {
    * Files a data array under the given name, replacing an array of the same
    * name.
    */
-  void store(const std::string& name, DataType type, internal::DataBuffer&& buffer) {
+  auto store(const std::string& name, DataType type, internal::DataBuffer&& buffer)
+      -> internal::DataBuffer& {
     if (type == DataType::Vertex) {
       const auto existing = m_vertexDataIndex.find(name);
       if (existing != m_vertexDataIndex.end()) {
         m_vertexData[existing->second] = VertexData{std::move(buffer), {}};
-        return;
+        return m_vertexData[existing->second].original;
       }
       m_vertexDataIndex[name] = m_vertexData.size();
       m_vertexData.push_back(VertexData{std::move(buffer), {}});
-      return;
+      return m_vertexData.back().original;
     }
 
     const auto existing = m_cellDataIndex.find(name);
     if (existing != m_cellDataIndex.end()) {
       m_cellData[existing->second] = std::move(buffer);
-      return;
+      return m_cellData[existing->second];
     }
     m_cellDataIndex[name] = m_cellData.size();
     m_cellData.push_back(std::move(buffer));
+    return m_cellData.back();
   }
 
   public:
@@ -334,6 +336,76 @@ class PUML {
 
   PUML(PUML&&) = default;
   auto operator=(PUML&&) -> PUML& = default;
+
+  /**
+   * Copies the mesh input: the entity counts, how they are spread over the
+   * ranks, and every data array as it was handed over. The topology is not
+   * copied, so generateMesh() has to run on the copy.
+   *
+   * @return A mesh that holds the same input without reading it again
+   */
+  [[nodiscard]] auto clone() const -> PUML {
+    PUML copy;
+#ifdef USE_MPI
+    copy.m_comm = m_comm;
+#endif // USE_MPI
+    copy.m_originalSize = m_originalSize;
+    copy.m_originalTotalSize = m_originalTotalSize;
+    copy.m_distributor = m_distributor;
+
+    copy.m_cellData = m_cellData;
+    copy.m_cellDataIndex = m_cellDataIndex;
+    copy.m_cellDataLegacyIndex = m_cellDataLegacyIndex;
+
+    copy.m_vertexData.reserve(m_vertexData.size());
+    for (const auto& array : m_vertexData) {
+      copy.m_vertexData.push_back(VertexData{array.original, {}});
+    }
+    copy.m_vertexDataIndex = m_vertexDataIndex;
+    copy.m_vertexDataLegacyIndex = m_vertexDataLegacyIndex;
+
+    return copy;
+  }
+
+  /**
+   * Reserves the values of a data array and gives write access to them, so that
+   * the caller can fill them in place. An array of the same name is replaced.
+   *
+   * @param name The name to file the array under
+   * @param type Whether the array covers cells or vertices
+   * @param sizes The shape of the values of a single entity
+   * @return The values of numOriginalCells() resp. numOriginalVertices()
+   *         entities, each holding the product of sizes values
+   */
+  template <typename T>
+  auto allocateData(const std::string& name,
+                    DataType type,
+                    const std::vector<size_t>& sizes
+#ifdef USE_MPI
+                    ,
+                    MPI_Datatype mpiType = MPITypeInfer<T>::type()
+#endif
+                        ) -> T* {
+    static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
+    static_assert(std::is_trivially_default_constructible_v<T>,
+                  "T needs to be trivially default constructible");
+    requireEntityCount(type);
+
+    size_t elemSize = 1;
+    for (auto size : sizes) {
+      elemSize *= size;
+    }
+
+    internal::DataBuffer buffer(m_originalSize[static_cast<int>(type)],
+                                elemSize,
+                                sizeof(T)
+#ifdef USE_MPI
+                                    ,
+                                mpiType
+#endif // USE_MPI
+    );
+    return reinterpret_cast<T*>(store(name, type, std::move(buffer)).data());
+  }
 
 #ifdef USE_MPI
   void setComm(MPI_Comm comm) { m_comm = comm; }
@@ -479,28 +551,23 @@ class PUML {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
-    requireEntityCount(type);
-
-    // rawData is owned by the caller and holds exactly the entities this rank
-    // has been assigned, which need not be an even share of the total.
-    const std::size_t localSize = m_originalSize[static_cast<int>(type)];
 
     size_t elemSize = 1;
     for (auto size : sizes) {
       elemSize *= size;
     }
 
-    internal::DataBuffer buffer(localSize,
-                                elemSize,
-                                sizeof(T)
+    // rawData is owned by the caller and holds exactly the entities this rank
+    // has been assigned, which need not be an even share of the total.
+    T* data = allocateData<T>(name,
+                              type,
+                              sizes
 #ifdef USE_MPI
-                                    ,
-                                mpiType
+                              ,
+                              mpiType
 #endif // USE_MPI
     );
-    std::memcpy(buffer.data(), rawData, buffer.bytes());
-
-    store(name, type, std::move(buffer));
+    std::memcpy(data, rawData, sizeof(T) * m_originalSize[static_cast<int>(type)] * elemSize);
   }
 
   template <typename T>
@@ -633,15 +700,15 @@ class PUML {
     checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-    internal::DataBuffer buffer(localSize,
-                                elemSize,
-                                sizeof(T)
+    T* data = allocateData<T>(name,
+                              type,
+                              sizes
 #ifdef USE_MPI
-                                    ,
-                                mpiType
+                              ,
+                              mpiType
 #endif // USE_MPI
     );
-    checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, buffer.data()));
+    checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, data));
 
     // Close data
     checkH5Err(H5Sclose(h5space));
@@ -652,8 +719,6 @@ class PUML {
     // Close other H5 stuff
     checkH5Err(H5Pclose(h5plist));
     checkH5Err(H5Pclose(h5alist));
-
-    store(name, type, std::move(buffer));
   }
 
   void partition(const int* partition) {
@@ -1569,6 +1634,35 @@ class PUML {
   void identify(int dataId) {
     // use the convention for legacy names
     identify("connectivity", "_" + std::to_string(dataId));
+  }
+
+  /**
+   * Writes a cell data array of vertex ids to a second array, with the ids of
+   * the input mesh replaced by the local vertex ids of this rank.
+   *
+   * The vertices of the source array have to be part of the distribution, so
+   * its name has to have been passed to distributeVertices().
+   *
+   * @param indexDataName The cell data array holding input vertex ids
+   * @param localizedName The name to file the translated array under
+   */
+  void localize(const std::string& indexDataName, const std::string& localizedName) {
+    using IndexType = unsigned long;
+
+    const auto& source = m_cellData[m_cellDataIndex.at(indexDataName)];
+    const auto elemCount = source.entitySize() / sizeof(IndexType);
+    const auto* input = reinterpret_cast<const IndexType*>(source.data());
+
+    auto* output = allocateData<IndexType>(localizedName, DataType::Cell, {elemCount});
+
+    for (std::size_t i = 0; i < m_originalSize[0] * elemCount; ++i) {
+      const auto local = m_verticesg2l.find(input[i]);
+      if (local == m_verticesg2l.end()) {
+        logError() << "Vertex" << input[i] << "of" << indexDataName
+                   << "is not held by this rank; pass" << indexDataName << "to distributeVertices";
+      }
+      output[i] = local->second;
+    }
   }
 
   void identify(const std::string& connectivityToUpdate, const std::string& identify) {

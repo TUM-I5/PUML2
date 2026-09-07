@@ -20,7 +20,9 @@ add_executable(puml-tests
   TestTopology.cpp
   TestMesh.cpp
   TestPartition.cpp
-  TestReader.cpp)
+  TestReader.cpp
+  TestClone.cpp
+  TestLocalize.cpp)
 
 target_link_libraries(puml-tests PRIVATE PUML::PUML GTest::gtest)
 target_compile_definitions(puml-tests
