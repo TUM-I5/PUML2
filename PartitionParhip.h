@@ -56,7 +56,7 @@ class PartitionParhip : public PartitionBase<Topo> {
     std::vector<idxtype> adjwgt(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
 
-    if (!target.vertexWeightsUniform()) {
+    if (!target.partitionWeightsUniform()) {
       logWarning() << "Node weights (target vertex weights) are currently ignored by ParHIP.";
     }
     if (graph.vertexWeights().size() > graph.localVertexCount()) {
@@ -64,7 +64,7 @@ class PartitionParhip : public PartitionBase<Topo> {
     }
 
     int edgecut = 0;
-    int nparts = target.vertexCount();
+    int nparts = target.partitionCount();
     std::vector<idxtype> part(cellCount);
     double imbalance = target.imbalance();
     MPI_Comm comm = graph.comm();

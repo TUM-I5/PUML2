@@ -65,7 +65,7 @@ class BoundaryElement : public Element<Utype> {
 
   private:
   /** A listof ranks that contain the same vertex */
-  std::vector<int> m_sharedRanks;
+  internal::SmallVector<int, 4> m_sharedRanks;
 
   public:
   /**
@@ -76,7 +76,9 @@ class BoundaryElement : public Element<Utype> {
   /**
    * @return A vector of ranks that also has this element
    */
-  [[nodiscard]] auto shared() const -> const std::vector<int>& { return m_sharedRanks; }
+  [[nodiscard]] auto shared() const -> const internal::SmallVector<int, 4>& {
+    return m_sharedRanks;
+  }
 };
 
 template <TopoType Topo>

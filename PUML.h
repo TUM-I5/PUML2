@@ -1250,7 +1250,7 @@ class PUML {
 
     {
       // Collect all shared ranks for each element and downward gids
-      std::vector<std::array<const std::vector<int>*, N>> allShared(elements.size());
+      std::vector<std::array<const internal::SmallVector<int, 4>*, N>> allShared(elements.size());
 
       {
         std::vector<std::size_t> downPos(elements.size());
@@ -1277,7 +1277,7 @@ class PUML {
                               allShared[i][1]->end(),
                               std::back_inserter(elements[i].m_sharedRanks));
 
-        std::vector<int> buffer;
+        internal::SmallVector<int, 4> buffer;
         for (std::size_t j = 2; j < N; ++j) {
           buffer.clear();
 
@@ -1288,7 +1288,7 @@ class PUML {
                                 allShared[i][j]->end(),
                                 std::back_inserter(buffer));
 
-          std::swap(elements[i].m_sharedRanks, buffer);
+          elements[i].m_sharedRanks.swap(buffer);
         }
       }
     }

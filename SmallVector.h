@@ -20,6 +20,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <type_traits>
+#include <utility>
 
 #include "Types.h"
 
@@ -126,6 +127,27 @@ class SmallVector {
 
   void clear() { m_size = 0; }
 
+  void swap(SmallVector& other) noexcept {
+    SmallVector held(std::move(*this));
+    *this = std::move(other);
+    other = std::move(held);
+  }
+
+  /// Drops the value at the given position and gives back the one behind it.
+  auto erase(T* at) -> T* {
+    erase(at, at + 1);
+    return at;
+  }
+
+  /// Drops the values from first up to last.
+  void erase(T* first, T* last) {
+    const auto keep = static_cast<Size>(end() - last);
+    if (keep > 0) {
+      std::memmove(first, last, keep * sizeof(T));
+    }
+    m_size = static_cast<LocalId>(static_cast<Size>(first - begin()) + keep);
+  }
+
   auto operator==(const SmallVector& other) const -> bool {
     return m_size == other.m_size && std::equal(begin(), end(), other.begin());
   }
@@ -163,6 +185,11 @@ class SmallVector {
   LocalId m_size{0};
   LocalId m_capacity{Capacity};
 };
+
+template <typename T, unsigned int Capacity>
+void swap(SmallVector<T, Capacity>& a, SmallVector<T, Capacity>& b) noexcept {
+  a.swap(b);
+}
 
 } // namespace PUML::internal
 

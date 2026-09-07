@@ -63,14 +63,14 @@ class PartitionParmetis : public PartitionBase<Topo> {
     if (ncon == 0) {
       ncon = 1;
     }
-    auto nparts = static_cast<idx_t>(target.vertexCount());
+    auto nparts = static_cast<idx_t>(target.partitionCount());
     std::vector<real_t> tpwgts(static_cast<std::size_t>(nparts) * ncon,
                                static_cast<real_t>(1.) / static_cast<real_t>(nparts));
-    if (!target.vertexWeightsUniform()) {
-      for (std::size_t i = 0; i < target.vertexCount(); i++) {
+    if (!target.partitionWeightsUniform()) {
+      for (std::size_t i = 0; i < target.partitionCount(); i++) {
         for (idx_t j = 0; j < ncon; ++j) {
           tpwgts[(i * static_cast<std::size_t>(ncon)) + j] =
-              static_cast<real_t>(target.vertexWeights()[i]);
+              static_cast<real_t>(target.partitionWeights()[i]);
         }
       }
     }

@@ -56,8 +56,7 @@ void checkPartitioner(const std::string& name, PUML::PartitionerType type) {
 
   PUML::TETPartitionGraph graph(puml);
   PUML::PartitionTarget target;
-  // The "vertices" of a target are the partitions to produce, one per rank.
-  target.setVertexWeightsUniform(procs);
+  target.setPartitionCount(procs);
   target.setImbalance(0.05);
 
   auto partitioner = PUML::TETPartition::getPartitioner(type);

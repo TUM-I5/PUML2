@@ -65,10 +65,10 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     std::vector<SCOTCH_Num> edgeWeights(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
 
-    auto nparts = target.vertexCount();
+    auto nparts = target.partitionCount();
 
     std::vector<SCOTCH_Num> weights(nparts, 1);
-    if (!target.vertexWeightsUniform()) {
+    if (!target.partitionWeightsUniform()) {
       // we need to convert from double node weights to integer node weights
       // (that is due to the interface still being oriented at ParMETIS right now)
 
@@ -77,7 +77,7 @@ class PartitionPtscotch : public PartitionBase<Topo> {
         // important: the weights should be non-negative
         weights[i] =
             std::max(static_cast<SCOTCH_Num>(1),
-                     static_cast<SCOTCH_Num>(std::round(target.vertexWeights()[i] * scale)));
+                     static_cast<SCOTCH_Num>(std::round(target.partitionWeights()[i] * scale)));
       }
     }
 
