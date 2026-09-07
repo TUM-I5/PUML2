@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "Error.h"
 #include "PumlTest.h"
 
 namespace {
@@ -127,6 +129,31 @@ TEST(Clone, CarriesASecondTopology) {
   topology.generateMesh();
 
   EXPECT_EQ(measure(puml).faces, measure(topology).faces);
+}
+
+/// A handle of the original names an array of the original, whichever mesh it
+/// is handed to.
+TEST(Clone, RejectsAHandleOfAnotherMesh) {
+  const auto mesh = makeCubeMesh(2);
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+
+  const auto handle = puml.connectivity();
+  auto copy = puml.clone();
+
+  std::string message;
+  try {
+    static_cast<void>(copy.data(handle));
+  } catch (const PUML::Error& error) {
+    message = error.what();
+  }
+  EXPECT_NE(message.find("another mesh"), std::string::npos) << message;
+
+  // Its own handle works, and names the same array.
+  EXPECT_EQ(copy.data(copy.connectivity()).size(), puml.data(handle).size());
 }
 
 } // namespace

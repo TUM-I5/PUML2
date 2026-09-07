@@ -228,6 +228,10 @@ class PUML {
   /** Tells the handles of this mesh from those of another one */
   Size m_instanceId{++s_instances};
 
+  /** The arrays the mesh is built from, by the part they play */
+  DataHandle<GlobalId> m_connectivity;
+  DataHandle<double> m_geometry;
+
   /** How the cells/vertices are spread over the ranks */
   std::array<std::optional<Distributor>, 2> m_distributor{};
 
@@ -347,19 +351,39 @@ class PUML {
     return m_cellData.size() - 1;
   }
 
+  /**
+   * Stops if a handle was not handed out by this mesh. A clone hands out its
+   * own, so a handle taken before cloning names an array of the original.
+   */
+  void requireOwn(bool valid, Size owner) const {
+    if (!valid) {
+      throwError("a data handle was used before it named anything");
+    }
+    if (owner != m_instanceId) {
+      throwError("a data handle of another mesh was used here; a clone hands out its own");
+    }
+  }
+
+  /// Gives back the same array as a handle of this mesh.
+  template <typename T>
+  auto rebase(const DataHandle<T>& handle) const -> DataHandle<T> {
+    if (!handle.valid()) {
+      return {};
+    }
+    return DataHandle<T>(handle.m_index, handle.m_type, handle.m_elemCount, m_instanceId);
+  }
+
   /// The array a handle names, as it was handed over.
   template <typename T>
   auto bufferOf(const DataHandle<T>& handle) const -> const internal::DataBuffer& {
-    assert(handle.valid());
-    assert(handle.m_owner == m_instanceId);
+    requireOwn(handle.valid(), handle.m_owner);
     return handle.type() == DataType::Vertex ? m_vertexData[handle.m_index].original
                                              : m_cellData[handle.m_index];
   }
 
   template <typename T>
   auto bufferOf(const DataHandle<T>& handle) -> internal::DataBuffer& {
-    assert(handle.valid());
-    assert(handle.m_owner == m_instanceId);
+    requireOwn(handle.valid(), handle.m_owner);
     return handle.type() == DataType::Vertex ? m_vertexData[handle.m_index].original
                                              : m_cellData[handle.m_index];
   }
@@ -400,6 +424,10 @@ class PUML {
     }
     copy.m_vertexDataIndex = m_vertexDataIndex;
     copy.m_vertexDataLegacyIndex = m_vertexDataLegacyIndex;
+
+    // The arrays sit where they sat, but in the copy they are its own.
+    copy.m_connectivity = copy.rebase(m_connectivity);
+    copy.m_geometry = copy.rebase(m_geometry);
 
     return copy;
   }
@@ -520,8 +548,7 @@ class PUML {
    */
   template <typename T>
   [[nodiscard]] auto raggedData(const RaggedHandle<T>& handle) -> RaggedView<T> {
-    assert(handle.valid());
-    assert(handle.m_owner == m_instanceId);
+    requireOwn(handle.valid(), handle.m_owner);
     auto& array = m_cellRagged[handle.m_index];
     return RaggedView<T>(
         reinterpret_cast<T*>(array.values().data()), array.offsets().data(), array.entities());
@@ -529,13 +556,26 @@ class PUML {
 
   template <typename T>
   [[nodiscard]] auto raggedData(const RaggedHandle<T>& handle) const -> RaggedView<const T> {
-    assert(handle.valid());
-    assert(handle.m_owner == m_instanceId);
+    requireOwn(handle.valid(), handle.m_owner);
     const auto& array = m_cellRagged[handle.m_index];
     return RaggedView<const T>(reinterpret_cast<const T*>(array.values().data()),
                                array.offsets().data(),
                                array.entities());
   }
+
+  /**
+   * Names the array the cells are built from, which generateMesh() uses.
+   */
+  void setConnectivity(DataHandle<GlobalId> connectivity) { m_connectivity = connectivity; }
+
+  /**
+   * Names the array holding the vertex positions.
+   */
+  void setGeometry(DataHandle<double> geometry) { m_geometry = geometry; }
+
+  [[nodiscard]] auto connectivity() const -> DataHandle<GlobalId> { return m_connectivity; }
+
+  [[nodiscard]] auto geometry() const -> DataHandle<double> { return m_geometry; }
 
   /**
    * Whether a data array of the given name and kind exists.
@@ -612,7 +652,7 @@ class PUML {
   template <typename T>
   [[nodiscard]] auto distributedData(const DataHandle<T>& handle) const -> DataView<const T> {
     assert(handle.type() == DataType::Vertex);
-    assert(handle.m_owner == m_instanceId);
+    requireOwn(true, handle.m_owner);
     const auto& buffer = m_vertexData[handle.m_index].distributed;
     return DataView<const T>(
         reinterpret_cast<const T*>(buffer.data()), buffer.entities(), buffer.elemCount());
@@ -719,7 +759,7 @@ class PUML {
   }
 
   template <typename T>
-  void addDataArray(const std::string& name,
+  auto addDataArray(const std::string& name,
                     const T* rawData,
                     DataType type,
                     const std::vector<size_t>& sizes
@@ -750,6 +790,7 @@ class PUML {
     std::memcpy(data(handle).data(),
                 rawData,
                 sizeof(T) * m_originalSize[static_cast<int>(type)] * elemSize);
+    return handle;
   }
 
   void partition(const int* partition) {
@@ -898,28 +939,13 @@ class PUML {
   }
 
   void generateMesh() {
-    const auto connectivity = find<GlobalId>("connectivity", DataType::Cell);
-    distributeVertices({connectivity});
-    constructGeometry(find<double>("geometry", DataType::Vertex));
-    constructMesh(connectivity);
-  }
-
-  /// Looks the arrays up by name and hands them to the step below.
-  void distributeVertices(const std::vector<std::string>& indexDataNames) {
-    std::vector<DataHandle<GlobalId>> handles;
-    handles.reserve(indexDataNames.size());
-    for (const auto& name : indexDataNames) {
-      handles.push_back(find<GlobalId>(name, DataType::Cell));
+    if (!m_connectivity.valid() || !m_geometry.valid()) {
+      throwError("the connectivity and the geometry have to be named before the mesh can be"
+                 " generated; call setConnectivity and setGeometry");
     }
-    distributeVertices(handles);
-  }
-
-  void constructGeometry(const std::string& geometryName) {
-    constructGeometry(find<double>(geometryName, DataType::Vertex));
-  }
-
-  void constructMesh(const std::string& cellDataName) {
-    constructMesh(find<GlobalId>(cellDataName, DataType::Cell));
+    distributeVertices({m_connectivity});
+    constructGeometry(m_geometry);
+    constructMesh(m_connectivity);
   }
 
   /**

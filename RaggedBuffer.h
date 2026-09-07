@@ -88,21 +88,13 @@ class RaggedHandle {
   template <TopoType Topo>
   friend class PUML;
 
-  RaggedHandle(Size index, DataType type, [[maybe_unused]] Size owner)
-      : m_index(index), m_type(type), m_valid(true)
-#ifndef NDEBUG
-        ,
-        m_owner(owner)
-#endif // NDEBUG
-  {
-  }
+  RaggedHandle(Size index, DataType type, Size owner)
+      : m_index(index), m_type(type), m_valid(true), m_owner(owner) {}
 
   Size m_index{0};
   DataType m_type{DataType::Cell};
   bool m_valid{false};
-#ifndef NDEBUG
   Size m_owner{0};
-#endif // NDEBUG
 };
 
 namespace internal {

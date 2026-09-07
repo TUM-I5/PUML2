@@ -50,9 +50,9 @@ TEST(Localize, HandlesASecondIndexArray) {
   puml.addDataArray<unsigned long>(
       "topology", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4});
 
-  puml.distributeVertices(std::vector<std::string>{"connectivity", "topology"});
-  puml.constructGeometry("geometry");
-  puml.constructMesh("topology");
+  puml.distributeVertices({puml.connectivity(), puml.find<PUML::GlobalId>("topology", PUML::CELL)});
+  puml.constructGeometry(puml.geometry());
+  puml.constructMesh(puml.find<PUML::GlobalId>("topology", PUML::CELL));
 
   puml.localize("connectivity", "local-connectivity");
   const auto local = puml.data(puml.find<PUML::GlobalId>("local-connectivity", PUML::CELL));

@@ -97,7 +97,8 @@ TEST(Error, ReportsAWrongArrayForConstruction) {
   const std::vector<int> groups(cells.size, 1);
   puml.addDataArray<int>("group", groups.data(), PUML::CELL, {});
 
-  const auto message = messageOf([&puml]() { puml.constructMesh("group"); });
+  const auto message =
+      messageOf([&puml]() { puml.constructMesh(puml.find<PUML::GlobalId>("group", PUML::CELL)); });
   EXPECT_NE(message.find("group"), std::string::npos) << message;
   EXPECT_NE(message.find("another type"), std::string::npos) << message;
 }

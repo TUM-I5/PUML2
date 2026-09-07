@@ -171,9 +171,9 @@ class Hdf5Reader {
     logInfo() << "Found" << m_puml.distributor(DataType::Vertex).totalSize() << "vertices";
 
     // now actually read the data
-    addData<unsigned long>(
-        "connectivity", cellName, DataType::Cell, {internal::Topology<Topo>::cellvertices()});
-    addData<double>("geometry", vertexName, DataType::Vertex, {3});
+    m_puml.setConnectivity(addData<GlobalId>(
+        "connectivity", cellName, DataType::Cell, {internal::Topology<Topo>::cellvertices()}));
+    m_puml.setGeometry(addData<double>("geometry", vertexName, DataType::Vertex, {3}));
   }
 
   void inferSize(DataType type, const std::string& dataset) {
@@ -226,7 +226,7 @@ class Hdf5Reader {
   }
 
   template <typename T = int>
-  void addData(const std::string& name,
+  auto addData(const std::string& name,
                const std::string& path,
                DataType type,
                const std::vector<size_t>& sizes
@@ -235,7 +235,7 @@ class Hdf5Reader {
                MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
                    ,
-               hid_t hdf5Type = HDF5TypeInfer<T>::type()) {
+               hid_t hdf5Type = HDF5TypeInfer<T>::type()) -> DataHandle<T> {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
@@ -313,6 +313,8 @@ class Hdf5Reader {
     checkH5Err(H5Sclose(h5memspace));
     checkH5Err(H5Dclose(h5dataset));
     checkH5Err(H5Pclose(h5alist));
+
+    return handle;
   }
 
   /**
@@ -339,7 +341,7 @@ class Hdf5Reader {
     }
 
     inferSize(DataType::Vertex, vertexName);
-    addData<double>("geometry", vertexName, DataType::Vertex, {3});
+    m_puml.setGeometry(addData<double>("geometry", vertexName, DataType::Vertex, {3}));
 
     logInfo() << "Found" << m_puml.distributor(DataType::Cell).totalSize() << "cells";
     logInfo() << "Found" << m_puml.distributor(DataType::Vertex).totalSize() << "vertices";
@@ -432,6 +434,7 @@ class Hdf5Reader {
 
     const auto handle = m_puml.template allocateData<GlobalId>(
         "connectivity", DataType::Cell, {internal::MaxCellVertices});
+    m_puml.setConnectivity(handle);
     auto view = m_puml.data(handle);
     std::vector<CellType> types(cellCount);
 
@@ -487,6 +490,7 @@ class Hdf5Reader {
 
     const auto handle = m_puml.template allocateData<GlobalId>(
         "connectivity", DataType::Cell, {internal::MaxCellVertices});
+    m_puml.setConnectivity(handle);
     auto view = m_puml.data(handle);
     for (Size i = 0; i < cellCount; ++i) {
       auto* cell = view.entity(i);

@@ -254,10 +254,10 @@ inline void feed(PUML::HEXPUML& puml, const HexCubeMesh& mesh, Split cells, Spli
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.addDataArray<unsigned long>(
-      "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8});
-  puml.addDataArray<double>(
-      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
+  puml.setConnectivity(puml.addDataArray<unsigned long>(
+      "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8}));
+  puml.setGeometry(puml.addDataArray<double>(
+      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
 }
 
 struct SquareMesh {
@@ -316,10 +316,10 @@ inline void
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.addDataArray<unsigned long>(
-      "connectivity", mesh.connect.data() + 3 * cells.offset, PUML::CELL, {3});
-  puml.addDataArray<double>(
-      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
+  puml.setConnectivity(puml.addDataArray<unsigned long>(
+      "connectivity", mesh.connect.data() + 3 * cells.offset, PUML::CELL, {3}));
+  puml.setGeometry(puml.addDataArray<double>(
+      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
 }
 
 /// A mesh of both hexahedra and tetrahedra, in two blocks that do not touch:
@@ -512,11 +512,11 @@ inline void feed(PUML::MIXEDPUML& puml, const MixedMesh& mesh, Split cells, Spli
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.addDataArray<unsigned long>(
-      "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8});
+  puml.setConnectivity(puml.addDataArray<unsigned long>(
+      "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8}));
   puml.setCellTypes(reinterpret_cast<const PUML::CellType*>(mesh.types.data() + cells.offset));
-  puml.addDataArray<double>(
-      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
+  puml.setGeometry(puml.addDataArray<double>(
+      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
 }
 
 /// Hands the given portion of a cube mesh to PUML without touching a file.
@@ -527,10 +527,10 @@ inline void feed(PUML::TETPUML& puml, const CubeMesh& mesh, Split cells, Split v
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.addDataArray<unsigned long>(
-      "connectivity", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4});
-  puml.addDataArray<double>(
-      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
+  puml.setConnectivity(puml.addDataArray<unsigned long>(
+      "connectivity", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4}));
+  puml.setGeometry(puml.addDataArray<double>(
+      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
 }
 
 struct MeshCounts {
