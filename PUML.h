@@ -21,6 +21,7 @@
 #include <hdf5.h>
 #include <iterator>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -216,6 +217,9 @@ class PUML {
   /** The original number of total cells/vertices */
   std::array<unsigned long, 2> m_originalTotalSize{};
 
+  /** How the cells/vertices are spread over the ranks */
+  std::array<std::optional<Distributor>, 2> m_distributor{};
+
   using g2l_t = std::unordered_map<unsigned long, unsigned int>;
 
   /** The list of all local cells */
@@ -276,6 +280,35 @@ class PUML {
 
   int m_cellDataLegacyIndex{0};
   int m_vertexDataLegacyIndex{0};
+
+  /**
+   * Describes the split of the given number of local entities over all ranks.
+   */
+  [[nodiscard]] auto makeDistributor(std::size_t localSize) const -> Distributor {
+#ifdef USE_MPI
+    return Distributor::fromLocalSize(localSize, m_comm);
+#else  // USE_MPI
+    return Distributor(std::vector<unsigned long>{0, localSize});
+#endif // USE_MPI
+  }
+
+  /**
+   * Aborts if the number of entities of the given type is still unknown.
+   */
+  void requireEntityCount(DataType type) const {
+    if (!m_distributor[static_cast<int>(type)].has_value()) {
+      logError() << "The number of entities has to be known before data can be added; call "
+                    "setSize or inferSize first.";
+    }
+  }
+
+  /**
+   * Gives the entity distribution for cells or vertices.
+   */
+  [[nodiscard]] auto distributor(DataType type) const -> const Distributor& {
+    requireEntityCount(type);
+    return *m_distributor[static_cast<int>(type)];
+  }
 
 #ifdef USE_MPI
   auto createDatatypeArray(MPI_Datatype baseType, std::size_t elemSize)
@@ -395,12 +428,13 @@ class PUML {
     std::vector<hsize_t> dims(ndims);
     checkH5Err(H5Sget_simple_extent_dims(h5space, dims.data(), nullptr));
 
-    auto cellDistributor = Distributor(dims[0], procs);
+    const auto index = static_cast<int>(type);
+    m_distributor[index] = Distributor(dims[0], procs);
 
     // Read the cells
-    m_originalTotalSize[static_cast<int>(type)] = dims[0];
-    auto [offsetCells, sizeCells] = cellDistributor.offsetAndSize(rank);
-    m_originalSize[static_cast<int>(type)] = sizeCells;
+    m_originalTotalSize[index] = dims[0];
+    const auto [offsetCells, sizeCells] = m_distributor[index]->offsetAndSize(rank);
+    m_originalSize[index] = sizeCells;
 
     // Close cells
     checkH5Err(H5Dclose(h5dataset));
@@ -413,11 +447,8 @@ class PUML {
   void setSize(DataType type, std::size_t value) {
     const auto index = type == DataType::Vertex ? 1 : 0;
     m_originalSize[index] = value;
-    m_originalTotalSize[index] = value;
-
-#ifdef USE_MPI
-    MPI_Allreduce(MPI_IN_PLACE, &m_originalTotalSize[index], 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
-#endif
+    m_distributor[index] = makeDistributor(value);
+    m_originalTotalSize[index] = m_distributor[index]->totalSize();
   }
 
   template <typename T>
@@ -471,6 +502,7 @@ class PUML {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
+    requireEntityCount(type);
 
     // rawData is owned by the caller and holds exactly the entities this rank
     // has been assigned, which need not be an even share of the total.
@@ -563,13 +595,11 @@ class PUML {
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
     int rank = 0;
-    int procs = 1;
 #ifdef USE_MPI
     MPI_Comm_rank(m_comm, &rank);
-    MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    const auto cellDistributor = Distributor(m_originalTotalSize[static_cast<int>(type)], procs);
+    const auto& cellDistributor = distributor(type);
     std::vector<std::string> dataNames = utils::StringUtils::split(path, ':');
     if (dataNames.size() != 2) {
       logError() << "Data" << name << "must have the form \"filename:/dataset\", but it has"
@@ -733,6 +763,7 @@ class PUML {
     }
 
     m_originalSize[0] = rDispls[procs - 1] + recvCount[procs - 1];
+    m_distributor[0] = makeDistributor(m_originalSize[0]);
 
 #ifdef USE_MPI
     // Exchange cell data
@@ -772,7 +803,7 @@ class PUML {
     MPI_Comm_size(m_comm, &procs);
 #endif // USE_MPI
 
-    const auto vertexDistributor = Distributor(m_originalTotalSize[1], procs);
+    const auto& vertexDistributor = distributor(DataType::Vertex);
     // Generate a list of vertices we need from other processors
     using IndexType = unsigned long;
     std::vector<std::unordered_set<unsigned long>> requiredVertexSets(procs);
