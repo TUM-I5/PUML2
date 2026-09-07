@@ -376,10 +376,12 @@ class PUML {
     case DataType::Cell: {
       ret = m_cellDataLegacyIndex;
       ++m_cellDataLegacyIndex;
+      break;
     }
     case DataType::Vertex: {
       ret = m_vertexDataLegacyIndex;
       ++m_vertexDataLegacyIndex;
+      break;
     }
     };
     name += std::to_string(ret);
@@ -468,10 +470,12 @@ class PUML {
     case DataType::Cell: {
       ret = m_cellDataLegacyIndex;
       ++m_cellDataLegacyIndex;
+      break;
     }
     case DataType::Vertex: {
       ret = m_vertexDataLegacyIndex;
       ++m_vertexDataLegacyIndex;
+      break;
     }
     };
     name += std::to_string(ret);
