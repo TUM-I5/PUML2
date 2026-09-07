@@ -19,6 +19,7 @@
 #include "DataBuffer.h"
 #include "Error.h"
 #include "DataHandle.h"
+#include "RaggedBuffer.h"
 #include "TypeInference.h"
 #include "UpwardBuilder.h"
 #include "Types.h"
@@ -270,6 +271,10 @@ class PUML {
   /** User cell data */
   std::vector<internal::DataBuffer> m_cellData;
 
+  /** User cell data that holds a different number of values per cell */
+  std::vector<internal::RaggedBuffer> m_cellRagged;
+  std::unordered_map<std::string, std::size_t> m_cellRaggedIndex;
+
   /** User vertex data */
   std::vector<VertexData> m_vertexData;
 
@@ -447,6 +452,97 @@ class PUML {
     );
     const auto index = store(name, type, std::move(buffer));
     return DataHandle<T>(index, type, elemSize, m_instanceId);
+  }
+
+  /**
+   * Reserves a cell data array that holds the given number of values per cell,
+   * and gives write access to it.
+   *
+   * The values of one cell lie next to each other, and they travel with their
+   * cell through partitioning.
+   */
+  template <typename T>
+  auto allocateRaggedData(const std::string& name,
+                          const std::vector<Size>& counts
+#ifdef USE_MPI
+                          ,
+                          MPI_Datatype mpiType = MPITypeInfer<T>::type()
+#endif
+                              ) -> RaggedHandle<T> {
+    static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
+    requireEntityCount(DataType::Cell);
+    if (counts.size() != m_originalSize[0]) {
+      throwError("a ragged array needs one count per cell, but got",
+                 counts.size(),
+                 "counts for",
+                 m_originalSize[0],
+                 "cells");
+    }
+
+    auto offsets = internal::RaggedBuffer::offsetsOf(counts);
+    internal::DataBuffer values(offsets.back(),
+                                1,
+                                sizeof(T),
+                                internal::typeTag<T>()
+#ifdef USE_MPI
+                                    ,
+                                mpiType
+#endif // USE_MPI
+    );
+
+    const auto existing = m_cellRaggedIndex.find(name);
+    const auto index =
+        (existing != m_cellRaggedIndex.end()) ? existing->second : m_cellRagged.size();
+    if (existing == m_cellRaggedIndex.end()) {
+      m_cellRaggedIndex[name] = index;
+      m_cellRagged.emplace_back();
+    }
+    m_cellRagged[index].reset(std::move(offsets), std::move(values));
+
+    return RaggedHandle<T>(index, DataType::Cell, m_instanceId);
+  }
+
+  /**
+   * Looks up a ragged cell data array by name and checks that it holds T.
+   */
+  template <typename T>
+  [[nodiscard]] auto findRagged(const std::string& name) const -> RaggedHandle<T> {
+    const auto it = m_cellRaggedIndex.find(name);
+    if (it == m_cellRaggedIndex.end()) {
+      throwError("there is no ragged cell data array named", name);
+    }
+    if (m_cellRagged[it->second].values().typeTag() != internal::typeTag<T>()) {
+      throwError("ragged data array",
+                 name,
+                 "holds values of",
+                 m_cellRagged[it->second].values().elemBytes(),
+                 "bytes and was asked for as",
+                 sizeof(T),
+                 "byte values of another type");
+    }
+    return RaggedHandle<T>(it->second, DataType::Cell, m_instanceId);
+  }
+
+  /**
+   * The values a ragged handle names.
+   */
+  template <typename T>
+  [[nodiscard]] auto raggedData(const RaggedHandle<T>& handle) -> RaggedView<T> {
+    assert(handle.valid());
+    assert(handle.m_owner == m_instanceId);
+    auto& array = m_cellRagged[handle.m_index];
+    return RaggedView<T>(
+        reinterpret_cast<T*>(array.values().data()), array.offsets().data(), array.entities());
+  }
+
+  template <typename T>
+  [[nodiscard]] auto raggedData(const RaggedHandle<T>& handle) const -> RaggedView<const T> {
+    assert(handle.valid());
+    assert(handle.m_owner == m_instanceId);
+    const auto& array = m_cellRagged[handle.m_index];
+    return RaggedView<const T>(reinterpret_cast<const T*>(array.values().data()),
+                               array.offsets().data(),
+                               array.entities());
   }
 
   /**
@@ -689,6 +785,24 @@ class PUML {
         }
         array = std::move(sorted);
       }
+
+      // The same for the arrays with a count of their own per cell, where the
+      // values of a cell move as a block.
+      for (auto& array : m_cellRagged) {
+        std::vector<Size> counts(m_originalSize[0]);
+        for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+          counts[i] = array.count(indices[i]);
+        }
+        auto offsets = internal::RaggedBuffer::offsetsOf(counts);
+
+        auto sorted = array.values().sameLayout(offsets.back());
+        for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+          for (Size j = 0; j < counts[i]; ++j) {
+            sorted.copyEntity(offsets[i] + j, array.values(), array.offsets()[indices[i]] + j);
+          }
+        }
+        array.reset(std::move(offsets), std::move(sorted));
+      }
     }
 
     // Compute exchange info
@@ -715,6 +829,7 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + recvCount[i - 1];
     }
 
+    [[maybe_unused]] const auto sentCells = m_originalSize[0];
     m_originalSize[0] = rDispls[procs - 1] + recvCount[procs - 1];
     m_distributor[0] = makeDistributor(m_originalSize[0]);
 
@@ -732,6 +847,60 @@ class PUML {
                     array.mpiType(),
                     m_comm);
       array = std::move(received);
+    }
+
+    // A ragged array moves in two steps: how many values each cell carries, and
+    // then the values themselves, whose counts per rank follow from the first
+    // step rather than from the number of cells.
+    for (auto& array : m_cellRagged) {
+      std::vector<int> sendCounts(sentCells);
+      for (std::size_t i = 0; i < sentCells; ++i) {
+        sendCounts[i] = toMpiCount(array.count(i));
+      }
+
+      std::vector<int> recvCounts(m_originalSize[0]);
+      MPI_Alltoallv(sendCounts.data(),
+                    sendCount.data(),
+                    sDispls.data(),
+                    MPI_INT,
+                    recvCounts.data(),
+                    recvCount.data(),
+                    rDispls.data(),
+                    MPI_INT,
+                    m_comm);
+
+      std::vector<int> sendValues(procs);
+      std::vector<int> recvValues(procs);
+      std::vector<int> sendValueDispls(procs);
+      std::vector<int> recvValueDispls(procs);
+      for (int p = 0; p < procs; ++p) {
+        Size out = 0;
+        for (int i = 0; i < sendCount[p]; ++i) {
+          out += static_cast<Size>(sendCounts[sDispls[p] + i]);
+        }
+        Size in = 0;
+        for (int i = 0; i < recvCount[p]; ++i) {
+          in += static_cast<Size>(recvCounts[rDispls[p] + i]);
+        }
+        sendValues[p] = toMpiCount(out);
+        recvValues[p] = toMpiCount(in);
+        sendValueDispls[p] = (p == 0) ? 0 : sendValueDispls[p - 1] + sendValues[p - 1];
+        recvValueDispls[p] = (p == 0) ? 0 : recvValueDispls[p - 1] + recvValues[p - 1];
+      }
+
+      std::vector<Size> counts(recvCounts.begin(), recvCounts.end());
+      auto offsets = internal::RaggedBuffer::offsetsOf(counts);
+      auto received = array.values().sameLayout(offsets.back());
+      MPI_Alltoallv(array.values().data(),
+                    sendValues.data(),
+                    sendValueDispls.data(),
+                    array.values().mpiType(),
+                    received.data(),
+                    recvValues.data(),
+                    recvValueDispls.data(),
+                    array.values().mpiType(),
+                    m_comm);
+      array.reset(std::move(offsets), std::move(received));
     }
 #endif // USE_MPI
   }
