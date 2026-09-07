@@ -70,6 +70,45 @@ jobs:
         working-directory: build
         run: ctest --output-on-failure
 
+  partitioners:
+    name: ${{ matrix.partitioner }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        partitioner: [parmetis, ptscotch]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libopenmpi-dev openmpi-bin libhdf5-openmpi-dev
+          if [ "${{ matrix.partitioner }}" = "parmetis" ]; then
+            sudo apt-get install -y --no-install-recommends libparmetis-dev
+          else
+            sudo apt-get install -y --no-install-recommends libptscotch-dev
+          fi
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DPUML_USE_MPI=ON \
+            -DPUML_TESTING=ON \
+            -DPUML_PARTITIONER=${{ matrix.partitioner }}
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure
+
   sanitizers:
     name: ASan + UBSan MPI=${{ matrix.mpi }}
     runs-on: ubuntu-24.04

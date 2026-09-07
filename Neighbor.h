@@ -18,6 +18,8 @@
 #include <cassert>
 
 #include "Downward.h"
+#include <array>
+
 #include "PUML.h"
 #include "Types.h"
 #include "Topology.h"
@@ -51,6 +53,15 @@ class Neighbor {
         flid[i] = neighbors[0];
       }
     }
+  }
+  /// The neighbouring cells of a cell, one per face, InvalidLocalId where the
+  /// neighbour is not on this rank.
+  template <TopoType Topo>
+  static auto face(const PUML<Topo>& puml, LocalId clid)
+      -> std::array<LocalId, internal::Topology<Topo>::cellfaces()> {
+    std::array<LocalId, internal::Topology<Topo>::cellfaces()> flid{};
+    face(puml, clid, flid.data());
+    return flid;
   }
 };
 

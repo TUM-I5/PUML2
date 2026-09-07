@@ -36,8 +36,8 @@ class PartitionDummy : public PartitionBase<Topo> {
 #ifdef USE_MPI
   virtual auto partition(int* partition,
                          const PartitionGraph<Topo>& graph,
-                         const PartitionTarget& target,
-                         int seed = 1) -> PartitioningResult {
+                         const PartitionTarget& /*target*/,
+                         int /*seed*/ = 1) -> PartitioningResult {
     // all data stays where it is (i.e. where it was read)
 
     int rank = 0;

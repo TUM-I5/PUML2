@@ -72,7 +72,10 @@ if(NOT PUML_PARTITIONER STREQUAL "none")
     set(_puml_partitioner_define USE_PARHIP)
   endif()
 
-  find_path(PUML_PARTITIONER_INCLUDE_DIR NAMES ${_puml_partitioner_header} REQUIRED)
+  find_path(PUML_PARTITIONER_INCLUDE_DIR
+            NAMES ${_puml_partitioner_header}
+            PATH_SUFFIXES scotch parmetis
+            REQUIRED)
   target_include_directories(PUML INTERFACE ${PUML_PARTITIONER_INCLUDE_DIR})
   target_compile_definitions(PUML INTERFACE ${_puml_partitioner_define})
 

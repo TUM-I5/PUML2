@@ -16,6 +16,7 @@
 #define PUML_PUML_H
 
 #include "DataBuffer.h"
+#include "Error.h"
 #include "DataHandle.h"
 #include "TypeInference.h"
 #include "UpwardBuilder.h"
@@ -282,8 +283,8 @@ class PUML {
    */
   static auto toMpiCount(Size count) -> int {
     if (count > static_cast<Size>(std::numeric_limits<int>::max())) {
-      logError() << "An exchange of" << count
-                 << "elements exceeds what an MPI collective can count in an int";
+      throwError(
+          "an exchange of", count, "elements exceeds what an MPI collective can count in an int");
     }
     return static_cast<int>(count);
   }
@@ -304,8 +305,9 @@ class PUML {
    */
   void requireEntityCount(DataType type) const {
     if (!m_distributor[static_cast<int>(type)].has_value()) {
-      logError() << "The number of entities has to be known before data can be added; call "
-                    "setSize or inferSize first.";
+      throwError("the number of",
+                 (type == DataType::Vertex ? "vertices" : "cells"),
+                 "has to be known before data can be added; call setSize or inferSize first");
     }
   }
 
@@ -476,15 +478,20 @@ class PUML {
     const auto& index = (type == DataType::Vertex) ? m_vertexDataIndex : m_cellDataIndex;
     const auto it = index.find(name);
     if (it == index.end()) {
-      logError() << "There is no" << (type == DataType::Vertex ? "vertex" : "cell") << "data array"
-                 << name;
+      throwError(
+          "there is no", (type == DataType::Vertex ? "vertex" : "cell"), "data array named", name);
     }
 
     const auto& buffer =
         (type == DataType::Vertex) ? m_vertexData[it->second].original : m_cellData[it->second];
     if (buffer.typeTag() != internal::typeTag<T>()) {
-      logError() << "Data array" << name << "holds values of" << buffer.elemBytes()
-                 << "bytes and was asked for as" << sizeof(T) << "byte values of another type";
+      throwError("data array",
+                 name,
+                 "holds values of",
+                 buffer.elemBytes(),
+                 "bytes and was asked for as",
+                 sizeof(T),
+                 "byte values of another type");
     }
 
     return DataHandle<T>(it->second, type, buffer.elemCount(), m_instanceId);
@@ -1190,7 +1197,22 @@ class PUML {
       // Update an old face (but make sure that only happens once)
 
       if (m_faces[lid].m_upward[1] != InvalidLocalId) {
-        logError() << "Mesh construction error: a face has more than two adjacent cells.";
+        throwError("face",
+                   lid,
+                   "is adjacent to more than two cells: it already has the local cells",
+                   m_faces[lid].m_upward[0],
+                   "and",
+                   m_faces[lid].m_upward[1],
+                   "(global",
+                   m_cells[m_faces[lid].m_upward[0]].gid(),
+                   "and",
+                   m_cells[m_faces[lid].m_upward[1]].gid(),
+                   "), and local cell",
+                   plid,
+                   "(global",
+                   m_cells[plid].gid(),
+                   ") shares it as well. A conforming mesh has at most two cells per face, so the"
+                   " input holds a duplicated cell or a cell whose vertices are listed twice.");
       }
 
       m_faces[lid].m_upward[1] = plid;
@@ -1558,8 +1580,13 @@ class PUML {
     for (std::size_t i = 0; i < m_originalSize[0] * elemCount; ++i) {
       const auto local = m_verticesg2l.find(input[i]);
       if (local == m_verticesg2l.end()) {
-        logError() << "Vertex" << input[i] << "of" << indexDataName
-                   << "is not held by this rank; pass" << indexDataName << "to distributeVertices";
+        throwError("vertex",
+                   input[i],
+                   "of",
+                   indexDataName,
+                   "is not held by this rank; pass",
+                   indexDataName,
+                   "to distributeVertices");
       }
       output[i] = local->second;
     }

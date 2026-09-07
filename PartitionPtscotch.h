@@ -73,7 +73,7 @@ class PartitionPtscotch : public PartitionBase<Topo> {
       // (that is due to the interface still being oriented at ParMETIS right now)
 
       auto scale = (double)(1ULL << 24); // if this is not enough (or too much), adjust it
-      for (int i = 0; i < nparts; ++i) {
+      for (std::size_t i = 0; i < nparts; ++i) {
         // important: the weights should be non-negative
         weights[i] =
             std::max(static_cast<SCOTCH_Num>(1),
@@ -81,16 +81,15 @@ class PartitionPtscotch : public PartitionBase<Topo> {
       }
     }
 
-    int edgecut = 0;
     std::vector<SCOTCH_Num> part(cellCount);
 
     SCOTCH_Dgraph dgraph;
     SCOTCH_Strat strategy;
     SCOTCH_Arch arch;
 
-    SCOTCH_Num processCount = graph.processCount();
-    SCOTCH_Num partCount = nparts;
-    SCOTCH_Num stratflag = mode;
+    auto processCount = static_cast<SCOTCH_Num>(graph.processCount());
+    auto partCount = static_cast<SCOTCH_Num>(nparts);
+    auto stratflag = static_cast<SCOTCH_Num>(mode);
 
     SCOTCH_randomProc(rank);
     SCOTCH_randomSeed(seed);
@@ -102,14 +101,14 @@ class PartitionPtscotch : public PartitionBase<Topo> {
 
     SCOTCH_dgraphBuild(&dgraph,
                        0,
-                       graph.localVertexCount(),
-                       graph.localVertexCount(),
+                       static_cast<SCOTCH_Num>(graph.localVertexCount()),
+                       static_cast<SCOTCH_Num>(graph.localVertexCount()),
                        adjDisp.data(),
                        nullptr,
                        vertexWeights.empty() ? nullptr : vertexWeights.data(),
                        nullptr,
-                       graph.localEdgeCount(),
-                       graph.localEdgeCount(),
+                       static_cast<SCOTCH_Num>(graph.localEdgeCount()),
+                       static_cast<SCOTCH_Num>(graph.localEdgeCount()),
                        adj.data(),
                        nullptr,
                        edgeWeights.empty() ? nullptr : edgeWeights.data());
@@ -122,8 +121,8 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     SCOTCH_stratExit(&strategy);
     SCOTCH_dgraphExit(&dgraph);
 
-    for (int i = 0; i < cellCount; i++) {
-      partition[i] = part[i];
+    for (std::size_t i = 0; i < cellCount; i++) {
+      partition[i] = static_cast<int>(part[i]);
     }
 
     return PartitioningResult::SUCCESS;

@@ -39,7 +39,7 @@ class FaceIterator {
 
   public:
   FaceIterator(const PUML<Topo>& puml, bool sparseComm = true)
-      : m_sparseComm(sparseComm), m_puml(puml) {
+      : m_puml(puml), m_sparseComm(sparseComm) {
     int rank = 0;
     int commSize = 1;
 
@@ -50,13 +50,12 @@ class FaceIterator {
     const auto& faces = puml.faces();
 
     std::vector<std::vector<int>> transfer(commSize);
-    for (int i = 0; i < faces.size(); ++i) {
-      LocalId lid[2];
-      Upward::cells(puml, faces[i], lid);
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+      const auto lid = Upward::cells(puml, faces[i]);
       assert(!(lid[0] == InvalidLocalId && lid[1] != InvalidLocalId));
       assert(faces[i].shared().size() <= 1);
       if (lid[0] != InvalidLocalId && faces[i].isShared()) {
-        transfer[faces[i].shared()[0]].push_back(i);
+        transfer[faces[i].shared()[0]].push_back(static_cast<int>(i));
       }
     }
 
@@ -64,7 +63,7 @@ class FaceIterator {
     m_transferDisp = std::vector<int>(commSize + 1);
     m_transferDisp[0] = 0;
     for (int i = 0; i < commSize; ++i) {
-      m_transferSize[i] = transfer[i].size();
+      m_transferSize[i] = static_cast<int>(transfer[i].size());
       m_transferDisp[i + 1] = m_transferDisp[i] + m_transferSize[i];
       std::sort(transfer[i].begin(), transfer[i].end(), [&faces](int a, int b) -> bool {
         return faces[a].gid() < faces[b].gid();
@@ -76,8 +75,7 @@ class FaceIterator {
     for (int i = 0, j = 0; i < commSize; ++i) {
       for (int k = 0; k < m_transferSize[i]; ++j, ++k) {
         const auto& face = faces[transfer[i][k]];
-        LocalId lid[2];
-        Upward::cells(puml, face, lid);
+        const auto lid = Upward::cells(puml, face);
         m_transferCell[j] = lid[0];
         m_transferFace[j] = transfer[i][k];
       }
@@ -96,7 +94,7 @@ class FaceIterator {
     auto cellHandler = [&cellData](int fid, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int a, int b) {}),
+                  std::move([](int /*a*/, int /*b*/) {}),
                   mpit);
   }
 
@@ -138,7 +136,7 @@ class FaceIterator {
     forEach<T, S>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int a, int b) {}),
+                  std::move([](int /*a*/, int /*b*/) {}),
                   mpit);
   }
 
@@ -181,7 +179,7 @@ class FaceIterator {
     };
     internalforEach<T>(std::move(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::move([](int a, int b) {}),
+                       std::move([](int /*a*/, int /*b*/) {}),
                        mpit);
   }
 
@@ -216,7 +214,7 @@ class FaceIterator {
     auto cellHandler = [cellData](int fid, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int a, int b) {}),
+                  std::move([](int /*a*/, int /*b*/) {}),
                   mpit);
   }
 
@@ -258,7 +256,7 @@ class FaceIterator {
     forEach<T, S>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int a, int b) {}),
+                  std::move([](int /*a*/, int /*b*/) {}),
                   mpit);
   }
 
@@ -301,7 +299,7 @@ class FaceIterator {
     };
     internalforEach<T>(std::move(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::move([](int a, int b) {}),
+                       std::move([](int /*a*/, int /*b*/) {}),
                        mpit);
   }
 
@@ -346,7 +344,7 @@ class FaceIterator {
     forEach<T, T>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int a, int b) {}),
+                  std::move([](int /*a*/, int /*b*/) {}),
                   mpit);
   }
 
@@ -403,7 +401,7 @@ class FaceIterator {
     };
     forEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                std::move(realFaceHandler),
-               std::move([](int a, int b) {}),
+               std::move([](int /*a*/, int /*b*/) {}),
                mpit);
   }
 
@@ -452,7 +450,7 @@ class FaceIterator {
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
     internalforEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::move([](int a, int b) {}),
+                       std::move([](int /*a*/, int /*b*/) {}),
                        mpit);
   }
 
@@ -498,10 +496,9 @@ class FaceIterator {
     int rank = 0;
     int commSize = 1;
 
-    for (int i = 0; i < m_puml.faces().size(); ++i) {
+    for (std::size_t i = 0; i < m_puml.faces().size(); ++i) {
       const auto& face = m_puml.faces()[i];
-      LocalId lid[2];
-      Upward::cells(m_puml, face, lid);
+      const auto lid = Upward::cells(m_puml, face);
       assert(!(lid[0] == InvalidLocalId && lid[1] != InvalidLocalId));
 
       if (lid[1] != InvalidLocalId) {
@@ -521,19 +518,20 @@ class FaceIterator {
 
     std::vector<T> transferSend(m_transferDisp[commSize]);
     std::vector<T> transferReceive(m_transferDisp[commSize]);
-    for (int i = 0; i < transferSend.size(); ++i) {
+    for (std::size_t i = 0; i < transferSend.size(); ++i) {
       transferSend[i] = std::invoke(externalCellHandler, m_transferFace[i], m_transferCell[i]);
     }
 
     if (m_sparseComm) {
       int transferRanks = 0;
-      for (int i = 0, j = 0; i < commSize; ++i) {
+      for (int i = 0; i < commSize; ++i) {
         if (m_transferDisp[i + 1] > m_transferDisp[i]) {
           ++transferRanks;
         }
       }
+      int j = 0;
       std::vector<MPI_Request> requests(transferRanks * 2);
-      for (int i = 0, j = 0; i < commSize; ++i) {
+      for (int i = 0; i < commSize; ++i) {
         if (m_transferDisp[i + 1] > m_transferDisp[i]) {
           MPI_Isend(static_cast<T*>(transferSend.data()) + m_transferDisp[i],
                     m_transferSize[i],
@@ -552,7 +550,7 @@ class FaceIterator {
           ++j;
         }
       }
-      MPI_Waitall(requests.size(), requests.data(), MPI_STATUS_IGNORE);
+      MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUS_IGNORE);
     } else {
       MPI_Alltoallv(transferSend.data(),
                     m_transferSize.data(),
@@ -565,7 +563,7 @@ class FaceIterator {
                     m_puml.comm());
     }
 
-    for (int i = 0; i < m_transferFace.size(); ++i) {
+    for (std::size_t i = 0; i < m_transferFace.size(); ++i) {
       const auto& gd1 = transferReceive[i];
       std::invoke(faceHandler, m_transferFace[i], m_transferCell[i], gd1);
     }

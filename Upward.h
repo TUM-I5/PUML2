@@ -21,6 +21,8 @@
 #include <vector>
 #include <iterator>
 
+#include <array>
+
 #include "PUML.h"
 #include "Types.h"
 #include "Topology.h"
@@ -106,6 +108,34 @@ class Upward {
     } else {
       std::swap(lid, cellIds);
     }
+  }
+
+  /// The cells a face belongs to; the second is InvalidLocalId on a boundary
+  /// face or where the neighbour is on another rank.
+  template <TopoType Topo>
+  static auto cells(const PUML<Topo>& puml, const typename PUML<Topo>::face_t& face)
+      -> std::array<LocalId, 2> {
+    std::array<LocalId, 2> lid{};
+    cells(puml, face, lid.data());
+    return lid;
+  }
+
+  /// The faces an edge belongs to.
+  template <TopoType Topo>
+  static auto faces(const PUML<Topo>& puml, const typename PUML<Topo>::edge_t& edge)
+      -> std::vector<LocalId> {
+    std::vector<LocalId> lid;
+    faces(puml, edge, lid);
+    return lid;
+  }
+
+  /// The edges a vertex belongs to.
+  template <TopoType Topo>
+  static auto edges(const PUML<Topo>& puml, const typename PUML<Topo>::vertex_t& vertex)
+      -> std::vector<LocalId> {
+    std::vector<LocalId> lid;
+    edges(puml, vertex, lid);
+    return lid;
   }
 
   private:

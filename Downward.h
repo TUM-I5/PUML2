@@ -21,6 +21,8 @@
 
 #include "Element.h"
 #include "Numbering.h"
+#include <array>
+
 #include "PUML.h"
 #include "Types.h"
 #include "Topology.h"
@@ -102,6 +104,33 @@ class Downward {
     }
 
     return pFaceId - faceIds;
+  }
+
+  /// The faces of a cell.
+  template <TopoType Topo>
+  static auto faces(const PUML<Topo>& puml, const typename PUML<Topo>::cell_t& cell)
+      -> std::array<LocalId, internal::Topology<Topo>::cellfaces()> {
+    std::array<LocalId, internal::Topology<Topo>::cellfaces()> lid{};
+    faces(puml, cell, lid.data());
+    return lid;
+  }
+
+  /// The vertices of a cell.
+  template <TopoType Topo>
+  static auto vertices(const PUML<Topo>& puml, const typename PUML<Topo>::cell_t& cell)
+      -> std::array<LocalId, internal::Topology<Topo>::cellvertices()> {
+    std::array<LocalId, internal::Topology<Topo>::cellvertices()> lid{};
+    vertices(puml, cell, lid.data());
+    return lid;
+  }
+
+  /// The vertices of a face.
+  template <TopoType Topo>
+  static auto vertices(const PUML<Topo>& puml, const typename PUML<Topo>::face_t& face)
+      -> std::array<LocalId, internal::Topology<Topo>::facevertices()> {
+    std::array<LocalId, internal::Topology<Topo>::facevertices()> lid{};
+    vertices(puml, face, lid.data());
+    return lid;
   }
 
   /**

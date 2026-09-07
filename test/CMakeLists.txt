@@ -20,8 +20,10 @@ add_executable(puml-tests
   TestTopology.cpp
   TestMesh.cpp
   TestPartition.cpp
+  TestPartitioner.cpp
   TestReader.cpp
   TestClone.cpp
+  TestError.cpp
   TestHandle.cpp
   TestLocalize.cpp)
 
