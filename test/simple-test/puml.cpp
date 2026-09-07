@@ -22,6 +22,7 @@
 #include "utils/args.h"
 #include "utils/logger.h"
 
+#include "Hdf5Reader.h"
 #include "PUML.h"
 #include "Downward.h"
 #include "Neighbor.h"
@@ -111,19 +112,20 @@ int main(int argc, char* argv[]) {
   }
 
   PUML::TETPUML puml;
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> reader(puml);
 
   std::string infile = args.getAdditionalArgument<const char*>("in");
 
   // Read the mesh
   logInfo(rank) << "Reading mesh";
-  puml.open((infile + ":/connect").c_str(), (infile + ":/geometry").c_str());
+  reader.open((infile + ":/connect").c_str(), (infile + ":/geometry").c_str());
 
   logInfo(rank) << "Reading other data (i.e. groups, boundaries)";
-  puml.addData<int>((infile + ":/group").c_str(), PUML::CELL, {});
-  puml.addData<int>((infile + ":/boundary").c_str(), PUML::CELL, {});
+  reader.addData<int>("group", infile + ":/group", PUML::CELL, {});
+  reader.addData<int>("boundary", infile + ":/boundary", PUML::CELL, {});
 
   std::vector<unsigned long long> test(puml.numOriginalCells(), 0x5555555555555555ULL);
-  puml.addDataArray<unsigned long long>(test.data(), PUML::CELL, {});
+  puml.addDataArray<unsigned long long>("test", test.data(), PUML::CELL, {});
 
   // Generate the mesh information
   logInfo(rank) << "Generating mesh information";
@@ -136,10 +138,10 @@ int main(int argc, char* argv[]) {
   const std::vector<PUML::TETPUML::vertex_t>& vertices = puml.vertices();
   printArray(vertices);
 
-  const int* groups = reinterpret_cast<const int*>(puml.cellData(0));
-  printArray(groups, cells.size());
-  const unsigned long long* testt = reinterpret_cast<const unsigned long long*>(puml.cellData(2));
-  printArray(testt, cells.size());
+  const auto groups = puml.data(puml.find<int>("group", PUML::CELL));
+  printArray(groups.data(), cells.size());
+  const auto testt = puml.data(puml.find<unsigned long long>("test", PUML::CELL));
+  printArray(testt.data(), cells.size());
 
   logInfo(rank) << "Done";
 

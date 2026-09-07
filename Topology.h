@@ -20,7 +20,14 @@ namespace PUML {
 /**
  * The topology types
  */
-enum TopoType { TRIANGLE, QUADRANGLE, TETRAHEDRON, HEXAHEDRON };
+enum TopoType {
+  TRIANGLE,
+  QUADRANGLE,
+  TETRAHEDRON,
+  HEXAHEDRON,
+  /** A mesh whose cells are not all of the same kind; see CellType.h */
+  MIXED
+};
 
 namespace internal {
 
@@ -113,6 +120,37 @@ constexpr auto Topology<HEXAHEDRON>::dimension() -> unsigned int {
   return 3;
 }
 
+// A mixed mesh is as wide as the widest kind of cell it can hold.
+template <>
+constexpr auto Topology<MIXED>::cellvertices() -> unsigned int {
+  return 8;
+}
+
+template <>
+constexpr auto Topology<MIXED>::cellfaces() -> unsigned int {
+  return 6;
+}
+
+template <>
+constexpr auto Topology<MIXED>::celledges() -> unsigned int {
+  return 12;
+}
+
+template <>
+constexpr auto Topology<MIXED>::facevertices() -> unsigned int {
+  return 4;
+}
+
+template <>
+constexpr auto Topology<MIXED>::faceedges() -> unsigned int {
+  return 4;
+}
+
+template <>
+constexpr auto Topology<MIXED>::dimension() -> unsigned int {
+  return 3;
+}
+
 template <>
 constexpr auto Topology<TRIANGLE>::cellvertices() -> unsigned int {
   return 3;
@@ -125,7 +163,8 @@ constexpr auto Topology<QUADRANGLE>::cellvertices() -> unsigned int {
 
 template <>
 constexpr auto Topology<TRIANGLE>::cellfaces() -> unsigned int {
-  return 4;
+  // 2D
+  return 3;
 }
 
 template <>

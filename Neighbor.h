@@ -18,7 +18,10 @@
 #include <cassert>
 
 #include "Downward.h"
+#include <array>
+
 #include "PUML.h"
+#include "Types.h"
 #include "Topology.h"
 #include "Upward.h"
 
@@ -31,24 +34,34 @@ class Neighbor {
    *
    * @param puml The PUML mesh
    * @param clid The local id of the cell for which the neighbors should be returned
-   * @param flid The local ids of the neighbors or -1 if there is no local neighbor
+   * @param flid The local ids of the neighbors, or InvalidLocalId where the
+   *             neighbor is not on this rank
    */
   template <TopoType Topo>
-  static void face(const PUML<Topo>& puml, unsigned int clid, int* flid) {
-    unsigned int faces[internal::Topology<Topo>::cellfaces()];
+  static void face(const PUML<Topo>& puml, LocalId clid, LocalId* flid) {
+    LocalId faces[internal::Topology<Topo>::cellfaces()];
     assert(clid < puml.cells().size());
     Downward::faces(puml, puml.cells()[clid], faces);
 
     for (unsigned int i = 0; i < internal::Topology<Topo>::cellfaces(); i++) {
-      int neighbors[2];
+      LocalId neighbors[2];
       Upward::cells(puml, puml.faces()[faces[i]], neighbors);
 
-      if (static_cast<unsigned int>(neighbors[0]) == clid) {
+      if (neighbors[0] == clid) {
         flid[i] = neighbors[1];
       } else {
         flid[i] = neighbors[0];
       }
     }
+  }
+  /// The neighbouring cells of a cell, one per face, InvalidLocalId where the
+  /// neighbour is not on this rank.
+  template <TopoType Topo>
+  static auto face(const PUML<Topo>& puml, LocalId clid)
+      -> std::array<LocalId, internal::Topology<Topo>::cellfaces()> {
+    std::array<LocalId, internal::Topology<Topo>::cellfaces()> flid{};
+    face(puml, clid, flid.data());
+    return flid;
   }
 };
 

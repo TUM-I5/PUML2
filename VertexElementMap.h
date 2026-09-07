@@ -15,89 +15,118 @@
 #ifndef PUML_VERTEXELEMENTMAP_H
 #define PUML_VERTEXELEMENTMAP_H
 
+#include "DownElement.h"
+#include "Types.h"
 #include <algorithm>
 #include <cstring>
 #include <functional>
-#include <unordered_map>
+#include <vector>
 
 namespace PUML::internal {
 
 /**
- * Mapps from a list of local vertex ids to the local id of the element
+ * Maps a list of local vertex ids to the local id of the element they define.
+ *
+ * The entries sit in one open-addressed table rather than in nodes of their
+ * own, so growing the map costs a handful of allocations instead of one per
+ * element, and a probe stays in cache.
  */
 template <unsigned int N>
 class VertexElementMap {
-  private:
-  /**
-   * Description of a element by the local vertex ids
-   */
-  struct Element {
-    /** The vertices that define this element */
-    unsigned int vertices[N]{};
-
-    Element(const unsigned int vertices[N]) {
-      memcpy(this->vertices, vertices, N * sizeof(unsigned int));
-      std::sort(this->vertices, this->vertices + N);
-    }
-
-    auto operator==(const Element& other) const -> bool {
-      return memcmp(vertices, other.vertices, N * sizeof(unsigned int)) == 0;
-    }
-  };
-
-  struct ElementHash {
-    auto operator()(const Element& element) const -> std::size_t {
-      std::size_t h = std::hash<unsigned int>{}(element.vertices[0]);
-      for (unsigned int i = 1; i < N; i++) {
-        hashCombine(h, element.vertices[i]);
-      }
-
-      return h;
-    }
-  };
-
-  std::unordered_map<Element, unsigned int, ElementHash> m_elements;
-
   public:
   VertexElementMap() = default;
 
-  auto add(const unsigned int vertices[N]) -> unsigned int {
-    const Element e(vertices);
+  auto add(const std::array<LocalId, N>& vertices) -> LocalId {
+    const auto key = normalize(vertices);
 
-    typename std::unordered_map<Element, unsigned int, ElementHash>::const_iterator it =
-        m_elements.find(e);
-    if (it == m_elements.end()) {
-      unsigned int id = m_elements.size();
-      it = m_elements.emplace(e, id).first;
+    if (m_size * 4 >= m_slots.size() * 3) {
+      grow();
     }
 
-    return it->second;
-  }
-
-  [[nodiscard]] auto size() const -> size_t { return m_elements.size(); }
-
-  auto find(unsigned int vertices[N]) const -> int {
-    typename std::unordered_map<Element, unsigned int, ElementHash>::const_iterator it =
-        m_elements.find(vertices);
-
-    if (it == m_elements.end()) {
-      return -1;
+    auto& slot = m_slots[probe(key)];
+    if (slot.id == InvalidLocalId) {
+      slot.key = key;
+      slot.id = static_cast<LocalId>(m_size);
+      ++m_size;
     }
-
-    return it->second;
+    return slot.id;
   }
 
-  void clear() { m_elements.clear(); }
+  [[nodiscard]] auto find(const std::array<LocalId, N>& vertices) const -> LocalId {
+    if (m_slots.empty()) {
+      return InvalidLocalId;
+    }
+    return m_slots[probe(normalize(vertices))].id;
+  }
+
+  [[nodiscard]] auto size() const -> Size { return m_size; }
+
+  void clear() {
+    m_slots.clear();
+    m_slots.shrink_to_fit();
+    m_size = 0;
+  }
+
+  /// Announces how many elements are going to be added.
+  void reserve(Size elements) {
+    Size capacity = MinCapacity;
+    while (capacity * 3 < elements * 4) {
+      capacity *= 2;
+    }
+    if (capacity > m_slots.size()) {
+      rehash(capacity);
+    }
+  }
 
   private:
-  /**
-   * Taken from: https://stackoverflow.com/questions/2590677/how-do-i-combine-hash-values-in-c0x
-   */
-  template <typename T>
-  static void hashCombine(std::size_t& seed, const T& v) {
-    std::hash<T> hasher;
-    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  static constexpr Size MinCapacity = 1024;
+
+  struct Slot {
+    std::array<LocalId, N> key{};
+    LocalId id{InvalidLocalId};
+  };
+
+  static auto normalize(const std::array<LocalId, N>& vertices) -> std::array<LocalId, N> {
+    auto key = vertices;
+    selectionSort<LocalId, N>(key.data());
+    return key;
   }
+
+  static auto hash(const std::array<LocalId, N>& key) -> Size {
+    // Fibonacci hashing over the vertex ids, which are dense and small.
+    Size h = 0;
+    for (unsigned int i = 0; i < N; i++) {
+      h = (h ^ static_cast<Size>(key[i])) * 0x9e3779b97f4a7c15ULL;
+      h ^= h >> 29;
+    }
+    return h;
+  }
+
+  /// The slot holding the key, or the first free slot behind where it would be.
+  [[nodiscard]] auto probe(const std::array<LocalId, N>& key) const -> Size {
+    const Size mask = m_slots.size() - 1;
+    Size at = hash(key) & mask;
+    while (m_slots[at].id != InvalidLocalId && m_slots[at].key != key) {
+      at = (at + 1) & mask;
+    }
+    return at;
+  }
+
+  void grow() { rehash(m_slots.empty() ? MinCapacity : m_slots.size() * 2); }
+
+  void rehash(Size capacity) {
+    std::vector<Slot> old(capacity);
+    old.swap(m_slots);
+
+    for (const auto& slot : old) {
+      if (slot.id != InvalidLocalId) {
+        m_slots[probe(slot.key)] = slot;
+      }
+    }
+  }
+
+  std::vector<Slot> m_slots;
+  Size m_size{0};
 };
 
 } // namespace PUML::internal

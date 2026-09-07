@@ -15,7 +15,6 @@
 #ifndef PUML_TYPE_INFERENCE_H
 #define PUML_TYPE_INFERENCE_H
 
-#include <hdf5.h>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
@@ -104,82 +103,6 @@ class MPITypeInfer<wchar_t> {
   static auto type() -> MPI_Datatype { return MPI_WCHAR; }
 };
 #endif
-
-template <typename T>
-class HDF5TypeInfer {
-  public:
-  static auto type() -> hid_t { return -1; }
-};
-template <>
-class HDF5TypeInfer<char> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_CHAR; }
-};
-template <>
-class HDF5TypeInfer<signed char> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_SCHAR; }
-};
-template <>
-class HDF5TypeInfer<unsigned char> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_UCHAR; }
-};
-template <>
-class HDF5TypeInfer<short> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_SHORT; }
-};
-template <>
-class HDF5TypeInfer<unsigned short> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_USHORT; }
-};
-template <>
-class HDF5TypeInfer<int> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_INT; }
-};
-template <>
-class HDF5TypeInfer<unsigned> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_UINT; }
-};
-template <>
-class HDF5TypeInfer<long> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_LONG; }
-};
-template <>
-class HDF5TypeInfer<unsigned long> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_ULONG; }
-};
-template <>
-class HDF5TypeInfer<long long> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_LLONG; }
-};
-template <>
-class HDF5TypeInfer<unsigned long long> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_ULLONG; }
-};
-template <>
-class HDF5TypeInfer<float> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_FLOAT; }
-};
-template <>
-class HDF5TypeInfer<double> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_DOUBLE; }
-};
-template <>
-class HDF5TypeInfer<long double> {
-  public:
-  static auto type() -> hid_t { return H5T_NATIVE_LDOUBLE; }
-};
 
 } // namespace PUML
 

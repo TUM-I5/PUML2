@@ -17,6 +17,7 @@
 #define PUML_PARTITIONPARMETIS_H
 
 #include "PartitionTarget.h"
+#include <array>
 #include <vector>
 #include "utils/logger.h"
 #ifdef USE_MPI
@@ -58,21 +59,23 @@ class PartitionParmetis : public PartitionBase<Topo> {
     std::vector<idx_t> adjwgt(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
 
-    idx_t ncon = graph.vertexWeightCount();
+    auto ncon = static_cast<idx_t>(graph.vertexWeightCount());
     if (ncon == 0) {
       ncon = 1;
     }
-    idx_t nparts = target.vertexCount();
-    std::vector<real_t> tpwgts(nparts * ncon, static_cast<real_t>(1.) / nparts);
-    if (!target.vertexWeightsUniform()) {
-      for (idx_t i = 0; i < target.vertexCount(); i++) {
+    auto nparts = static_cast<idx_t>(target.partitionCount());
+    std::vector<real_t> tpwgts(static_cast<std::size_t>(nparts) * ncon,
+                               static_cast<real_t>(1.) / static_cast<real_t>(nparts));
+    if (!target.partitionWeightsUniform()) {
+      for (std::size_t i = 0; i < target.partitionCount(); i++) {
         for (idx_t j = 0; j < ncon; ++j) {
-          tpwgts[(i * ncon) + j] = target.vertexWeights()[i];
+          tpwgts[(i * static_cast<std::size_t>(ncon)) + j] =
+              static_cast<real_t>(target.partitionWeights()[i]);
         }
       }
     }
 
-    idx_t options[3] = {1, 0, seed};
+    std::array<idx_t, 3> options = {1, 0, static_cast<idx_t>(seed)};
     idx_t numflag = 0;
     idx_t wgtflag = 0;
     if (!vwgt.empty()) {
@@ -81,7 +84,8 @@ class PartitionParmetis : public PartitionBase<Topo> {
     if (!adjwgt.empty()) {
       wgtflag |= 1;
     }
-    std::vector<real_t> ubvec(ncon, target.imbalance() + 1.0);
+    std::vector<real_t> ubvec(static_cast<std::size_t>(ncon),
+                              static_cast<real_t>(target.imbalance() + 1.0));
 
     idx_t edgecut = 0;
     std::vector<idx_t> part(cellCount);
@@ -98,7 +102,7 @@ class PartitionParmetis : public PartitionBase<Topo> {
                            &nparts,
                            tpwgts.data(),
                            ubvec.data(),
-                           options,
+                           options.data(),
                            &edgecut,
                            part.data(),
                            &comm);
@@ -119,7 +123,7 @@ class PartitionParmetis : public PartitionBase<Topo> {
                                &nparts,
                                tpwgts.data(),
                                ubvec.data(),
-                               options,
+                               options.data(),
                                &edgecut,
                                part.data(),
                                &comm);
@@ -128,8 +132,8 @@ class PartitionParmetis : public PartitionBase<Topo> {
       return PartitioningResult::ERROR;
     }
 
-    for (int i = 0; i < cellCount; i++) {
-      partition[i] = part[i];
+    for (std::size_t i = 0; i < cellCount; i++) {
+      partition[i] = static_cast<int>(part[i]);
     }
 
     return PartitioningResult::SUCCESS;

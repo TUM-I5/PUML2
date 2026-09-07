@@ -21,7 +21,10 @@
 #include <vector>
 #include <iterator>
 
+#include <array>
+
 #include "PUML.h"
+#include "Types.h"
 #include "Topology.h"
 
 namespace PUML {
@@ -36,31 +39,32 @@ class Upward {
    * @param lid The local ids of the cells
    */
   template <TopoType Topo>
-  static void cells(const PUML<Topo>& puml, const typename PUML<Topo>::face_t& face, int* lid) {
-    memcpy(lid, face.m_upward, 2 * sizeof(int));
+  static void
+      cells(const PUML<Topo>& /*puml*/, const typename PUML<Topo>::face_t& face, LocalId* lid) {
+    std::copy(face.m_upward.begin(), face.m_upward.end(), lid);
   }
 
   template <TopoType Topo, bool M = false>
-  static void faces(const PUML<Topo>& puml,
+  static void faces(const PUML<Topo>& /*puml*/,
                     const typename PUML<Topo>::edge_t& edge,
-                    std::vector<int>& lid) {
+                    std::vector<LocalId>& lid) {
     merge<M>(lid, edge.m_upward);
   }
 
   template <TopoType Topo, bool M = false>
-  static void cells(const PUML<Topo>& puml,
+  static void cells([[maybe_unused]] const PUML<Topo>& puml,
                     const typename PUML<Topo>::edge_t& edge,
-                    std::vector<int>& lid) {
-    std::vector<int> faceIds;
+                    std::vector<LocalId>& lid) {
+    std::vector<LocalId> faceIds;
     faces(puml, edge, faceIds);
 
-    std::vector<int> cellIds;
-    for (int faceId : faceIds) {
-      int tmp[2];
+    std::vector<LocalId> cellIds;
+    for (const LocalId faceId : faceIds) {
+      LocalId tmp[2];
       cells(puml, puml.faces()[faceId], tmp);
-      const unsigned int c = (tmp[1] < 0 ? 1 : 2);
+      const unsigned int c = (tmp[1] == InvalidLocalId ? 1 : 2);
 
-      std::vector<int> merged;
+      std::vector<LocalId> merged;
       std::set_union(cellIds.begin(), cellIds.end(), tmp, tmp + c, std::back_inserter(merged));
       std::swap(merged, cellIds);
     }
@@ -73,29 +77,35 @@ class Upward {
   }
 
   template <TopoType Topo, bool M = false>
-  static void edges(const PUML<Topo>& puml,
+  static void edges(const PUML<Topo>& /*puml*/,
                     const typename PUML<Topo>::vertex_t& vertex,
-                    std::vector<int>& lid) {
+                    std::vector<LocalId>& lid) {
     merge<M>(lid, vertex.m_upward);
   }
 
   template <TopoType Topo, bool M = false>
-  static void cells(const PUML<Topo>& puml,
+  static void cells([[maybe_unused]] const PUML<Topo>& puml,
                     const typename PUML<Topo>::vertex_t& vertex,
-                    std::vector<int>& lid) {
-    std::vector<int> intermediateIds;
-    if constexpr (internal::Topology<Topo>::dimension() == 3) {
-      edges(puml, vertex, intermediateIds);
-    } else {
-      faces(puml, vertex, intermediateIds);
-    }
+                    std::vector<LocalId>& lid) {
+    // In three dimensions a vertex knows its edges, and an edge its faces. In
+    // two there are no edges, and a vertex knows its faces directly.
+    std::vector<LocalId> intermediateIds;
+    merge<false>(intermediateIds, vertex.m_upward);
 
-    std::vector<int> cellIds;
-    for (int id : intermediateIds) {
+    std::vector<LocalId> cellIds;
+    for (const LocalId id : intermediateIds) {
       if constexpr (internal::Topology<Topo>::dimension() == 3) {
         merge<true>(cellIds, puml.edges()[id].m_upward);
       } else {
-        merge<true>(cellIds, puml.faces()[id].m_upward);
+        std::array<LocalId, 2> adjacent{};
+        cells(puml, puml.faces()[id], adjacent.data());
+        std::vector<LocalId> present;
+        for (const auto cell : adjacent) {
+          if (cell != InvalidLocalId) {
+            present.push_back(cell);
+          }
+        }
+        merge<true>(cellIds, present);
       }
     }
 
@@ -106,23 +116,49 @@ class Upward {
     }
   }
 
+  /// The cells a face belongs to; the second is InvalidLocalId on a boundary
+  /// face or where the neighbour is on another rank.
+  template <TopoType Topo>
+  static auto cells(const PUML<Topo>& puml, const typename PUML<Topo>::face_t& face)
+      -> std::array<LocalId, 2> {
+    std::array<LocalId, 2> lid{};
+    cells(puml, face, lid.data());
+    return lid;
+  }
+
+  /// The faces an edge belongs to.
+  template <TopoType Topo>
+  static auto faces(const PUML<Topo>& puml, const typename PUML<Topo>::edge_t& edge)
+      -> std::vector<LocalId> {
+    std::vector<LocalId> lid;
+    faces(puml, edge, lid);
+    return lid;
+  }
+
+  /// The edges a vertex belongs to.
+  template <TopoType Topo>
+  static auto edges(const PUML<Topo>& puml, const typename PUML<Topo>::vertex_t& vertex)
+      -> std::vector<LocalId> {
+    std::vector<LocalId> lid;
+    edges(puml, vertex, lid);
+    return lid;
+  }
+
   private:
-  template <bool M>
-  static void merge(std::vector<int>& res, const std::vector<int>& v);
+  template <bool M, typename UpwardT>
+  static void merge(std::vector<LocalId>& res, const UpwardT& v);
 };
 
-template <>
-inline void Upward::merge<false>(std::vector<int>& res, const std::vector<int>& v) {
-  res = v;
+template <bool M, typename UpwardT>
+inline void Upward::merge(std::vector<LocalId>& res, const UpwardT& v) {
+  if constexpr (M) {
+    std::vector<LocalId> merged;
+    std::set_union(res.begin(), res.end(), v.begin(), v.end(), std::back_inserter(merged));
+    std::swap(merged, res);
+  } else {
+    res.assign(v.begin(), v.end());
+  }
 }
-
-template <>
-inline void Upward::merge<true>(std::vector<int>& res, const std::vector<int>& v) {
-  std::vector<int> tmp;
-  std::set_union(v.begin(), v.end(), res.begin(), res.end(), std::back_inserter(tmp));
-  std::swap(tmp, res);
-}
-
 } // namespace PUML
 
 #endif // PUML_UPWARD_H

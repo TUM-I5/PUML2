@@ -22,32 +22,38 @@
 namespace PUML::internal {
 
 /**
+  A simple selection sort implementation for a fixed array size.
+  std::sort had thrown strange errors in some contexts otherwise.
+  Also, we only sort _very_ small arrays here (N < 10 in all cases).
+ */
+template <typename T, std::size_t N>
+constexpr void selectionSort(T* data) {
+  for (std::size_t i = 0; i < N; ++i) {
+    std::size_t currIdx = i;
+    for (std::size_t j = i + 1; j < N; ++j) {
+      if (data[currIdx] > data[j]) {
+        currIdx = j;
+      }
+    }
+    std::swap(data[i], data[currIdx]);
+  }
+}
+
+/**
  * A hashable element defined by the global ids of
  * the down elements
  *
  * @tparam N The number of down elements
  */
 template <unsigned int N>
-struct DownElement {
-  /** The global ids of the downward elements */
-  unsigned long down[N]{};
-
-  DownElement(const unsigned long down[N]) {
-    memcpy(this->down, down, N * sizeof(unsigned long));
-    std::sort(this->down, this->down + N);
-  }
-
-  auto operator==(const DownElement& other) const -> bool {
-    return memcmp(down, other.down, N * sizeof(unsigned long)) == 0;
-  }
-};
+using DownElement = std::array<unsigned long, N>;
 
 template <unsigned int N>
 struct DownElementHash {
   auto operator()(const DownElement<N>& element) const -> std::size_t {
-    std::size_t h = std::hash<unsigned long>{}(element.down[0]);
+    std::size_t h = std::hash<unsigned long>{}(element[0]);
     for (unsigned int i = 1; i < N; i++) {
-      hashCombine(h, element.down[i]);
+      hashCombine(h, element[i]);
     }
 
     return h;
