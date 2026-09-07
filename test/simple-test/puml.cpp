@@ -121,11 +121,11 @@ int main(int argc, char* argv[]) {
   reader.open((infile + ":/connect").c_str(), (infile + ":/geometry").c_str());
 
   logInfo(rank) << "Reading other data (i.e. groups, boundaries)";
-  reader.addData<int>((infile + ":/group").c_str(), PUML::CELL, {});
-  reader.addData<int>((infile + ":/boundary").c_str(), PUML::CELL, {});
+  reader.addData<int>("group", infile + ":/group", PUML::CELL, {});
+  reader.addData<int>("boundary", infile + ":/boundary", PUML::CELL, {});
 
   std::vector<unsigned long long> test(puml.numOriginalCells(), 0x5555555555555555ULL);
-  puml.addDataArray<unsigned long long>(test.data(), PUML::CELL, {});
+  puml.addDataArray<unsigned long long>("test", test.data(), PUML::CELL, {});
 
   // Generate the mesh information
   logInfo(rank) << "Generating mesh information";
@@ -138,9 +138,9 @@ int main(int argc, char* argv[]) {
   const std::vector<PUML::TETPUML::vertex_t>& vertices = puml.vertices();
   printArray(vertices);
 
-  const auto groups = puml.data(puml.find<int>("_0", PUML::CELL));
+  const auto groups = puml.data(puml.find<int>("group", PUML::CELL));
   printArray(groups.data(), cells.size());
-  const auto testt = puml.data(puml.find<unsigned long long>("_2", PUML::CELL));
+  const auto testt = puml.data(puml.find<unsigned long long>("test", PUML::CELL));
   printArray(testt.data(), cells.size());
 
   logInfo(rank) << "Done";

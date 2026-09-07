@@ -199,32 +199,6 @@ class Hdf5Reader {
     checkH5Err(H5Dclose(h5dataset));
   }
 
-  template <typename T>
-  auto addData(const std::string& path,
-               DataType type,
-               const std::vector<size_t>& sizes
-#ifdef USE_MPI
-               ,
-               MPI_Datatype mpiType = MPITypeInfer<T>::type()
-#endif
-                   ,
-               hid_t hdf5Type = HDF5TypeInfer<T>::type()) -> int {
-    const auto [name, ret] = m_puml.nextLegacyName(type);
-
-    addData<T>(name,
-               path,
-               type,
-               sizes
-#ifdef USE_MPI
-               ,
-               mpiType
-#endif
-               ,
-               hdf5Type);
-
-    return ret;
-  }
-
   template <typename T = int>
   auto addData(const std::string& name,
                const std::string& path,

@@ -288,9 +288,6 @@ class PUML {
   // data names; supersede number indexing
   std::unordered_map<std::string, std::size_t> m_vertexDataIndex;
 
-  int m_cellDataLegacyIndex{0};
-  int m_vertexDataLegacyIndex{0};
-
   /**
    * Narrows a count to the int the MPI collectives take, which is the limit
    * that arrives first when a rank holds a lot of entities.
@@ -416,14 +413,12 @@ class PUML {
 
     copy.m_cellData = m_cellData;
     copy.m_cellDataIndex = m_cellDataIndex;
-    copy.m_cellDataLegacyIndex = m_cellDataLegacyIndex;
 
     copy.m_vertexData.reserve(m_vertexData.size());
     for (const auto& array : m_vertexData) {
       copy.m_vertexData.push_back(VertexData{array.original, {}});
     }
     copy.m_vertexDataIndex = m_vertexDataIndex;
-    copy.m_vertexDataLegacyIndex = m_vertexDataLegacyIndex;
 
     // The arrays sit where they sat, but in the copy they are its own.
     copy.m_connectivity = copy.rebase(m_connectivity);
@@ -720,42 +715,6 @@ class PUML {
     m_originalSize[index] = value;
     m_distributor[index] = makeDistributor(value);
     m_originalTotalSize[index] = m_distributor[index]->totalSize();
-  }
-
-  /**
-   * Reserves the next name of the legacy numbering for the given entity type.
-   *
-   * @return The name and the index it stands for
-   */
-  auto nextLegacyName(DataType type) -> std::pair<std::string, int> {
-    int& counter = (type == DataType::Vertex) ? m_vertexDataLegacyIndex : m_cellDataLegacyIndex;
-    const int index = counter;
-    ++counter;
-    return {"_" + std::to_string(index), index};
-  }
-
-  template <typename T>
-  auto addDataArray(const T* rawData,
-                    DataType type,
-                    const std::vector<size_t>& sizes
-#ifdef USE_MPI
-                    ,
-                    MPI_Datatype mpiType = MPITypeInfer<T>::type()
-#endif
-                        ) -> int {
-    const auto [name, ret] = nextLegacyName(type);
-
-    addDataArray<T>(name,
-                    rawData,
-                    type,
-                    sizes
-#ifdef USE_MPI
-                    ,
-                    mpiType
-#endif
-    );
-
-    return ret;
   }
 
   template <typename T>
@@ -1817,11 +1776,6 @@ class PUML {
   }
 
   public:
-  void identify(int dataId) {
-    // use the convention for legacy names
-    identify("connectivity", "_" + std::to_string(dataId));
-  }
-
   /**
    * Writes a cell data array of vertex ids to a second array, with the ids of
    * the input mesh replaced by the local vertex ids of this rank.
