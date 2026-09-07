@@ -68,18 +68,52 @@ TEST(Mesh, UpwardListsAreSortedAndFreeOfDuplicates) {
   puml.generateMesh();
 
   for (const auto& vertex : puml.vertices()) {
-    std::vector<int> edges;
+    std::vector<PUML::LocalId> edges;
     PUML::Upward::edges(puml, vertex, edges);
     EXPECT_TRUE(std::is_sorted(edges.begin(), edges.end()));
-    EXPECT_EQ(std::set<int>(edges.begin(), edges.end()).size(), edges.size());
+    EXPECT_EQ(std::set<PUML::LocalId>(edges.begin(), edges.end()).size(), edges.size());
     EXPECT_FALSE(edges.empty());
   }
 
   for (const auto& edge : puml.edges()) {
-    std::vector<int> faces;
+    std::vector<PUML::LocalId> faces;
     PUML::Upward::faces(puml, edge, faces);
     EXPECT_TRUE(std::is_sorted(faces.begin(), faces.end()));
-    EXPECT_EQ(std::set<int>(faces.begin(), faces.end()).size(), faces.size());
+    EXPECT_EQ(std::set<PUML::LocalId>(faces.begin(), faces.end()).size(), faces.size());
+  }
+}
+
+/// Every cell reached upwards from an edge has to be a real cell that the edge
+/// belongs to.
+TEST(Mesh, UpwardCellsAreValid) {
+  const auto mesh = makeCubeMesh(3);
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  for (const auto& edge : puml.edges()) {
+    std::vector<PUML::LocalId> cells;
+    PUML::Upward::cells(puml, edge, cells);
+
+    EXPECT_FALSE(cells.empty());
+    for (const auto cell : cells) {
+      EXPECT_NE(cell, PUML::InvalidLocalId);
+      EXPECT_LT(cell, puml.cells().size());
+    }
+  }
+
+  for (const auto& face : puml.faces()) {
+    std::array<PUML::LocalId, 2> adjacent{};
+    PUML::Upward::cells(puml, face, adjacent.data());
+    EXPECT_NE(adjacent[0], PUML::InvalidLocalId);
+    EXPECT_LT(adjacent[0], puml.cells().size());
+    if (adjacent[1] != PUML::InvalidLocalId) {
+      EXPECT_LT(adjacent[1], puml.cells().size());
+      EXPECT_NE(adjacent[0], adjacent[1]);
+    }
   }
 }
 
@@ -94,13 +128,13 @@ TEST(Mesh, DownwardAndUpwardAgree) {
   puml.generateMesh();
 
   for (unsigned int cell = 0; cell < puml.cells().size(); ++cell) {
-    std::array<unsigned int, 4> faces{};
+    std::array<PUML::LocalId, 4> faces{};
     PUML::Downward::faces(puml, puml.cells()[cell], faces.data());
 
     for (const auto face : faces) {
-      std::array<int, 2> adjacent{};
+      std::array<PUML::LocalId, 2> adjacent{};
       PUML::Upward::cells(puml, puml.faces()[face], adjacent.data());
-      EXPECT_TRUE(adjacent[0] == static_cast<int>(cell) || adjacent[1] == static_cast<int>(cell))
+      EXPECT_TRUE(adjacent[0] == cell || adjacent[1] == cell)
           << "cell " << cell << " is missing from face " << face;
     }
   }

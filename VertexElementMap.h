@@ -59,12 +59,12 @@ class VertexElementMap {
   public:
   VertexElementMap() = default;
 
-  auto add(const std::array<unsigned int, N>& vertices) -> unsigned int {
+  auto add(const std::array<LocalId, N>& vertices) -> LocalId {
     const Element e(vertices);
 
     auto it = m_elements.find(e);
     if (it == m_elements.end()) {
-      const unsigned int id = m_elements.size();
+      const auto id = static_cast<LocalId>(m_elements.size());
       it = m_elements.emplace(e, id).first;
     }
 
@@ -73,11 +73,11 @@ class VertexElementMap {
 
   [[nodiscard]] auto size() const -> size_t { return m_elements.size(); }
 
-  auto find(const std::array<unsigned int, N>& vertices) const -> int {
+  auto find(const std::array<LocalId, N>& vertices) const -> LocalId {
     const auto it = m_elements.find(vertices);
 
     if (it == m_elements.end()) {
-      return -1;
+      return InvalidLocalId;
     }
 
     return it->second;

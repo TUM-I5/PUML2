@@ -28,8 +28,12 @@ target_link_libraries(puml-tests PRIVATE PUML::Hdf5 GTest::gtest)
 target_compile_definitions(puml-tests
   PRIVATE PUML_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
+# -Wconversion catches the narrowing between the id and size types. Its
+# sign-conversion half is left off: MPI counts ranks in int while the
+# containers index in size_t, so it fires on every rank loop without pointing
+# at a defect.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(puml-tests PRIVATE -Wall -Wextra)
+  target_compile_options(puml-tests PRIVATE -Wall -Wextra -Wconversion -Werror)
 endif()
 
 # Built, but not run: it needs a mesh file on the command line.

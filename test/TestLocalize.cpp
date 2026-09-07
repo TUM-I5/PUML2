@@ -28,7 +28,7 @@ TEST(Localize, AgreesWithTheConstructedCells) {
   const auto* local = reinterpret_cast<const unsigned long*>(puml.cellData("local-connectivity"));
 
   for (std::size_t i = 0; i < puml.cells().size(); ++i) {
-    std::array<unsigned int, 4> expected{};
+    std::array<PUML::LocalId, 4> expected{};
     PUML::Downward::vertices(puml, puml.cells()[i], expected.data());
     for (std::size_t j = 0; j < 4; ++j) {
       EXPECT_EQ(local[(4 * i) + j], expected[j]) << "cell " << i;
@@ -58,7 +58,7 @@ TEST(Localize, HandlesASecondIndexArray) {
   // Both arrays hold the same vertices here, so the translation has to
   // reproduce the cells the topology was built from.
   for (std::size_t i = 0; i < puml.cells().size(); ++i) {
-    std::array<unsigned int, 4> expected{};
+    std::array<PUML::LocalId, 4> expected{};
     PUML::Downward::vertices(puml, puml.cells()[i], expected.data());
     for (std::size_t j = 0; j < 4; ++j) {
       EXPECT_EQ(local[(4 * i) + j], expected[j]) << "cell " << i;

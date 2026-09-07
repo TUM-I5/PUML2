@@ -263,7 +263,7 @@ class Hdf5Reader {
     hid_t h5space = H5Dget_space(h5dataset);
     checkH5Err(h5space);
     const auto dimcount = H5Sget_simple_extent_ndims(h5space);
-    if (dimcount != 1 + sizes.size()) {
+    if (dimcount != static_cast<int>(1 + sizes.size())) {
       logError() << "Dataset must have" << 1 + sizes.size() << "dimension(s), but it has"
                  << dimcount;
     }
@@ -298,7 +298,7 @@ class Hdf5Reader {
     checkH5Err(
         H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
 
-    hid_t h5memspace = H5Screate_simple(count.size(), count.data(), nullptr);
+    hid_t h5memspace = H5Screate_simple(static_cast<int>(count.size()), count.data(), nullptr);
     checkH5Err(h5memspace);
 
     hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);

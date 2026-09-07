@@ -22,6 +22,7 @@
 #include "Element.h"
 #include "Numbering.h"
 #include "PUML.h"
+#include "Types.h"
 #include "Topology.h"
 #include "Utils.h"
 
@@ -37,10 +38,11 @@ class Downward {
    * @param lid The local ids of the faces
    */
   template <TopoType Topo>
-  static void
-      faces(const PUML<Topo>& puml, const typename PUML<Topo>::cell_t& cell, unsigned int* lid) {
+  static void faces([[maybe_unused]] const PUML<Topo>& puml,
+                    const typename PUML<Topo>::cell_t& cell,
+                    LocalId* lid) {
     for (unsigned int i = 0; i < internal::Topology<Topo>::cellfaces(); i++) {
-      std::array<unsigned int, internal::Topology<Topo>::facevertices()> v{};
+      std::array<LocalId, internal::Topology<Topo>::facevertices()> v{};
       faceVertices(puml, cell, i, v.data());
 
       const int id = puml.faceByVertices(v);
@@ -57,8 +59,9 @@ class Downward {
    * @param lid The local ids of the vertices
    */
   template <TopoType Topo>
-  static void
-      vertices(const PUML<Topo>& puml, const typename PUML<Topo>::cell_t& cell, unsigned int* lid) {
+  static void vertices([[maybe_unused]] const PUML<Topo>& puml,
+                       const typename PUML<Topo>::cell_t& cell,
+                       LocalId* lid) {
     std::copy(cell.m_vertices.begin(), cell.m_vertices.end(), lid);
   }
 
@@ -70,7 +73,7 @@ class Downward {
    * @param gid The global ids of the vertices
    */
   template <TopoType Topo>
-  static void gvertices(const PUML<Topo>& puml,
+  static void gvertices([[maybe_unused]] const PUML<Topo>& puml,
                         const typename PUML<Topo>::cell_t& cell,
                         unsigned long* gid) {
     unsigned int lid[internal::Topology<Topo>::cellvertices()];
@@ -85,7 +88,7 @@ class Downward {
    * @return The side of the cell this face is on or -1 of the face is on no side
    */
   template <TopoType Topo>
-  static auto faceSide(const PUML<Topo>& puml,
+  static auto faceSide([[maybe_unused]] const PUML<Topo>& puml,
                        const typename PUML<Topo>::cell_t& cell,
                        unsigned int faceId) -> int {
     unsigned int faceIds[internal::Topology<Topo>::cellfaces()];
@@ -105,10 +108,10 @@ class Downward {
    * @param faceSide The side of the cell
    */
   template <TopoType Topo>
-  static void faceVertices(const PUML<Topo>& puml,
+  static void faceVertices([[maybe_unused]] const PUML<Topo>& puml,
                            const typename PUML<Topo>::cell_t& cell,
                            unsigned int faceSide,
-                           unsigned int* lid) {
+                           LocalId* lid) {
     assert(faceSide < internal::Topology<Topo>::cellfaces());
     for (std::size_t i = 0; i < internal::Topology<Topo>::facevertices(); i++) {
       lid[i] = cell.m_vertices[internal::Numbering<Topo>::facevertices()[faceSide][i]];

@@ -17,6 +17,7 @@
 
 #include "DataBuffer.h"
 #include "TypeInference.h"
+#include "Types.h"
 #include <cstddef>
 #include <cstring>
 #include <iterator>
@@ -71,7 +72,7 @@ class Distributor {
   /**
    * Creates an even split of newNumEntities entities over newNumRanks ranks.
    */
-  Distributor(unsigned long newNumEntities, unsigned long newNumRanks)
+  Distributor(GlobalId newNumEntities, int newNumRanks)
       : numEntities(newNumEntities), numRanks(newNumRanks), entitiesPerRank(numEntities / numRanks),
         missingEntities(numEntities % numRanks) {
     assert(numRanks > 0);
@@ -82,9 +83,9 @@ class Distributor {
    * the total number of entities. newOffsets therefore holds one entry more
    * than there are ranks, in ascending order.
    */
-  explicit Distributor(std::vector<unsigned long> newOffsets)
-      : numEntities(newOffsets.back()), numRanks(newOffsets.size() - 1), entitiesPerRank(0),
-        missingEntities(0), offsets(std::move(newOffsets)) {
+  explicit Distributor(std::vector<GlobalId> newOffsets)
+      : numEntities(newOffsets.back()), numRanks(static_cast<int>(newOffsets.size()) - 1),
+        entitiesPerRank(0), missingEntities(0), offsets(std::move(newOffsets)) {
     assert(numRanks > 0);
     assert(std::is_sorted(offsets.begin(), offsets.end()));
   }
@@ -93,15 +94,20 @@ class Distributor {
   /**
    * Creates an explicit split by gathering the entity count of every rank.
    */
-  static auto fromLocalSize(unsigned long localSize, MPI_Comm comm) -> Distributor {
+  static auto fromLocalSize(GlobalId localSize, MPI_Comm comm) -> Distributor {
     int procs = 1;
     MPI_Comm_size(comm, &procs);
 
-    std::vector<unsigned long> newOffsets(static_cast<std::size_t>(procs) + 1);
+    std::vector<GlobalId> newOffsets(static_cast<Size>(procs) + 1);
     newOffsets[0] = 0;
-    MPI_Allgather(
-        &localSize, 1, MPI_UNSIGNED_LONG, newOffsets.data() + 1, 1, MPI_UNSIGNED_LONG, comm);
-    for (std::size_t i = 1; i < newOffsets.size(); ++i) {
+    MPI_Allgather(&localSize,
+                  1,
+                  MPITypeInfer<GlobalId>::type(),
+                  newOffsets.data() + 1,
+                  1,
+                  MPITypeInfer<GlobalId>::type(),
+                  comm);
+    for (Size i = 1; i < newOffsets.size(); ++i) {
       newOffsets[i] += newOffsets[i - 1];
     }
     return Distributor(std::move(newOffsets));
@@ -111,20 +117,22 @@ class Distributor {
   /**
    * Gives the offset and size of data where the rank should read data.
    */
-  [[nodiscard]] auto offsetAndSize(unsigned long rank) const
-      -> std::pair<unsigned long, unsigned long> {
-    assert(rank < numRanks);
+  [[nodiscard]] auto offsetAndSize(int rank) const -> std::pair<GlobalId, GlobalId> {
+    assert(rank >= 0 && rank < numRanks);
+    const auto index = static_cast<Size>(rank);
     if (!offsets.empty()) {
-      return {offsets[rank], offsets[rank + 1] - offsets[rank]};
+      return {offsets[index], offsets[index + 1] - offsets[index]};
     }
 
-    unsigned long offset = 0;
-    unsigned long size = 0;
-    if (rank < missingEntities) {
-      offset = rank * (entitiesPerRank + 1);
+    const auto rankId = static_cast<GlobalId>(rank);
+    GlobalId offset = 0;
+    GlobalId size = 0;
+    if (rankId < missingEntities) {
+      offset = rankId * (entitiesPerRank + 1);
       size = std::min(entitiesPerRank + 1, numEntities - offset);
     } else {
-      offset = missingEntities * (entitiesPerRank + 1) + (rank - missingEntities) * entitiesPerRank;
+      offset =
+          missingEntities * (entitiesPerRank + 1) + (rankId - missingEntities) * entitiesPerRank;
       size = std::min(entitiesPerRank, numEntities - offset);
     }
     assert(offset + size <= numEntities);
@@ -134,30 +142,29 @@ class Distributor {
   /**
    * Gives the rank, which has read the entity with the given globalId.
    */
-  [[nodiscard]] auto rankOfEntity(unsigned long globalId) const -> unsigned long {
+  [[nodiscard]] auto rankOfEntity(GlobalId globalId) const -> int {
     assert(globalId < numEntities);
     if (!offsets.empty()) {
       const auto it = std::upper_bound(offsets.begin(), offsets.end(), globalId);
       assert(it != offsets.begin());
-      return static_cast<unsigned long>(std::distance(offsets.begin(), it)) - 1;
+      return static_cast<int>(std::distance(offsets.begin(), it)) - 1;
     }
 
-    unsigned long rank = 0;
+    GlobalId rank = 0;
     if (globalId < missingEntities * (entitiesPerRank + 1)) {
       rank = globalId / (entitiesPerRank + 1);
     } else {
       rank =
           (globalId - missingEntities * (entitiesPerRank + 1)) / entitiesPerRank + missingEntities;
     }
-    assert(rank < numRanks);
-    return rank;
+    assert(rank < static_cast<GlobalId>(numRanks));
+    return static_cast<int>(rank);
   }
 
   /**
    * Gives the local id of a mesh entity for the given globalId.
    */
-  [[nodiscard]] auto globalToLocalId(unsigned long rank, unsigned long globalId) const
-      -> unsigned long {
+  [[nodiscard]] auto globalToLocalId(int rank, GlobalId globalId) const -> GlobalId {
     assert(globalId < numEntities);
     auto [offset, size] = offsetAndSize(rank);
     assert(globalId >= offset);
@@ -168,16 +175,16 @@ class Distributor {
   /**
    * Gives the total number of entities over all ranks.
    */
-  [[nodiscard]] auto totalSize() const -> unsigned long { return numEntities; }
+  [[nodiscard]] auto totalSize() const -> GlobalId { return numEntities; }
 
   private:
-  unsigned long numEntities;
-  unsigned long numRanks;
-  unsigned long entitiesPerRank;
-  unsigned long missingEntities;
+  GlobalId numEntities;
+  int numRanks;
+  GlobalId entitiesPerRank;
+  GlobalId missingEntities;
 
   /** The entity offsets of an explicit split; empty for an even split */
-  std::vector<unsigned long> offsets;
+  std::vector<GlobalId> offsets;
 };
 
 /**
@@ -187,7 +194,7 @@ template <TopoType Topo>
 class PUML {
   public:
   /** The cell type from the file */
-  using ocell_t = std::array<unsigned long, internal::Topology<Topo>::cellvertices()>;
+  using ocell_t = std::array<GlobalId, internal::Topology<Topo>::cellvertices()>;
 
   /** The vertex type from the file */
   using overtex_t = std::array<double, internal::Topology<Topo>::dimension()>;
@@ -210,15 +217,15 @@ class PUML {
 #endif // USE_MPI
 
   /** The original number of cells/vertices on each node */
-  std::array<unsigned int, 2> m_originalSize{};
+  std::array<Size, 2> m_originalSize{};
 
   /** The original number of total cells/vertices */
-  std::array<unsigned long, 2> m_originalTotalSize{};
+  std::array<GlobalId, 2> m_originalTotalSize{};
 
   /** How the cells/vertices are spread over the ranks */
   std::array<std::optional<Distributor>, 2> m_distributor{};
 
-  using g2l_t = std::unordered_map<unsigned long, unsigned int>;
+  using g2l_t = std::unordered_map<GlobalId, LocalId>;
 
   /** The list of all local cells */
   std::vector<cell_t> m_cells;
@@ -269,13 +276,25 @@ class PUML {
   int m_vertexDataLegacyIndex{0};
 
   /**
+   * Narrows a count to the int the MPI collectives take, which is the limit
+   * that arrives first when a rank holds a lot of entities.
+   */
+  static auto toMpiCount(Size count) -> int {
+    if (count > static_cast<Size>(std::numeric_limits<int>::max())) {
+      logError() << "An exchange of" << count
+                 << "elements exceeds what an MPI collective can count in an int";
+    }
+    return static_cast<int>(count);
+  }
+
+  /**
    * Describes the split of the given number of local entities over all ranks.
    */
   [[nodiscard]] auto makeDistributor(std::size_t localSize) const -> Distributor {
 #ifdef USE_MPI
     return Distributor::fromLocalSize(localSize, m_comm);
 #else  // USE_MPI
-    return Distributor(std::vector<unsigned long>{0, localSize});
+    return Distributor(std::vector<GlobalId>{0, localSize});
 #endif // USE_MPI
   }
 
@@ -505,7 +524,7 @@ class PUML {
   }
 
   void partition(const int* partition) {
-    int rank = 0;
+    [[maybe_unused]] int rank = 0;
     int procs = 1;
 #ifdef USE_MPI
     MPI_Comm_rank(m_comm, &rank);
@@ -514,7 +533,7 @@ class PUML {
 
     {
       // Create sorting indices
-      std::vector<unsigned int> indices(m_originalSize[0]);
+      std::vector<Size> indices(m_originalSize[0]);
       std::iota(indices.begin(), indices.end(), 0);
 
       std::sort(indices.begin(), indices.end(), [&](const auto& i1, const auto& i2) {
@@ -596,8 +615,8 @@ class PUML {
 
     const auto& vertexDistributor = distributor(DataType::Vertex);
     // Generate a list of vertices we need from other processors
-    using IndexType = unsigned long;
-    std::vector<std::unordered_set<unsigned long>> requiredVertexSets(procs);
+    using IndexType = GlobalId;
+    std::vector<std::unordered_set<GlobalId>> requiredVertexSets(procs);
     for (const auto& indexDataName : indexDataNames) {
       const auto& indexArray = m_cellData[m_cellDataIndex.at(indexDataName)];
       const auto elemCount = indexArray.entitySize() / sizeof(IndexType);
@@ -622,12 +641,12 @@ class PUML {
     std::vector<int> sendCount(procs);
     std::vector<int> recvCount(procs);
 
-    std::vector<unsigned long> requiredVertices(totalVertices);
+    std::vector<GlobalId> requiredVertices(totalVertices);
 
     {
       std::size_t k = 0;
       for (int i = 0; i < procs; i++) {
-        sendCount[i] = requiredVertexSets[i].size();
+        sendCount[i] = toMpiCount(requiredVertexSets[i].size());
 
         for (const auto& it : requiredVertexSets[i]) {
           assert(k < totalVertices);
@@ -653,22 +672,21 @@ class PUML {
       rDispls[i] = rDispls[i - 1] + recvCount[i - 1];
     }
 
-    const unsigned int totalRecv = rDispls[procs - 1] + recvCount[procs - 1];
+    const Size totalRecv = static_cast<Size>(rDispls[procs - 1]) + recvCount[procs - 1];
 
-    std::vector<unsigned long> distribVertexIds(totalRecv);
+    std::vector<GlobalId> distribVertexIds(totalRecv);
 #ifdef USE_MPI
     MPI_Alltoallv(requiredVertices.data(),
                   sendCount.data(),
                   sDispls.data(),
-                  MPI_UNSIGNED_LONG,
+                  MPITypeInfer<GlobalId>::type(),
                   distribVertexIds.data(),
                   recvCount.data(),
                   rDispls.data(),
-                  MPI_UNSIGNED_LONG,
+                  MPITypeInfer<GlobalId>::type(),
                   m_comm);
 #else  // USE_MPI
-    exchangeLocally(
-        requiredVertices.data(), distribVertexIds.data(), totalRecv * sizeof(unsigned long));
+    exchangeLocally(requiredVertices.data(), distribVertexIds.data(), totalRecv * sizeof(GlobalId));
 #endif // USE_MPI
 
     // Send back vertex coordinates (and other data)
@@ -730,7 +748,7 @@ class PUML {
     std::size_t distTotalSharedRanks = 0;
     for (unsigned int i = 0; i < totalRecv; i++) {
       assert(distribVertexIds[i] < m_originalSize[1]);
-      distNsharedRanks[i] = sharedRanks[distribVertexIds[i]].size();
+      distNsharedRanks[i] = static_cast<unsigned int>(sharedRanks[distribVertexIds[i]].size());
       distTotalSharedRanks += distNsharedRanks[i];
     }
 
@@ -767,7 +785,7 @@ class PUML {
                  sharedRanks[distribVertexIds[k]].size() * sizeof(int));
           l += sharedRanks[distribVertexIds[k]].size();
 
-          sharedSendCount[i] += sharedRanks[distribVertexIds[k]].size();
+          sharedSendCount[i] += toMpiCount(sharedRanks[distribVertexIds[k]].size());
 
           ++k;
         }
@@ -861,15 +879,15 @@ class PUML {
     m_faces.clear();
     m_v2e.clear();
 
-    unsigned long cellOffset = m_originalSize[0];
+    GlobalId cellOffset = m_originalSize[0];
 #ifdef USE_MPI
-    MPI_Scan(MPI_IN_PLACE, &cellOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
+    MPI_Scan(MPI_IN_PLACE, &cellOffset, 1, MPITypeInfer<GlobalId>::type(), MPI_SUM, m_comm);
 #endif // USE_MPI
     cellOffset -= m_originalSize[0];
 
     {
-      std::vector<std::set<unsigned int>> edgeUpward;
-      std::vector<std::set<unsigned int>> vertexUpward(m_vertices.size());
+      std::vector<std::set<LocalId>> edgeUpward;
+      std::vector<std::set<LocalId>> vertexUpward(m_vertices.size());
 
       for (std::size_t i = 0; i < m_originalSize[0]; i++) {
         m_cells[i].m_gid = i + cellOffset;
@@ -879,14 +897,14 @@ class PUML {
         }
 
         // Faces
-        std::array<unsigned int, internal::Topology<Topo>::dimension()> v{};
-        std::array<unsigned int, internal::Topology<Topo>::cellfaces()> faces{};
+        std::array<LocalId, internal::Topology<Topo>::dimension()> v{};
+        std::array<LocalId, internal::Topology<Topo>::cellfaces()> faces{};
         for (std::size_t j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
           const auto& face = internal::Numbering<Topo>::facevertices()[j];
           for (std::size_t d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
             v[d] = m_cells[i].m_vertices[face[d]];
           }
-          faces[j] = addFace(m_v2f.add(v), i);
+          faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
           if constexpr (internal::Topology<Topo>::dimension() == 2) {
             for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
               vertexUpward[v[d]].insert(faces[j]);
@@ -896,7 +914,7 @@ class PUML {
 
         // Edges + Vertex upward information
         if constexpr (internal::Topology<Topo>::dimension() == 3) {
-          std::array<unsigned int, internal::Topology<Topo>::dimension() - 1> w{};
+          std::array<LocalId, internal::Topology<Topo>::dimension() - 1> w{};
           for (std::size_t j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
             const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
             const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
@@ -954,19 +972,19 @@ class PUML {
   /**
    * @return The total number of all cells within the mesh.
    */
-  auto numTotalCells() const -> unsigned int { return m_originalTotalSize[0]; }
+  auto numTotalCells() const -> GlobalId { return m_originalTotalSize[0]; }
 
   /**
    * @return The number of original cells on this rank
    *
    * @note This value can change when {@link partition()} is called
    */
-  auto numOriginalCells() const -> unsigned int { return m_originalSize[0]; }
+  auto numOriginalCells() const -> Size { return m_originalSize[0]; }
 
   /**
    * @return The number of original vertices on this rank
    */
-  auto numOriginalVertices() const -> unsigned int { return m_originalSize[1]; }
+  auto numOriginalVertices() const -> Size { return m_originalSize[1]; }
 
   /**
    * @return The original cells on this rank
@@ -1036,12 +1054,12 @@ class PUML {
 
   /**
    * @param vertexIds A list of local vertex ids
-   * @return The local face id for the given set of vertices or <code>-1</code> if
+   * @return The local face id for the given set of vertices, or InvalidLocalId if
    *  the face does not exist
    */
   auto faceByVertices(
-      const std::array<unsigned int, internal::Topology<Topo>::facevertices()>& vertexIds) const
-      -> int {
+      const std::array<LocalId, internal::Topology<Topo>::facevertices()>& vertexIds) const
+      -> LocalId {
     return m_v2f.find(vertexIds);
   }
 
@@ -1060,11 +1078,11 @@ class PUML {
    * @param plid The local id of the parent
    * @return The local id of the face
    */
-  auto addFace(unsigned int lid, unsigned int plid) -> unsigned int {
+  auto addFace(LocalId lid, LocalId plid) -> LocalId {
     if (lid < m_faces.size()) {
       // Update an old face (but make sure that only happens once)
 
-      if (m_faces[lid].m_upward[1] != -1) {
+      if (m_faces[lid].m_upward[1] != InvalidLocalId) {
         logError() << "Mesh construction error: a face has more than two adjacent cells.";
       }
 
@@ -1078,7 +1096,7 @@ class PUML {
 
       face_t face;
       face.m_upward[0] = plid;
-      face.m_upward[1] = -1;
+      face.m_upward[1] = InvalidLocalId;
       m_faces.push_back(face);
     }
 
@@ -1095,10 +1113,10 @@ class PUML {
   template <typename E, typename D, std::size_t N>
   void generatedSharedAndGID(std::vector<E>& elements, const std::vector<D>& down) {
 #ifdef USE_MPI
-    std::vector<std::array<unsigned long, N>> downward(elements.size());
+    std::vector<std::array<GlobalId, N>> downward(elements.size());
 
     MPI_Datatype type = MPI_DATATYPE_NULL;
-    MPI_Type_contiguous(N, MPI_UNSIGNED_LONG, &type);
+    MPI_Type_contiguous(N, MPITypeInfer<GlobalId>::type(), &type);
     MPI_Type_commit(&type);
 
     {
@@ -1147,7 +1165,7 @@ class PUML {
     }
 
     for (auto& downData : downward) {
-      internal::selectionSort<unsigned long, N>(downData.data());
+      internal::selectionSort<GlobalId, N>(downData.data());
     }
 
     // Eliminate false positves
@@ -1179,10 +1197,10 @@ class PUML {
     const std::size_t totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
 
     {
-      std::vector<std::array<unsigned long, N>> recvShared(totalRecvShared);
+      std::vector<std::array<GlobalId, N>> recvShared(totalRecvShared);
 
       {
-        std::vector<std::array<unsigned long, N>> sendShared(totalShared);
+        std::vector<std::array<GlobalId, N>> sendShared(totalShared);
 
         {
           std::vector<std::size_t> sharedPos(procs);
@@ -1244,8 +1262,8 @@ class PUML {
     }
 
     // Get global id offset
-    unsigned long gidOffset = owned;
-    MPI_Scan(MPI_IN_PLACE, &gidOffset, 1, MPI_UNSIGNED_LONG, MPI_SUM, m_comm);
+    GlobalId gidOffset = owned;
+    MPI_Scan(MPI_IN_PLACE, &gidOffset, 1, MPITypeInfer<GlobalId>::type(), MPI_SUM, m_comm);
     gidOffset -= owned;
 
     // Set global ids for owned elements and count the number of elements we need to forward
@@ -1259,7 +1277,7 @@ class PUML {
           nSendGid[rank]++;
         }
       } else {
-        element.m_gid = std::numeric_limits<unsigned long>::max();
+        element.m_gid = std::numeric_limits<GlobalId>::max();
 
         if (!element.m_sharedRanks.empty()) {
           ++nRecvGid[element.m_sharedRanks[0]];
@@ -1277,16 +1295,16 @@ class PUML {
 
     const std::size_t totalSendGid = sDispls[procs - 1] + nSendGid[procs - 1];
     const std::size_t totalRecvGid = rDispls[procs - 1] + nRecvGid[procs - 1];
-    std::unordered_map<internal::DownElement<N>, unsigned long, internal::DownElementHash<N>> dg2g;
+    std::unordered_map<internal::DownElement<N>, GlobalId, internal::DownElementHash<N>> dg2g;
 
     {
-      std::vector<unsigned long> recvGid(totalRecvGid);
-      std::vector<std::array<unsigned long, N>> recvDGid(totalRecvGid);
+      std::vector<GlobalId> recvGid(totalRecvGid);
+      std::vector<std::array<GlobalId, N>> recvDGid(totalRecvGid);
 
       // Collect send data
       {
-        std::vector<unsigned long> sendGid(totalSendGid);
-        std::vector<std::array<unsigned long, N>> sendDGid(totalSendGid);
+        std::vector<GlobalId> sendGid(totalSendGid);
+        std::vector<std::array<GlobalId, N>> sendDGid(totalSendGid);
         {
           std::vector<std::size_t> sendPos(procs);
 
@@ -1306,11 +1324,11 @@ class PUML {
         MPI_Alltoallv(sendGid.data(),
                       nSendGid.data(),
                       sDispls.data(),
-                      MPI_UNSIGNED_LONG,
+                      MPITypeInfer<GlobalId>::type(),
                       recvGid.data(),
                       nRecvGid.data(),
                       rDispls.data(),
-                      MPI_UNSIGNED_LONG,
+                      MPITypeInfer<GlobalId>::type(),
                       m_comm);
 
         MPI_Alltoallv(sendDGid.data(),
@@ -1333,7 +1351,7 @@ class PUML {
     // Assign gids
     for (std::size_t i = 0; i < elements.size(); i++) {
       if (!elements[i].m_sharedRanks.empty() && elements[i].m_sharedRanks[0] < rank) {
-        assert(elements[i].m_gid == std::numeric_limits<unsigned long>::max());
+        assert(elements[i].m_gid == std::numeric_limits<GlobalId>::max());
 
         const auto it = dg2g.find(downward[i]);
         assert(it != dg2g.end());
@@ -1362,10 +1380,9 @@ class PUML {
    * @param plid2 The second parent
    * @return The local id of the edge
    */
-  static auto addEdge(std::vector<std::set<unsigned int>>& edgeUpward,
-                      unsigned int lid,
-                      unsigned int plid1,
-                      unsigned int plid2) -> unsigned int {
+  static auto
+      addEdge(std::vector<std::set<LocalId>>& edgeUpward, LocalId lid, LocalId plid1, LocalId plid2)
+          -> LocalId {
     if (lid >= edgeUpward.size()) {
       assert(lid == edgeUpward.size());
       edgeUpward.emplace_back();
@@ -1422,7 +1439,7 @@ class PUML {
    * @param localizedName The name to file the translated array under
    */
   void localize(const std::string& indexDataName, const std::string& localizedName) {
-    using IndexType = unsigned long;
+    using IndexType = GlobalId;
 
     const auto& source = m_cellData[m_cellDataIndex.at(indexDataName)];
     const auto elemCount = source.entitySize() / sizeof(IndexType);
@@ -1441,7 +1458,7 @@ class PUML {
   }
 
   void identify(const std::string& connectivityToUpdate, const std::string& identify) {
-    const auto* identifiers = reinterpret_cast<const unsigned long*>(vertexData(identify));
+    const auto* identifiers = reinterpret_cast<const GlobalId*>(vertexData(identify));
     auto* connectivity =
         reinterpret_cast<ocell_t*>(m_cellData[m_cellDataIndex.at(connectivityToUpdate)].data());
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {

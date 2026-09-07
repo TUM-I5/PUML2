@@ -51,11 +51,11 @@ class FaceIterator {
 
     std::vector<std::vector<int>> transfer(commSize);
     for (int i = 0; i < faces.size(); ++i) {
-      int lid[2];
+      LocalId lid[2];
       Upward::cells(puml, faces[i], lid);
-      assert(!(lid[0] == -1 && lid[1] != -1));
+      assert(!(lid[0] == InvalidLocalId && lid[1] != InvalidLocalId));
       assert(faces[i].shared().size() <= 1);
-      if (lid[0] != -1 && faces[i].isShared()) {
+      if (lid[0] != InvalidLocalId && faces[i].isShared()) {
         transfer[faces[i].shared()[0]].push_back(i);
       }
     }
@@ -76,7 +76,7 @@ class FaceIterator {
     for (int i = 0, j = 0; i < commSize; ++i) {
       for (int k = 0; k < m_transferSize[i]; ++j, ++k) {
         const auto& face = faces[transfer[i][k]];
-        int lid[2];
+        LocalId lid[2];
         Upward::cells(puml, face, lid);
         m_transferCell[j] = lid[0];
         m_transferFace[j] = transfer[i][k];
@@ -500,17 +500,17 @@ class FaceIterator {
 
     for (int i = 0; i < m_puml.faces().size(); ++i) {
       const auto& face = m_puml.faces()[i];
-      int lid[2];
+      LocalId lid[2];
       Upward::cells(m_puml, face, lid);
-      assert(!(lid[0] == -1 && lid[1] != -1));
+      assert(!(lid[0] == InvalidLocalId && lid[1] != InvalidLocalId));
 
-      if (lid[1] != -1) {
+      if (lid[1] != InvalidLocalId) {
         const auto gd1 = std::invoke(externalCellHandler, i, lid[1]);
         std::invoke(faceHandler, i, lid[0], gd1);
 
         const auto gd0 = std::invoke(externalCellHandler, i, lid[0]);
         std::invoke(faceHandler, i, lid[1], gd0);
-      } else if (lid[1] == -1 && !face.isShared()) {
+      } else if (lid[1] == InvalidLocalId && !face.isShared()) {
         std::invoke(boundaryFaceHandler, i, lid[0]);
       }
     }

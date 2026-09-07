@@ -228,11 +228,11 @@ inline auto measure(const PUML::TETPUML& puml) -> MeshCounts {
   long boundary = 0;
   long unused = 0;
   for (const auto& face : puml.faces()) {
-    std::array<int, 2> adjacent{};
+    std::array<PUML::LocalId, 2> adjacent{};
     PUML::Upward::cells(puml, face, adjacent.data());
-    if (adjacent[0] < 0) {
+    if (adjacent[0] == PUML::InvalidLocalId) {
       ++unused;
-    } else if (adjacent[1] < 0 && face.shared().empty()) {
+    } else if (adjacent[1] == PUML::InvalidLocalId && face.shared().empty()) {
       ++boundary;
     }
   }

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "Topology.h"
+#include "Types.h"
 
 namespace PUML {
 
@@ -41,7 +42,7 @@ class Element {
 
   private:
   /** The global id */
-  unsigned long m_gid{};
+  GlobalId m_gid{};
 
   /** The local/global ids of the upper elements */
   Utype m_upward;
@@ -50,7 +51,7 @@ class Element {
   /**
    * @return The global ID of the element
    */
-  [[nodiscard]] auto gid() const -> unsigned long { return m_gid; }
+  [[nodiscard]] auto gid() const -> GlobalId { return m_gid; }
 };
 
 /**
@@ -78,7 +79,7 @@ class BoundaryElement : public Element<Utype> {
 };
 
 template <TopoType Topo>
-class Vertex : public BoundaryElement<std::vector<int>> {
+class Vertex : public BoundaryElement<std::vector<LocalId>> {
   friend class PUML<Topo>;
 
   private:
@@ -92,12 +93,12 @@ class Vertex : public BoundaryElement<std::vector<int>> {
   [[nodiscard]] auto coordinate() const -> const double* { return m_coordinate.data(); }
 };
 
-class Edge : public BoundaryElement<std::vector<int>> {
+class Edge : public BoundaryElement<std::vector<LocalId>> {
   template <TopoType Topo>
   friend class PUML;
 };
 
-class Face : public BoundaryElement<std::array<int, 2>> {
+class Face : public BoundaryElement<std::array<LocalId, 2>> {
   template <TopoType Topo>
   friend class PUML;
 };
@@ -108,7 +109,7 @@ class Cell : public Element<std::array<int, 0>> {
   friend class Downward;
 
   private:
-  std::array<unsigned int, internal::Topology<Topo>::cellvertices()> m_vertices{};
+  std::array<LocalId, internal::Topology<Topo>::cellvertices()> m_vertices{};
 };
 
 } // namespace PUML
