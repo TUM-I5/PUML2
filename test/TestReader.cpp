@@ -104,4 +104,30 @@ TEST(Reader, ConvertsTheValueTypeOnRead) {
   }
 }
 
+/// The file says how wide its values are and how many of them sit next to each
+/// other, which is what lets a caller tell shapes apart without being told.
+TEST(Reader, ReportsHowADatasetIsLaidOut) {
+  PUML::TETPUML puml;
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> reader(puml);
+
+  const auto connect = reader.datasetShape(meshFile() + ":/connect");
+  EXPECT_EQ(connect.valueBytes, 8U);
+  ASSERT_EQ(connect.dims.size(), 2U);
+  EXPECT_EQ(connect.dims[0], 19183U);
+  EXPECT_EQ(connect.dims[1], 4U);
+
+  // The boundary of the sample mesh is written as 32 bit values, one per cell.
+  const auto boundary = reader.datasetShape(meshFile() + ":/boundary");
+  EXPECT_EQ(boundary.valueBytes, 4U);
+  ASSERT_EQ(boundary.dims.size(), 1U);
+  EXPECT_EQ(boundary.dims[0], 19183U);
+
+  const auto geometry = reader.datasetShape(meshFile() + ":/geometry");
+  EXPECT_EQ(geometry.valueBytes, 8U);
+  EXPECT_EQ(geometry.dims[1], 3U);
+}
+
 } // namespace

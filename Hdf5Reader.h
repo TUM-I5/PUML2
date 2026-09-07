@@ -413,6 +413,40 @@ class Hdf5Reader {
     return H5Lexists(h5file, datasetOf(path).c_str(), H5P_DEFAULT) > 0;
   }
 
+  /**
+   * How a dataset is laid out in the file, before anything is read from it.
+   *
+   * The width of a value and the second dimension together say which of the
+   * shapes a caller allows a dataset has, without the file having to declare
+   * it elsewhere.
+   */
+  struct DatasetShape {
+    /** The size of one value on disk, whatever type it is read as */
+    Size valueBytes{0};
+    std::vector<hsize_t> dims;
+  };
+
+  auto datasetShape(const std::string& path) -> DatasetShape {
+    const hid_t h5file = fileOf(path);
+    hid_t h5dataset = H5Dopen(h5file, datasetOf(path).c_str(), H5P_DEFAULT);
+    checkH5Err(h5dataset);
+
+    hid_t h5type = H5Dget_type(h5dataset);
+    checkH5Err(h5type);
+    hid_t h5space = H5Dget_space(h5dataset);
+    checkH5Err(h5space);
+
+    DatasetShape shape;
+    shape.valueBytes = H5Tget_size(h5type);
+    shape.dims.resize(H5Sget_simple_extent_ndims(h5space));
+    checkH5Err(H5Sget_simple_extent_dims(h5space, shape.dims.data(), nullptr));
+
+    checkH5Err(H5Sclose(h5space));
+    checkH5Err(H5Tclose(h5type));
+    checkH5Err(H5Dclose(h5dataset));
+    return shape;
+  }
+
   private:
   /**
    * Reads a flat connectivity, splitting every cell into the kind it is of and
