@@ -16,6 +16,7 @@
 #define PUML_PUML_H
 
 #include "DataBuffer.h"
+#include "DataHandle.h"
 #include "TypeInference.h"
 #include "Types.h"
 #include <cstddef>
@@ -49,12 +50,6 @@
 #include "VertexElementMap.h"
 
 namespace PUML {
-
-enum class DataType { Cell = 0, Vertex = 1 };
-
-// some constexprs for legacy reasons
-constexpr DataType CELL = DataType::Cell;
-constexpr DataType VERTEX = DataType::Vertex;
 
 /**
  * Describes how a number of mesh entities (i.e. elements or vertices) is spread
@@ -222,10 +217,15 @@ class PUML {
   /** The original number of total cells/vertices */
   std::array<GlobalId, 2> m_originalTotalSize{};
 
+  /** Tells the handles of this mesh from those of another one */
+  Size m_instanceId{++s_instances};
+
   /** How the cells/vertices are spread over the ranks */
   std::array<std::optional<Distributor>, 2> m_distributor{};
 
   using g2l_t = std::unordered_map<GlobalId, LocalId>;
+
+  inline static Size s_instances = 0;
 
   /** The list of all local cells */
   std::vector<cell_t> m_cells;
@@ -312,27 +312,51 @@ class PUML {
    * Files a data array under the given name, replacing an array of the same
    * name.
    */
-  auto store(const std::string& name, DataType type, internal::DataBuffer&& buffer)
-      -> internal::DataBuffer& {
+  auto store(const std::string& name, DataType type, internal::DataBuffer&& buffer) -> Size {
     if (type == DataType::Vertex) {
       const auto existing = m_vertexDataIndex.find(name);
       if (existing != m_vertexDataIndex.end()) {
         m_vertexData[existing->second] = VertexData{std::move(buffer), {}};
-        return m_vertexData[existing->second].original;
+        return existing->second;
       }
       m_vertexDataIndex[name] = m_vertexData.size();
       m_vertexData.push_back(VertexData{std::move(buffer), {}});
-      return m_vertexData.back().original;
+      return m_vertexData.size() - 1;
     }
 
     const auto existing = m_cellDataIndex.find(name);
     if (existing != m_cellDataIndex.end()) {
       m_cellData[existing->second] = std::move(buffer);
-      return m_cellData[existing->second];
+      return existing->second;
     }
     m_cellDataIndex[name] = m_cellData.size();
     m_cellData.push_back(std::move(buffer));
-    return m_cellData.back();
+    return m_cellData.size() - 1;
+  }
+
+  auto rawCellData(const std::string& name) const -> const void* {
+    return m_cellData[m_cellDataIndex.at(name)].data();
+  }
+
+  auto rawVertexData(const std::string& name) const -> const void* {
+    return m_vertexData[m_vertexDataIndex.at(name)].distributed.data();
+  }
+
+  /// The array a handle names, as it was handed over.
+  template <typename T>
+  auto bufferOf(const DataHandle<T>& handle) const -> const internal::DataBuffer& {
+    assert(handle.valid());
+    assert(handle.m_owner == m_instanceId);
+    return handle.type() == DataType::Vertex ? m_vertexData[handle.m_index].original
+                                             : m_cellData[handle.m_index];
+  }
+
+  template <typename T>
+  auto bufferOf(const DataHandle<T>& handle) -> internal::DataBuffer& {
+    assert(handle.valid());
+    assert(handle.m_owner == m_instanceId);
+    return handle.type() == DataType::Vertex ? m_vertexData[handle.m_index].original
+                                             : m_cellData[handle.m_index];
   }
 
   public:
@@ -393,7 +417,7 @@ class PUML {
                     ,
                     MPI_Datatype mpiType = MPITypeInfer<T>::type()
 #endif
-                        ) -> T* {
+                        ) -> DataHandle<T> {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
@@ -406,13 +430,91 @@ class PUML {
 
     internal::DataBuffer buffer(m_originalSize[static_cast<int>(type)],
                                 elemSize,
-                                sizeof(T)
+                                sizeof(T),
+                                internal::typeTag<T>()
 #ifdef USE_MPI
                                     ,
                                 mpiType
 #endif // USE_MPI
     );
-    return reinterpret_cast<T*>(store(name, type, std::move(buffer)).data());
+    const auto index = store(name, type, std::move(buffer));
+    return DataHandle<T>(index, type, elemSize, m_instanceId);
+  }
+
+  /**
+   * Whether a data array of the given name and kind exists.
+   */
+  [[nodiscard]] auto has(const std::string& name, DataType type) const -> bool {
+    const auto& index = (type == DataType::Vertex) ? m_vertexDataIndex : m_cellDataIndex;
+    return index.find(name) != index.end();
+  }
+
+  /**
+   * Whether the named array exists and holds values of type T.
+   */
+  template <typename T>
+  [[nodiscard]] auto holds(const std::string& name, DataType type) const -> bool {
+    const auto& index = (type == DataType::Vertex) ? m_vertexDataIndex : m_cellDataIndex;
+    const auto it = index.find(name);
+    if (it == index.end()) {
+      return false;
+    }
+    const auto& buffer =
+        (type == DataType::Vertex) ? m_vertexData[it->second].original : m_cellData[it->second];
+    return buffer.typeTag() == internal::typeTag<T>();
+  }
+
+  /**
+   * Looks up a data array by name and checks that it holds T.
+   *
+   * This is the one place where a name, which may come from a parameter file,
+   * turns into a handle that needs no cast afterwards.
+   */
+  template <typename T>
+  [[nodiscard]] auto find(const std::string& name, DataType type) const -> DataHandle<T> {
+    const auto& index = (type == DataType::Vertex) ? m_vertexDataIndex : m_cellDataIndex;
+    const auto it = index.find(name);
+    if (it == index.end()) {
+      logError() << "There is no" << (type == DataType::Vertex ? "vertex" : "cell") << "data array"
+                 << name;
+    }
+
+    const auto& buffer =
+        (type == DataType::Vertex) ? m_vertexData[it->second].original : m_cellData[it->second];
+    if (buffer.typeTag() != internal::typeTag<T>()) {
+      logError() << "Data array" << name << "holds values of" << buffer.elemBytes()
+                 << "bytes and was asked for as" << sizeof(T) << "byte values of another type";
+    }
+
+    return DataHandle<T>(it->second, type, buffer.elemCount(), m_instanceId);
+  }
+
+  /**
+   * The values a handle names.
+   */
+  template <typename T>
+  [[nodiscard]] auto data(const DataHandle<T>& handle) -> DataView<T> {
+    auto& buffer = bufferOf(handle);
+    return DataView<T>(reinterpret_cast<T*>(buffer.data()), buffer.entities(), buffer.elemCount());
+  }
+
+  template <typename T>
+  [[nodiscard]] auto data(const DataHandle<T>& handle) const -> DataView<const T> {
+    const auto& buffer = bufferOf(handle);
+    return DataView<const T>(
+        reinterpret_cast<const T*>(buffer.data()), buffer.entities(), buffer.elemCount());
+  }
+
+  /**
+   * The values a vertex handle names, after the vertices have been distributed.
+   */
+  template <typename T>
+  [[nodiscard]] auto distributedData(const DataHandle<T>& handle) const -> DataView<const T> {
+    assert(handle.type() == DataType::Vertex);
+    assert(handle.m_owner == m_instanceId);
+    const auto& buffer = m_vertexData[handle.m_index].distributed;
+    return DataView<const T>(
+        reinterpret_cast<const T*>(buffer.data()), buffer.entities(), buffer.elemCount());
   }
 
 #ifdef USE_MPI
@@ -512,15 +614,17 @@ class PUML {
 
     // rawData is owned by the caller and holds exactly the entities this rank
     // has been assigned, which need not be an even share of the total.
-    T* data = allocateData<T>(name,
-                              type,
-                              sizes
+    const auto handle = allocateData<T>(name,
+                                        type,
+                                        sizes
 #ifdef USE_MPI
-                              ,
-                              mpiType
+                                        ,
+                                        mpiType
 #endif // USE_MPI
     );
-    std::memcpy(data, rawData, sizeof(T) * m_originalSize[static_cast<int>(type)] * elemSize);
+    std::memcpy(data(handle).data(),
+                rawData,
+                sizeof(T) * m_originalSize[static_cast<int>(type)] * elemSize);
   }
 
   void partition(const int* partition) {
@@ -861,7 +965,7 @@ class PUML {
     Deprecated.
    */
   void constructGeometry(const std::string& geometryName) {
-    const auto* data = reinterpret_cast<const overtex_t*>(vertexData(geometryName));
+    const auto* data = reinterpret_cast<const overtex_t*>(rawVertexData(geometryName));
     for (std::size_t i = 0; i < m_vertices.size(); ++i) {
       std::copy(data[i].begin(), data[i].end(), m_vertices[i].m_coordinate.begin());
     }
@@ -871,7 +975,7 @@ class PUML {
     Given all locally-needed vertex data, construct edge and face topology.
    */
   void constructMesh(const std::string& cellDataName) {
-    const auto* originalCells = reinterpret_cast<const ocell_t*>(cellData(cellDataName));
+    const auto* originalCells = reinterpret_cast<const ocell_t*>(rawCellData(cellDataName));
 
     // Create the cell, face and edge list
     m_cells.resize(m_originalSize[0]);
@@ -992,14 +1096,14 @@ class PUML {
    * @note The pointer gets invalid when {@link partition()} is called
    */
   auto originalCells() const -> const ocell_t* {
-    return reinterpret_cast<const ocell_t*>(cellData("connectivity"));
+    return reinterpret_cast<const ocell_t*>(rawCellData("connectivity"));
   }
 
   /**
    * @return The original vertices on this rank
    */
   auto originalVertices() const -> const overtex_t* {
-    return reinterpret_cast<const overtex_t*>(vertexData("geometry"));
+    return reinterpret_cast<const overtex_t*>(rawVertexData("geometry"));
   }
 
   /**
@@ -1025,31 +1129,33 @@ class PUML {
   /**
    * @return User cell data
    */
-  auto cellData(const std::string& name) const -> const void* {
-    return m_cellData[m_cellDataIndex.at(name)].data();
+  [[deprecated("use find<T>() and data() instead")]] auto cellData(const std::string& name) const
+      -> const void* {
+    return rawCellData(name);
   }
 
   /**
    * @return User vertex data
    */
-  auto vertexData(const std::string& name) const -> const void* {
-    return m_vertexData[m_vertexDataIndex.at(name)].distributed.data();
+  [[deprecated("use find<T>() and distributedData() instead")]] auto
+      vertexData(const std::string& name) const -> const void* {
+    return rawVertexData(name);
   }
 
   /**
    * @return User cell data
    */
-  auto cellData(unsigned int index) const -> const void* {
-    const std::string altName = "_" + std::to_string(index);
-    return cellData(altName);
+  [[deprecated("use find<T>() and data() instead")]] auto cellData(unsigned int index) const
+      -> const void* {
+    return rawCellData("_" + std::to_string(index));
   }
 
   /**
    * @return User vertex data
    */
-  auto vertexData(unsigned int index) const -> const void* {
-    const std::string altName = "_" + std::to_string(index);
-    return vertexData(altName);
+  [[deprecated("use find<T>() and distributedData() instead")]] auto
+      vertexData(unsigned int index) const -> const void* {
+    return rawVertexData("_" + std::to_string(index));
   }
 
   /**
@@ -1445,7 +1551,8 @@ class PUML {
     const auto elemCount = source.entitySize() / sizeof(IndexType);
     const auto* input = reinterpret_cast<const IndexType*>(source.data());
 
-    auto* output = allocateData<IndexType>(localizedName, DataType::Cell, {elemCount});
+    const auto outputHandle = allocateData<IndexType>(localizedName, DataType::Cell, {elemCount});
+    auto* output = data(outputHandle).data();
 
     for (std::size_t i = 0; i < m_originalSize[0] * elemCount; ++i) {
       const auto local = m_verticesg2l.find(input[i]);
@@ -1458,7 +1565,7 @@ class PUML {
   }
 
   void identify(const std::string& connectivityToUpdate, const std::string& identify) {
-    const auto* identifiers = reinterpret_cast<const GlobalId*>(vertexData(identify));
+    const auto* identifiers = reinterpret_cast<const GlobalId*>(rawVertexData(identify));
     auto* connectivity =
         reinterpret_cast<ocell_t*>(m_cellData[m_cellDataIndex.at(connectivityToUpdate)].data());
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {

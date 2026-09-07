@@ -55,12 +55,13 @@ TEST(Clone, OwnsItsData) {
   auto copy = puml.clone();
 
   // Overwrite the array in the copy only.
-  auto* copied = copy.allocateData<unsigned long>("identity", PUML::CELL, {});
+  const auto copiedHandle = copy.allocateData<unsigned long>("identity", PUML::CELL, {});
+  auto copied = copy.data(copiedHandle);
   for (std::size_t i = 0; i < cells.size; ++i) {
     copied[i] = 0;
   }
 
-  const auto* untouched = reinterpret_cast<const unsigned long*>(puml.cellData("identity"));
+  const auto untouched = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
   for (std::size_t i = 0; i < cells.size; ++i) {
     EXPECT_EQ(untouched[i], cells.offset + i) << "cell " << i;
   }
@@ -97,14 +98,14 @@ TEST(Clone, CanBeRepartitioned) {
   EXPECT_EQ(cloned.boundaryFaces, mesh.numBoundaryFaces());
   EXPECT_EQ(cloned.euler(), 1);
 
-  const auto* moved = reinterpret_cast<const unsigned long*>(copy.cellData("identity"));
-  std::vector<unsigned long> local(moved, moved + copy.numOriginalCells());
+  const auto moved = copy.data(copy.find<unsigned long>("identity", PUML::CELL));
+  std::vector<unsigned long> local(moved.begin(), moved.end());
   auto all = gather(local);
   std::sort(all.begin(), all.end());
   EXPECT_TRUE(isContiguousFromZero(all));
 
   // The original still holds its own cells, in their original order.
-  const auto* untouched = reinterpret_cast<const unsigned long*>(puml.cellData("identity"));
+  const auto untouched = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
   for (std::size_t i = 0; i < cells.size; ++i) {
     EXPECT_EQ(untouched[i], cells.offset + i) << "cell " << i;
   }

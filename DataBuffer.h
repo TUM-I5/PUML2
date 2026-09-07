@@ -44,13 +44,15 @@ class DataBuffer {
    */
   DataBuffer(std::size_t entities,
              std::size_t elemCount,
-             std::size_t elemBytes
+             std::size_t elemBytes,
+             const void* typeTag
 #ifdef USE_MPI
              ,
              MPI_Datatype baseType
 #endif // USE_MPI
              )
-      : m_values(entities * elemCount * elemBytes), m_entitySize(elemCount * elemBytes)
+      : m_values(entities * elemCount * elemBytes), m_entitySize(elemCount * elemBytes),
+        m_elemBytes(elemBytes), m_typeTag(typeTag)
 #ifdef USE_MPI
         ,
         m_baseType(baseType), m_elemCount(elemCount)
@@ -62,7 +64,8 @@ class DataBuffer {
   }
 
   DataBuffer(const DataBuffer& other)
-      : m_values(other.m_values), m_entitySize(other.m_entitySize)
+      : m_values(other.m_values), m_entitySize(other.m_entitySize), m_elemBytes(other.m_elemBytes),
+        m_typeTag(other.m_typeTag)
 #ifdef USE_MPI
         ,
         m_baseType(other.m_baseType), m_elemCount(other.m_elemCount)
@@ -91,6 +94,8 @@ class DataBuffer {
   void swap(DataBuffer& other) noexcept {
     m_values.swap(other.m_values);
     std::swap(m_entitySize, other.m_entitySize);
+    std::swap(m_elemBytes, other.m_elemBytes);
+    std::swap(m_typeTag, other.m_typeTag);
 #ifdef USE_MPI
     std::swap(m_baseType, other.m_baseType);
     std::swap(m_type, other.m_type);
@@ -103,6 +108,8 @@ class DataBuffer {
     DataBuffer result;
     result.m_values.resize(entities * m_entitySize);
     result.m_entitySize = m_entitySize;
+    result.m_elemBytes = m_elemBytes;
+    result.m_typeTag = m_typeTag;
 #ifdef USE_MPI
     result.m_baseType = m_baseType;
     result.m_elemCount = m_elemCount;
@@ -131,6 +138,17 @@ class DataBuffer {
 
   /// The number of bytes per entity.
   [[nodiscard]] auto entitySize() const -> std::size_t { return m_entitySize; }
+
+  /// The size of a single value.
+  [[nodiscard]] auto elemBytes() const -> std::size_t { return m_elemBytes; }
+
+  /// The number of values per entity.
+  [[nodiscard]] auto elemCount() const -> std::size_t {
+    return m_elemBytes == 0 ? 0 : m_entitySize / m_elemBytes;
+  }
+
+  /// Identifies the value type the array was created with.
+  [[nodiscard]] auto typeTag() const -> const void* { return m_typeTag; }
 
   [[nodiscard]] auto entities() const -> std::size_t {
     return m_entitySize == 0 ? 0 : m_values.size() / m_entitySize;
@@ -166,6 +184,8 @@ class DataBuffer {
 
   std::vector<std::byte> m_values;
   std::size_t m_entitySize{0};
+  std::size_t m_elemBytes{0};
+  const void* m_typeTag{nullptr};
 #ifdef USE_MPI
   MPI_Datatype m_baseType{MPI_DATATYPE_NULL};
   MPI_Datatype m_type{MPI_DATATYPE_NULL};

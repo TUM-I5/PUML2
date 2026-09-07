@@ -307,15 +307,16 @@ class Hdf5Reader {
     checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-    T* data = m_puml.template allocateData<T>(name,
-                                              type,
-                                              sizes
+    const auto handle = m_puml.template allocateData<T>(name,
+                                                        type,
+                                                        sizes
 #ifdef USE_MPI
-                                              ,
-                                              mpiType
+                                                        ,
+                                                        mpiType
 #endif // USE_MPI
     );
-    checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, data));
+    checkH5Err(
+        H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, m_puml.data(handle).data()));
 
     // Close data
     checkH5Err(H5Sclose(h5space));

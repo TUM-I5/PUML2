@@ -22,6 +22,7 @@ add_executable(puml-tests
   TestPartition.cpp
   TestReader.cpp
   TestClone.cpp
+  TestHandle.cpp
   TestLocalize.cpp)
 
 target_link_libraries(puml-tests PRIVATE PUML::Hdf5 GTest::gtest)

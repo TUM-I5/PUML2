@@ -48,12 +48,11 @@ void checkRepartition(int n, const std::vector<int>& (*assign)(std::size_t, int,
 
   // Every cell is still there exactly once, and its two arrays still belong
   // together.
-  const auto* movedIdentity = reinterpret_cast<const unsigned long*>(puml.cellData("identity"));
-  const auto* movedDerived = reinterpret_cast<const unsigned long*>(puml.cellData("derived"));
+  const auto movedIdentity = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
+  const auto movedDerived = puml.data(puml.find<unsigned long>("derived", PUML::CELL));
 
-  std::vector<unsigned long> local(puml.numOriginalCells());
-  for (std::size_t i = 0; i < puml.numOriginalCells(); ++i) {
-    local[i] = movedIdentity[i];
+  std::vector<unsigned long> local(movedIdentity.begin(), movedIdentity.end());
+  for (std::size_t i = 0; i < movedIdentity.size(); ++i) {
     EXPECT_EQ(movedDerived[i], 2 * movedIdentity[i] + 1) << "cell " << i;
   }
 

@@ -51,14 +51,14 @@ TEST(Reader, CellDataFollowsTheCells) {
   reader.addData<int>("boundary", meshFile() + ":/boundary", PUML::CELL, {});
   puml.generateMesh();
 
-  const auto* group = reinterpret_cast<const int*>(puml.cellData("group"));
-  const auto* boundary = reinterpret_cast<const int*>(puml.cellData("boundary"));
+  const auto group = puml.data(puml.find<int>("group", PUML::CELL));
+  const auto boundary = puml.data(puml.find<int>("boundary", PUML::CELL));
 
   long inGroupOne = 0;
   long interior = 0;
   long freeSurface = 0;
   long absorbing = 0;
-  for (std::size_t i = 0; i < puml.numOriginalCells(); ++i) {
+  for (std::size_t i = 0; i < group.size(); ++i) {
     inGroupOne += static_cast<long>(group[i] == 1);
     interior += static_cast<long>(boundary[i] == 0);
     freeSurface += static_cast<long>(boundary[i] == 1);
