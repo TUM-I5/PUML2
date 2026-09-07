@@ -14,6 +14,8 @@
 #ifndef PUML_HDF5READER_H
 #define PUML_HDF5READER_H
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -27,6 +29,7 @@
 #include "utils/logger.h"
 #include "utils/stringutils.h"
 
+#include "CellType.h"
 #include "PUML.h"
 #include "Topology.h"
 
@@ -120,7 +123,13 @@ class HDF5TypeInfer<long double> {
 template <TopoType Topo>
 class Hdf5Reader {
   public:
-  explicit Hdf5Reader(PUML<Topo>& puml) : m_puml(puml) {
+  /**
+   * @param puml The mesh to fill
+   * @param defaultType The kind of cell to assume for a file that does not say,
+   *        which is what a file of one kind of cell looks like
+   */
+  explicit Hdf5Reader(PUML<Topo>& puml, CellType defaultType = CellType::Tetrahedron)
+      : m_puml(puml), m_defaultType(defaultType) {
 #ifdef USE_MPI
     m_comm = puml.comm();
     MPI_Comm_rank(m_comm, &m_rank);
@@ -306,7 +315,189 @@ class Hdf5Reader {
     checkH5Err(H5Pclose(h5alist));
   }
 
+  /**
+   * Reads a mesh whose cells need not all be of the same kind.
+   *
+   * The connectivity is one flat array in which every cell is preceded by the
+   * kind it is of, and the offsets say where each cell begins in it. A file
+   * without the offsets holds cells of one kind only, laid out as a rectangle,
+   * and is read as the kind this reader was given.
+   *
+   * @param connectivityName The flat connectivity, as "file:/dataset"
+   * @param offsetsName The offsets into it; may be absent from the file
+   * @param vertexName The vertex positions
+   */
+  void openMixed(const std::string& connectivityName,
+                 const std::string& offsetsName,
+                 const std::string& vertexName) {
+    static_assert(Topo == MIXED, "only a mixed mesh is read this way");
+
+    if (exists(offsetsName)) {
+      readRaggedCells(connectivityName, offsetsName);
+    } else {
+      readUniformCells(connectivityName);
+    }
+
+    inferSize(DataType::Vertex, vertexName);
+    addData<double>("geometry", vertexName, DataType::Vertex, {3});
+
+    logInfo() << "Found" << m_puml.distributor(DataType::Cell).totalSize() << "cells";
+    logInfo() << "Found" << m_puml.distributor(DataType::Vertex).totalSize() << "vertices";
+  }
+
+  /**
+   * Whether the file holds the given dataset.
+   */
+  auto exists(const std::string& path) -> bool {
+    const hid_t h5file = fileOf(path);
+    return H5Lexists(h5file, datasetOf(path).c_str(), H5P_DEFAULT) > 0;
+  }
+
   private:
+  /**
+   * Reads a flat connectivity, splitting every cell into the kind it is of and
+   * the vertices it is built from.
+   */
+  void readRaggedCells(const std::string& connectivityName, const std::string& offsetsName) {
+    // The offsets hold one entry per cell plus one behind the last.
+    const auto totalCells = datasetLength(offsetsName) - 1;
+    m_puml.setTotalSize(DataType::Cell, totalCells);
+
+    const auto [firstCell, cellCount] = m_puml.distributor(DataType::Cell).offsetAndSize(m_rank);
+
+    std::vector<GlobalId> offsets(cellCount + 1);
+    readSlab(offsetsName, firstCell, cellCount + 1, offsets.data());
+
+    const auto base = offsets.front();
+    std::vector<GlobalId> flat(offsets.back() - base);
+    readSlab(connectivityName, base, flat.size(), flat.data());
+
+    const auto handle = m_puml.template allocateData<GlobalId>(
+        "connectivity", DataType::Cell, {internal::MaxCellVertices});
+    auto view = m_puml.data(handle);
+    std::vector<CellType> types(cellCount);
+
+    for (Size i = 0; i < cellCount; ++i) {
+      const auto first = offsets[i] - base;
+      const auto last = offsets[i + 1] - base;
+      if (last <= first) {
+        throwError("cell", firstCell + i, "holds no values at all");
+      }
+
+      const auto type = static_cast<CellType>(flat[first]);
+      if (!internal::isSupported(type)) {
+        throwError("cell",
+                   firstCell + i,
+                   "is of kind",
+                   static_cast<unsigned int>(flat[first]),
+                   "which a mesh cannot be built from");
+      }
+      const auto& shape = internal::shapeOf(type);
+      if (last - first - 1 != shape.vertexCount) {
+        throwError("cell",
+                   firstCell + i,
+                   "is a",
+                   internal::nameOf(type),
+                   "and needs",
+                   shape.vertexCount,
+                   "vertices, but the file gives it",
+                   last - first - 1);
+      }
+
+      types[i] = type;
+      auto* cell = view.entity(i);
+      for (Size v = 0; v < internal::MaxCellVertices; ++v) {
+        cell[v] = flat[first + 1 + std::min<Size>(v, shape.vertexCount - 1)];
+      }
+    }
+
+    m_puml.setCellTypes(types.data());
+  }
+
+  /**
+   * Reads a rectangular connectivity of one kind of cell into a mixed mesh.
+   */
+  void readUniformCells(const std::string& connectivityName) {
+    const auto& shape = internal::shapeOf(m_defaultType);
+
+    inferSize(DataType::Cell, connectivityName);
+    const auto cellCount = m_puml.numOriginalCells();
+
+    std::vector<GlobalId> raw(cellCount * shape.vertexCount);
+    const auto firstCell = m_puml.distributor(DataType::Cell).offsetAndSize(m_rank).first;
+    readSlab2d(connectivityName, firstCell, cellCount, shape.vertexCount, raw.data());
+
+    const auto handle = m_puml.template allocateData<GlobalId>(
+        "connectivity", DataType::Cell, {internal::MaxCellVertices});
+    auto view = m_puml.data(handle);
+    for (Size i = 0; i < cellCount; ++i) {
+      auto* cell = view.entity(i);
+      for (Size v = 0; v < internal::MaxCellVertices; ++v) {
+        cell[v] = raw[(i * shape.vertexCount) + std::min<Size>(v, shape.vertexCount - 1)];
+      }
+    }
+
+    const std::vector<CellType> types(cellCount, m_defaultType);
+    m_puml.setCellTypes(types.data());
+  }
+
+  /// The length of the first dimension of a dataset.
+  auto datasetLength(const std::string& path) -> hsize_t {
+    const hid_t h5file = fileOf(path);
+    hid_t h5dataset = H5Dopen(h5file, datasetOf(path).c_str(), H5P_DEFAULT);
+    checkH5Err(h5dataset);
+    hid_t h5space = H5Dget_space(h5dataset);
+    checkH5Err(h5space);
+    std::vector<hsize_t> dim(H5Sget_simple_extent_ndims(h5space));
+    checkH5Err(H5Sget_simple_extent_dims(h5space, dim.data(), nullptr));
+    checkH5Err(H5Sclose(h5space));
+    checkH5Err(H5Dclose(h5dataset));
+    return dim[0];
+  }
+
+  /// Reads count values of a one-dimensional dataset, starting at offset.
+  void readSlab(const std::string& path, hsize_t offset, hsize_t count, GlobalId* into) {
+    readSlabImpl(path, {offset, 0}, {count, 0}, 1, into);
+  }
+
+  /// Reads count rows of a two-dimensional dataset, starting at offset.
+  void readSlab2d(
+      const std::string& path, hsize_t offset, hsize_t count, hsize_t width, GlobalId* into) {
+    readSlabImpl(path, {offset, 0}, {count, width}, 2, into);
+  }
+
+  void readSlabImpl(const std::string& path,
+                    std::array<hsize_t, 2> start,
+                    std::array<hsize_t, 2> count,
+                    int rank,
+                    GlobalId* into) {
+    const hid_t h5file = fileOf(path);
+    hid_t h5dataset = H5Dopen(h5file, datasetOf(path).c_str(), H5P_DEFAULT);
+    checkH5Err(h5dataset);
+
+    hid_t h5space = H5Dget_space(h5dataset);
+    checkH5Err(h5space);
+    checkH5Err(
+        H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
+
+    hid_t h5memspace = H5Screate_simple(rank, count.data(), nullptr);
+    checkH5Err(h5memspace);
+
+    hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
+    checkH5Err(h5alist);
+#ifdef USE_MPI
+    checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
+#endif // USE_MPI
+
+    checkH5Err(
+        H5Dread(h5dataset, HDF5TypeInfer<GlobalId>::type(), h5memspace, h5space, h5alist, into));
+
+    checkH5Err(H5Pclose(h5alist));
+    checkH5Err(H5Sclose(h5memspace));
+    checkH5Err(H5Sclose(h5space));
+    checkH5Err(H5Dclose(h5dataset));
+  }
+
   /**
    * The file a dataset lives in, opened at the first dataset and kept open for
    * the ones that follow.
@@ -358,6 +549,7 @@ class Hdf5Reader {
   }
 
   PUML<Topo>& m_puml;
+  CellType m_defaultType{CellType::Tetrahedron};
   hid_t m_file{-1};
   std::string m_fileName;
   int m_rank{0};
