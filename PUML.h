@@ -15,6 +15,7 @@
 #ifndef PUML_PUML_H
 #define PUML_PUML_H
 
+#include "DataBuffer.h"
 #include "TypeInference.h"
 #include <cstddef>
 #include <cstring>
@@ -249,28 +250,17 @@ class PUML {
   /** Maps from local vertex ids to local edge ids */
   internal::VertexElementMap<2> m_v2e;
 
+  /** One vertex data array, as it was handed over and as it is spread out */
+  struct VertexData {
+    internal::DataBuffer original;
+    internal::DataBuffer distributed;
+  };
+
   /** User cell data */
-  std::vector<void*> m_cellData;
+  std::vector<internal::DataBuffer> m_cellData;
 
   /** User vertex data */
-  std::vector<void*> m_vertexData;
-
-  /** Original user vertex data */
-  std::vector<void*> m_originalVertexData;
-
-  std::vector<std::size_t> m_cellDataSize;
-
-  std::vector<std::size_t> m_vertexDataSize;
-
-#ifdef USE_MPI
-
-  std::vector<MPI_Datatype> m_cellDataType;
-  std::vector<bool> m_cellDataTypeDerived;
-
-  std::vector<MPI_Datatype> m_vertexDataType;
-  std::vector<bool> m_vertexDataTypeDerived;
-
-#endif
+  std::vector<VertexData> m_vertexData;
 
   // data names; supersede number indexing
   std::unordered_map<std::string, std::size_t> m_cellDataIndex;
@@ -310,53 +300,40 @@ class PUML {
     return *m_distributor[static_cast<int>(type)];
   }
 
-#ifdef USE_MPI
-  auto createDatatypeArray(MPI_Datatype baseType, std::size_t elemSize)
-      -> std::pair<MPI_Datatype, bool> {
-    if (elemSize == 1) {
-      return {baseType, false};
+  /**
+   * Files a data array under the given name, replacing an array of the same
+   * name.
+   */
+  void store(const std::string& name, DataType type, internal::DataBuffer&& buffer) {
+    if (type == DataType::Vertex) {
+      const auto existing = m_vertexDataIndex.find(name);
+      if (existing != m_vertexDataIndex.end()) {
+        m_vertexData[existing->second] = VertexData{std::move(buffer), {}};
+        return;
+      }
+      m_vertexDataIndex[name] = m_vertexData.size();
+      m_vertexData.push_back(VertexData{std::move(buffer), {}});
+      return;
     }
-    MPI_Datatype newType = MPI_DATATYPE_NULL;
-    MPI_Type_contiguous(elemSize, baseType, &newType);
-    MPI_Type_commit(&newType);
-    return {newType, true};
+
+    const auto existing = m_cellDataIndex.find(name);
+    if (existing != m_cellDataIndex.end()) {
+      m_cellData[existing->second] = std::move(buffer);
+      return;
+    }
+    m_cellDataIndex[name] = m_cellData.size();
+    m_cellData.push_back(std::move(buffer));
   }
-#endif // USE_MPI
 
   public:
   PUML() = default;
-  auto operator=(const PUML&) = delete;
-  auto operator=(PUML&&) = delete;
+  ~PUML() = default;
+
   PUML(const PUML&) = delete;
-  PUML(PUML&&) = delete;
+  auto operator=(const PUML&) -> PUML& = delete;
 
-  virtual ~PUML() {
-    for (const auto& i : m_cellData) {
-      std::free(i);
-    }
-
-    for (const auto& i : m_vertexData) {
-      std::free(i);
-    }
-
-    for (const auto& i : m_originalVertexData) {
-      std::free(i);
-    }
-
-#ifdef USE_MPI
-    for (size_t i = 0; i < m_cellDataType.size(); ++i) {
-      if (m_cellDataTypeDerived[i]) {
-        MPI_Type_free(&m_cellDataType[i]);
-      }
-    }
-
-    for (size_t i = 0; i < m_vertexDataType.size(); ++i) {
-      if (m_vertexDataTypeDerived[i]) {
-        MPI_Type_free(&m_vertexDataType[i]);
-      }
-    }
-#endif
-  }
+  PUML(PUML&&) = default;
+  auto operator=(PUML&&) -> PUML& = default;
 
 #ifdef USE_MPI
   void setComm(MPI_Comm comm) { m_comm = comm; }
@@ -513,31 +490,17 @@ class PUML {
       elemSize *= size;
     }
 
-    void* data = std::malloc(sizeof(T) * localSize * elemSize);
-    std::memcpy(data, rawData, sizeof(T) * localSize * elemSize);
+    internal::DataBuffer buffer(localSize,
+                                elemSize,
+                                sizeof(T)
+#ifdef USE_MPI
+                                    ,
+                                mpiType
+#endif // USE_MPI
+    );
+    std::memcpy(buffer.data(), rawData, buffer.bytes());
 
-    switch (type) {
-    case DataType::Cell: {
-      m_cellDataIndex[name] = m_cellData.size();
-      m_cellData.push_back(data);
-      m_cellDataSize.push_back(sizeof(T) * elemSize);
-#ifdef USE_MPI
-      auto [type, derived] = createDatatypeArray(mpiType, elemSize);
-      m_cellDataType.push_back(type);
-      m_cellDataTypeDerived.push_back(derived);
-#endif
-    } break;
-    case DataType::Vertex: {
-      m_vertexDataIndex[name] = m_originalVertexData.size();
-      m_originalVertexData.push_back(data);
-      m_vertexDataSize.push_back(sizeof(T) * elemSize);
-#ifdef USE_MPI
-      auto [type, derived] = createDatatypeArray(mpiType, elemSize);
-      m_vertexDataType.push_back(type);
-      m_vertexDataTypeDerived.push_back(derived);
-#endif
-    } break;
-    }
+    store(name, type, std::move(buffer));
   }
 
   template <typename T>
@@ -670,8 +633,15 @@ class PUML {
     checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-    void* data = std::malloc(sizeof(T) * localSize * elemSize);
-    checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, data));
+    internal::DataBuffer buffer(localSize,
+                                elemSize,
+                                sizeof(T)
+#ifdef USE_MPI
+                                    ,
+                                mpiType
+#endif // USE_MPI
+    );
+    checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, buffer.data()));
 
     // Close data
     checkH5Err(H5Sclose(h5space));
@@ -683,28 +653,7 @@ class PUML {
     checkH5Err(H5Pclose(h5plist));
     checkH5Err(H5Pclose(h5alist));
 
-    switch (type) {
-    case DataType::Cell: {
-      m_cellDataIndex[name] = m_cellData.size();
-      m_cellData.push_back(data);
-      m_cellDataSize.push_back(sizeof(T) * elemSize);
-#ifdef USE_MPI
-      auto [type, derived] = createDatatypeArray(mpiType, elemSize);
-      m_cellDataType.push_back(type);
-      m_cellDataTypeDerived.push_back(derived);
-#endif
-    } break;
-    case DataType::Vertex: {
-      m_vertexDataIndex[name] = m_originalVertexData.size();
-      m_originalVertexData.push_back(data);
-      m_vertexDataSize.push_back(sizeof(T) * elemSize);
-#ifdef USE_MPI
-      auto [type, derived] = createDatatypeArray(mpiType, elemSize);
-      m_vertexDataType.push_back(type);
-      m_vertexDataTypeDerived.push_back(derived);
-#endif
-    } break;
-    }
+    store(name, type, std::move(buffer));
   }
 
   void partition(const int* partition) {
@@ -725,16 +674,12 @@ class PUML {
       });
 
       // Sort cell data
-      for (std::size_t j = 0; j < m_cellData.size(); ++j) {
-        void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
+      for (auto& array : m_cellData) {
+        auto sorted = array.sameLayout(m_originalSize[0]);
         for (std::size_t i = 0; i < m_originalSize[0]; i++) {
-          std::memcpy(reinterpret_cast<char*>(newData) + (m_cellDataSize[j] * i),
-                      reinterpret_cast<char*>(m_cellData[j]) + (m_cellDataSize[j] * indices[i]),
-                      m_cellDataSize[j]);
+          sorted.copyEntity(i, array, indices[i]);
         }
-
-        std::free(m_cellData[j]);
-        m_cellData[j] = newData;
+        array = std::move(sorted);
       }
     }
 
@@ -767,20 +712,18 @@ class PUML {
 
 #ifdef USE_MPI
     // Exchange cell data
-    for (std::size_t j = 0; j < m_cellData.size(); ++j) {
-      void* newData = std::malloc(m_originalSize[0] * m_cellDataSize[j]);
-      MPI_Alltoallv(m_cellData[j],
+    for (auto& array : m_cellData) {
+      auto received = array.sameLayout(m_originalSize[0]);
+      MPI_Alltoallv(array.data(),
                     sendCount.data(),
                     sDispls.data(),
-                    m_cellDataType[j],
-                    newData,
+                    array.mpiType(),
+                    received.data(),
                     recvCount.data(),
                     rDispls.data(),
-                    m_cellDataType[j],
+                    array.mpiType(),
                     m_comm);
-
-      std::free(m_cellData[j]);
-      m_cellData[j] = newData;
+      array = std::move(received);
     }
 #endif // USE_MPI
   }
@@ -808,9 +751,9 @@ class PUML {
     using IndexType = unsigned long;
     std::vector<std::unordered_set<unsigned long>> requiredVertexSets(procs);
     for (const auto& indexDataName : indexDataNames) {
-      const auto dataIndex = m_cellDataIndex.at(indexDataName);
-      const auto elemCount = m_cellDataSize[dataIndex] / sizeof(IndexType);
-      const auto* data = reinterpret_cast<const IndexType*>(m_cellData[dataIndex]);
+      const auto& indexArray = m_cellData[m_cellDataIndex.at(indexDataName)];
+      const auto elemCount = indexArray.entitySize() / sizeof(IndexType);
+      const auto* data = reinterpret_cast<const IndexType*>(indexArray.data());
       for (std::size_t i = 0; i < m_originalSize[0]; i++) {
         for (std::size_t j = 0; j < elemCount; j++) {
           const auto index = data[i * elemCount + j];
@@ -881,10 +824,10 @@ class PUML {
 #endif // USE_MPI
 
     // Send back vertex coordinates (and other data)
-    std::vector<void*> distribData;
-    distribData.resize(m_originalVertexData.size());
-    for (std::size_t i = 0; i < m_originalVertexData.size(); i++) {
-      distribData[i] = std::malloc(totalRecv * m_vertexDataSize[i]);
+    std::vector<internal::DataBuffer> distribData;
+    distribData.reserve(m_vertexData.size());
+    for (const auto& array : m_vertexData) {
+      distribData.push_back(array.original.sameLayout(totalRecv));
     }
     std::vector<std::vector<int>> sharedRanks(m_originalSize[1]);
     {
@@ -897,11 +840,8 @@ class PUML {
           assert(distribVertexIds[k] < m_originalSize[1]);
 
           // Handle other vertex data
-          for (std::size_t l = 0; l < m_originalVertexData.size(); l++) {
-            std::memcpy(reinterpret_cast<char*>(distribData[l]) + (m_vertexDataSize[l] * k),
-                        reinterpret_cast<char*>(m_originalVertexData[l]) +
-                            (m_vertexDataSize[l] * distribVertexIds[k]),
-                        m_vertexDataSize[l]);
+          for (std::size_t l = 0; l < m_vertexData.size(); l++) {
+            distribData[l].copyEntity(k, m_vertexData[l].original, distribVertexIds[k]);
           }
 
           // Save all ranks for each vertex
@@ -912,34 +852,29 @@ class PUML {
       }
     }
 
-    for (auto& it : m_vertexData) {
-      std::free(it);
-    }
-    m_vertexData.resize(m_originalVertexData.size());
-    for (unsigned int i = 0; i < m_originalVertexData.size(); i++) {
-      m_vertexData[i] = std::malloc(totalVertices * m_vertexDataSize[i]);
+    for (auto& array : m_vertexData) {
+      array.distributed = array.original.sameLayout(totalVertices);
     }
 #ifdef USE_MPI
-    for (std::size_t i = 0; i < m_originalVertexData.size(); i++) {
-      MPI_Alltoallv(distribData[i],
+    for (std::size_t i = 0; i < m_vertexData.size(); i++) {
+      MPI_Alltoallv(distribData[i].data(),
                     recvCount.data(),
                     rDispls.data(),
-                    m_vertexDataType[i],
-                    m_vertexData[i],
+                    distribData[i].mpiType(),
+                    m_vertexData[i].distributed.data(),
                     sendCount.data(),
                     sDispls.data(),
-                    m_vertexDataType[i],
+                    distribData[i].mpiType(),
                     m_comm);
     }
 #else  // USE_MPI
-    for (std::size_t i = 0; i < m_originalVertexData.size(); i++) {
-      exchangeLocally(distribData[i], m_vertexData[i], totalVertices * m_vertexDataSize[i]);
+    for (std::size_t i = 0; i < m_vertexData.size(); i++) {
+      exchangeLocally(distribData[i].data(),
+                      m_vertexData[i].distributed.data(),
+                      m_vertexData[i].distributed.bytes());
     }
 #endif // USE_MPI
 
-    for (auto& it : distribData) {
-      std::free(it);
-    }
     distribData.clear();
 
     // Send back the number of shared ranks for each vertex
@@ -1190,12 +1125,16 @@ class PUML {
    *
    * @note The pointer gets invalid when {@link partition()} is called
    */
-  auto originalCells() const -> const ocell_t* { return cellData("connectivity"); }
+  auto originalCells() const -> const ocell_t* {
+    return reinterpret_cast<const ocell_t*>(cellData("connectivity"));
+  }
 
   /**
    * @return The original vertices on this rank
    */
-  auto originalVertices() const -> const overtex_t* { return vertexData("geometry"); }
+  auto originalVertices() const -> const overtex_t* {
+    return reinterpret_cast<const overtex_t*>(vertexData("geometry"));
+  }
 
   /**
    * @return The cells of the mesh
@@ -1221,14 +1160,14 @@ class PUML {
    * @return User cell data
    */
   auto cellData(const std::string& name) const -> const void* {
-    return m_cellData[m_cellDataIndex.at(name)];
+    return m_cellData[m_cellDataIndex.at(name)].data();
   }
 
   /**
    * @return User vertex data
    */
   auto vertexData(const std::string& name) const -> const void* {
-    return m_vertexData[m_vertexDataIndex.at(name)];
+    return m_vertexData[m_vertexDataIndex.at(name)].distributed.data();
   }
 
   /**
@@ -1635,7 +1574,7 @@ class PUML {
   void identify(const std::string& connectivityToUpdate, const std::string& identify) {
     const auto* identifiers = reinterpret_cast<const unsigned long*>(vertexData(identify));
     auto* connectivity =
-        reinterpret_cast<ocell_t*>(m_cellData[m_cellDataIndex.at(connectivityToUpdate)]);
+        reinterpret_cast<ocell_t*>(m_cellData[m_cellDataIndex.at(connectivityToUpdate)].data());
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {
       for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
         connectivity[i][j] = identifiers[m_cells[i].m_vertices[j]];

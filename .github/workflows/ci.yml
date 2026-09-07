@@ -71,8 +71,12 @@ jobs:
         run: ctest --output-on-failure
 
   sanitizers:
-    name: ASan + UBSan
+    name: ASan + UBSan MPI=${{ matrix.mpi }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mpi: [ON, OFF]
 
     steps:
       - uses: actions/checkout@v4
@@ -83,24 +87,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build libopenmpi-dev openmpi-bin libhdf5-openmpi-dev
+            cmake ninja-build libhdf5-dev
+          if [ "${{ matrix.mpi }}" = "ON" ]; then
+            sudo apt-get install -y --no-install-recommends \
+              libopenmpi-dev openmpi-bin libhdf5-openmpi-dev
+          fi
 
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DPUML_USE_MPI=ON \
+            -DPUML_USE_MPI=${{ matrix.mpi }} \
             -DPUML_TESTING=ON \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
 
       - name: Build
         run: cmake --build build -j $(nproc)
 
+      # Leak detection runs in the build without MPI. Open MPI unloads its
+      # plugins before the process ends, so the leaks it reports have stacks
+      # that cannot be resolved, and suppressing them by name does not work.
       - name: Test
         working-directory: build
         env:
-          # MPI itself keeps allocations alive past finalisation.
-          ASAN_OPTIONS: detect_leaks=0
+          ASAN_OPTIONS: detect_leaks=${{ matrix.mpi == 'ON' && '0' || '1' }}
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --output-on-failure
 
