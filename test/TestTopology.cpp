@@ -21,6 +21,7 @@ constexpr auto faceVertexCountMatches() -> bool {
 static_assert(faceVertexCountMatches<PUML::TETRAHEDRON>());
 static_assert(faceVertexCountMatches<PUML::TRIANGLE>());
 static_assert(faceVertexCountMatches<PUML::QUADRANGLE>());
+static_assert(faceVertexCountMatches<PUML::HEXAHEDRON>());
 
 static_assert(Topology<PUML::TETRAHEDRON>::faceedges() ==
               Topology<PUML::TETRAHEDRON>::facevertices());
@@ -41,25 +42,33 @@ TEST(Topology, FaceTablesReferenceCellVertices) {
   checkFaceTable<PUML::TETRAHEDRON>();
   checkFaceTable<PUML::TRIANGLE>();
   checkFaceTable<PUML::QUADRANGLE>();
+  checkFaceTable<PUML::HEXAHEDRON>();
 }
 
-TEST(Topology, EdgeTableReferencesCellVertices) {
-  const auto* edges = Numbering<PUML::TETRAHEDRON>::edgevertices();
+template <PUML::TopoType Topo>
+void checkEdgeTable() {
+  const auto* edges = Numbering<Topo>::edgevertices();
 
-  for (unsigned int edge = 0; edge < Topology<PUML::TETRAHEDRON>::celledges(); ++edge) {
-    EXPECT_LT(edges[edge][0], Topology<PUML::TETRAHEDRON>::cellvertices());
-    EXPECT_LT(edges[edge][1], Topology<PUML::TETRAHEDRON>::cellvertices());
+  for (unsigned int edge = 0; edge < Topology<Topo>::celledges(); ++edge) {
+    EXPECT_LT(edges[edge][0], Topology<Topo>::cellvertices());
+    EXPECT_LT(edges[edge][1], Topology<Topo>::cellvertices());
     EXPECT_NE(edges[edge][0], edges[edge][1]) << "edge " << edge;
   }
 }
 
+TEST(Topology, EdgeTableReferencesCellVertices) {
+  checkEdgeTable<PUML::TETRAHEDRON>();
+  checkEdgeTable<PUML::HEXAHEDRON>();
+}
+
 /// The two faces listed for an edge have to be the two faces that contain both
 /// of its vertices.
-TEST(Topology, EdgeAdjacencyAgreesWithTheFaceTable) {
-  using Topo = Topology<PUML::TETRAHEDRON>;
-  const auto* edges = Numbering<PUML::TETRAHEDRON>::edgevertices();
-  const auto* edgeFaces = Numbering<PUML::TETRAHEDRON>::edgefaces();
-  const auto* faces = Numbering<PUML::TETRAHEDRON>::facevertices();
+template <PUML::TopoType TopoType_>
+void checkEdgeAdjacency() {
+  using Topo = Topology<TopoType_>;
+  const auto* edges = Numbering<TopoType_>::edgevertices();
+  const auto* edgeFaces = Numbering<TopoType_>::edgefaces();
+  const auto* faces = Numbering<TopoType_>::facevertices();
 
   const auto faceContains = [&](unsigned int face, unsigned int vertex) {
     for (unsigned int v = 0; v < Topo::facevertices(); ++v) {
@@ -82,6 +91,11 @@ TEST(Topology, EdgeAdjacencyAgreesWithTheFaceTable) {
     EXPECT_EQ(found, 2U) << "edge " << edge;
     EXPECT_NE(edgeFaces[edge][0], edgeFaces[edge][1]) << "edge " << edge;
   }
+}
+
+TEST(Topology, EdgeAdjacencyAgreesWithTheFaceTable) {
+  checkEdgeAdjacency<PUML::TETRAHEDRON>();
+  checkEdgeAdjacency<PUML::HEXAHEDRON>();
 }
 
 } // namespace

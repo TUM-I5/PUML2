@@ -193,6 +193,71 @@ inline auto makeCubeMesh(int n) -> CubeMesh {
   return mesh;
 }
 
+struct HexCubeMesh {
+  std::vector<unsigned long> connect; // numCells * 8
+  std::vector<double> geometry;       // numVertices * 3
+  std::size_t numCells{0};
+  std::size_t numVertices{0};
+  int n{0};
+
+  [[nodiscard]] auto numBoundaryFaces() const -> long { return 6L * n * n; }
+};
+
+/// An n x n x n grid of hexahedra, numbered the way XDMF numbers them: the four
+/// vertices of the lower face counter-clockwise, then the four above them.
+inline auto makeHexCubeMesh(int n) -> HexCubeMesh {
+  const auto vid = [&](int i, int j, int k) {
+    return static_cast<unsigned long>((k * (n + 1) + j) * (n + 1) + i);
+  };
+
+  HexCubeMesh mesh;
+  mesh.n = n;
+  mesh.numVertices = static_cast<std::size_t>(n + 1) * (n + 1) * (n + 1);
+  mesh.geometry.resize(mesh.numVertices * 3);
+  for (int k = 0; k <= n; ++k) {
+    for (int j = 0; j <= n; ++j) {
+      for (int i = 0; i <= n; ++i) {
+        const auto v = vid(i, j, k);
+        mesh.geometry[3 * v + 0] = i;
+        mesh.geometry[3 * v + 1] = j;
+        mesh.geometry[3 * v + 2] = k;
+      }
+    }
+  }
+
+  for (int k = 0; k < n; ++k) {
+    for (int j = 0; j < n; ++j) {
+      for (int i = 0; i < n; ++i) {
+        for (const auto& c : {std::array<int, 3>{0, 0, 0},
+                              {1, 0, 0},
+                              {1, 1, 0},
+                              {0, 1, 0},
+                              {0, 0, 1},
+                              {1, 0, 1},
+                              {1, 1, 1},
+                              {0, 1, 1}}) {
+          mesh.connect.push_back(vid(i + c[0], j + c[1], k + c[2]));
+        }
+      }
+    }
+  }
+  mesh.numCells = mesh.connect.size() / 8;
+  return mesh;
+}
+
+inline void feed(PUML::HEXPUML& puml, const HexCubeMesh& mesh, Split cells, Split vertices) {
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+
+  puml.setSize(PUML::CELL, cells.size);
+  puml.setSize(PUML::VERTEX, vertices.size);
+  puml.addDataArray<unsigned long>(
+      "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8});
+  puml.addDataArray<double>(
+      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
+}
+
 /// Hands the given portion of a cube mesh to PUML without touching a file.
 inline void feed(PUML::TETPUML& puml, const CubeMesh& mesh, Split cells, Split vertices) {
 #ifdef USE_MPI
@@ -218,7 +283,8 @@ struct MeshCounts {
   [[nodiscard]] auto euler() const -> long { return vertices - edges + faces - cells; }
 };
 
-inline auto measure(const PUML::TETPUML& puml) -> MeshCounts {
+template <PUML::TopoType Topo>
+auto measure(const PUML::PUML<Topo>& puml) -> MeshCounts {
   MeshCounts counts;
   counts.cells = globalSum(static_cast<long>(puml.cells().size()));
   counts.faces = globalSum(static_cast<long>(ownedGids(puml.faces()).size()));

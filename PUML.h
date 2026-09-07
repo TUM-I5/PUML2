@@ -1009,16 +1009,16 @@ class PUML {
         }
 
         // Faces
-        std::array<LocalId, internal::Topology<Topo>::dimension()> v{};
+        std::array<LocalId, internal::Topology<Topo>::facevertices()> v{};
         std::array<LocalId, internal::Topology<Topo>::cellfaces()> faces{};
         for (std::size_t j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
           const auto& face = internal::Numbering<Topo>::facevertices()[j];
-          for (std::size_t d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
+          for (std::size_t d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
             v[d] = m_cells[i].m_vertices[face[d]];
           }
           faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
           if constexpr (internal::Topology<Topo>::dimension() == 2) {
-            for (unsigned int d = 0; d < internal::Topology<Topo>::dimension(); ++d) {
+            for (unsigned int d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
               vertexUpward.add(v[d], faces[j]);
             }
           }
@@ -1579,6 +1579,7 @@ class PUML {
 
 /** Convenient typedef for tetrahrdral meshes */
 using TETPUML = PUML<TETRAHEDRON>;
+using HEXPUML = PUML<HEXAHEDRON>;
 
 } // namespace PUML
 

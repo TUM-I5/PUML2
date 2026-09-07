@@ -85,6 +85,36 @@ TEST(Mesh, UpwardListsAreSortedAndFreeOfDuplicates) {
 
 /// Every cell reached upwards from an edge has to be a real cell that the edge
 /// belongs to.
+/// The same invariants on a hexahedral mesh.
+TEST(Mesh, InMemoryHexCube) {
+  for (const int n : {2, 3}) {
+    const auto mesh = makeHexCubeMesh(n);
+    PUML::HEXPUML puml;
+    feed(puml,
+         mesh,
+         evenSplit(mesh.numCells, commRank(), commSize()),
+         evenSplit(mesh.numVertices, commRank(), commSize()));
+    puml.generateMesh();
+
+    const auto counts = measure(puml);
+
+    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
+    EXPECT_EQ(counts.unusedFaces, 0);
+    EXPECT_EQ(counts.euler(), 1);
+
+    // A hexahedron has six faces, an interior one shared by two cells.
+    EXPECT_EQ(2 * counts.faces - counts.boundaryFaces, 6 * counts.cells);
+    EXPECT_EQ(counts.faces, 3L * n * n * (n + 1));
+    EXPECT_EQ(counts.edges, 3L * n * (n + 1) * (n + 1));
+
+    for (const auto& gids : {allGids(puml.faces()), allGids(puml.edges())}) {
+      EXPECT_TRUE(isContiguousFromZero(gids));
+    }
+  }
+}
+
 TEST(Mesh, UpwardCellsAreValid) {
   const auto mesh = makeCubeMesh(3);
   PUML::TETPUML puml;

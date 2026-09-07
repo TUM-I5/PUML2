@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <cstdint>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -71,6 +72,36 @@ TEST(Reader, CellDataFollowsTheCells) {
   EXPECT_EQ(globalSum(interior), 15807);
   EXPECT_EQ(globalSum(freeSurface), 822);
   EXPECT_EQ(globalSum(absorbing), 1990);
+}
+
+/// HDF5 converts between the type on disk and the type asked for, so a dataset
+/// can be read at a fixed width no matter what width it was written at. That
+/// removes the need to pick the value type at run time.
+TEST(Reader, ConvertsTheValueTypeOnRead) {
+  PUML::TETPUML narrow;
+  PUML::TETPUML wide;
+#ifdef USE_MPI
+  narrow.setComm(MPI_COMM_WORLD);
+  wide.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> narrowReader(narrow);
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> wideReader(wide);
+
+  narrowReader.inferSize(PUML::CELL, meshFile() + ":/connect");
+  wideReader.inferSize(PUML::CELL, meshFile() + ":/connect");
+
+  // The dataset holds 32 bit integers.
+  narrowReader.addData<std::int32_t>("boundary", meshFile() + ":/boundary", PUML::CELL, {});
+  wideReader.addData<std::uint64_t>("boundary", meshFile() + ":/boundary", PUML::CELL, {});
+
+  const auto asWritten = narrow.data(narrow.find<std::int32_t>("boundary", PUML::CELL));
+  const auto asAsked = wide.data(wide.find<std::uint64_t>("boundary", PUML::CELL));
+
+  EXPECT_EQ(asWritten.size(), asAsked.size());
+  for (std::size_t i = 0; i < asWritten.size(); ++i) {
+    EXPECT_EQ(static_cast<std::uint64_t>(asWritten[i]), asAsked[i]) << "cell " << i;
+  }
 }
 
 } // namespace

@@ -127,6 +127,18 @@ class Hdf5Reader {
 #endif // USE_MPI
   }
 
+  Hdf5Reader(const Hdf5Reader&) = delete;
+  auto operator=(const Hdf5Reader&) -> Hdf5Reader& = delete;
+  Hdf5Reader(Hdf5Reader&&) = delete;
+  auto operator=(Hdf5Reader&&) -> Hdf5Reader& = delete;
+
+  ~Hdf5Reader() { closeFile(); }
+
+  /**
+   * Releases the file the reader is holding open.
+   */
+  void close() { closeFile(); }
+
   /**
    * Reads a cell and a vertex dataset. Equivalent to inferSize() followed by
    * addData() for each of the two.
@@ -157,23 +169,10 @@ class Hdf5Reader {
   }
 
   void inferSize(DataType type, const std::string& dataset) {
-    const auto names = utils::StringUtils::split(dataset, ':');
-    if (names.size() != 2) {
-      logError() << "Dataset to infer size name must have the form \"filename:/dataset\"";
-    }
-
-    // Open the cell file
-    hid_t h5plist = H5Pcreate(H5P_FILE_ACCESS);
-    checkH5Err(h5plist);
-#ifdef USE_MPI
-    checkH5Err(H5Pset_fapl_mpio(h5plist, m_comm, MPI_INFO_NULL));
-#endif // USE_MPI
-
-    hid_t h5file = H5Fopen(names[0].c_str(), H5F_ACC_RDONLY, h5plist);
-    checkH5Err(h5file);
+    const hid_t h5file = fileOf(dataset);
 
     // Get cell dataset
-    hid_t h5dataset = H5Dopen(h5file, names[1].c_str(), H5P_DEFAULT);
+    hid_t h5dataset = H5Dopen(h5file, datasetOf(dataset).c_str(), H5P_DEFAULT);
     checkH5Err(h5dataset);
 
     // Check the size of cell dataset
@@ -190,10 +189,6 @@ class Hdf5Reader {
 
     checkH5Err(H5Sclose(h5space));
     checkH5Err(H5Dclose(h5dataset));
-    checkH5Err(H5Fclose(h5file));
-
-    // Close other H5 stuff
-    checkH5Err(H5Pclose(h5plist));
   }
 
   template <typename T>
@@ -237,26 +232,13 @@ class Hdf5Reader {
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
     const auto& cellDistributor = m_puml.distributor(type);
-    std::vector<std::string> dataNames = utils::StringUtils::split(path, ':');
-    if (dataNames.size() != 2) {
-      logError() << "Data" << name << "must have the form \"filename:/dataset\", but it has"
-                 << path;
-    }
-
-    // Open the cell file
-    hid_t h5plist = H5Pcreate(H5P_FILE_ACCESS);
-    checkH5Err(h5plist);
-#ifdef USE_MPI
-    checkH5Err(H5Pset_fapl_mpio(h5plist, m_comm, MPI_INFO_NULL));
-#endif // USE_MPI
-
-    hid_t h5file = H5Fopen(dataNames[0].c_str(), H5F_ACC_RDONLY, h5plist);
-    checkH5Err(h5file);
+    const hid_t h5file = fileOf(path);
+    const auto dataName = datasetOf(path);
 
     const unsigned long totalSize = cellDistributor.totalSize();
 
     // Get cell dataset
-    hid_t h5dataset = H5Dopen(h5file, dataNames[1].c_str(), H5P_DEFAULT);
+    hid_t h5dataset = H5Dopen(h5file, dataName.c_str(), H5P_DEFAULT);
     checkH5Err(h5dataset);
 
     // Check the size of cell dataset
@@ -322,14 +304,52 @@ class Hdf5Reader {
     checkH5Err(H5Sclose(h5space));
     checkH5Err(H5Sclose(h5memspace));
     checkH5Err(H5Dclose(h5dataset));
-    checkH5Err(H5Fclose(h5file));
-
-    // Close other H5 stuff
-    checkH5Err(H5Pclose(h5plist));
     checkH5Err(H5Pclose(h5alist));
   }
 
   private:
+  /**
+   * The file a dataset lives in, opened at the first dataset and kept open for
+   * the ones that follow.
+   */
+  auto fileOf(const std::string& path) -> hid_t {
+    const auto names = utils::StringUtils::split(path, ':');
+    if (names.size() != 2) {
+      logError() << "Invalid dataset name" << path << "; expected the form file:/dataset";
+    }
+
+    if (m_file >= 0 && names[0] == m_fileName) {
+      return m_file;
+    }
+    closeFile();
+
+    hid_t plist = H5Pcreate(H5P_FILE_ACCESS);
+    checkH5Err(plist);
+#ifdef USE_MPI
+    checkH5Err(H5Pset_fapl_mpio(plist, m_comm, MPI_INFO_NULL));
+#endif // USE_MPI
+
+    m_file = H5Fopen(names[0].c_str(), H5F_ACC_RDONLY, plist);
+    checkH5Err(m_file);
+    checkH5Err(H5Pclose(plist));
+
+    m_fileName = names[0];
+    return m_file;
+  }
+
+  /// The dataset part of a "file:/dataset" name.
+  static auto datasetOf(const std::string& path) -> std::string {
+    return utils::StringUtils::split(path, ':')[1];
+  }
+
+  void closeFile() {
+    if (m_file >= 0) {
+      H5Fclose(m_file);
+      m_file = -1;
+      m_fileName.clear();
+    }
+  }
+
   template <typename TT>
   static void checkH5ErrImpl(TT status, const char* file, int line, int rank) {
     if (status < 0) {
@@ -339,6 +359,8 @@ class Hdf5Reader {
   }
 
   PUML<Topo>& m_puml;
+  hid_t m_file{-1};
+  std::string m_fileName;
   int m_rank{0};
 #ifdef USE_MPI
   MPI_Comm m_comm{MPI_COMM_WORLD};
