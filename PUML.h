@@ -412,15 +412,10 @@ class PUML {
     static_assert(std::is_trivially_copyable_v<T>, "T needs to be trivially copyable");
     static_assert(std::is_trivially_default_constructible_v<T>,
                   "T needs to be trivially default constructible");
-    int rank = 0;
-    int procs = 1;
-#ifdef USE_MPI
-    MPI_Comm_rank(m_comm, &rank);
-    MPI_Comm_size(m_comm, &procs);
-#endif // USE_MPI
 
-    auto cellDistributor = Distributor(m_originalTotalSize[static_cast<int>(type)], procs);
-    auto [offset, localSize] = cellDistributor.offsetAndSize(rank);
+    // rawData is owned by the caller and holds exactly the entities this rank
+    // has been assigned, which need not be an even share of the total.
+    const std::size_t localSize = m_originalSize[static_cast<int>(type)];
 
     size_t elemSize = 1;
     for (auto size : sizes) {
