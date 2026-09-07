@@ -41,7 +41,7 @@ class Element {
 
   private:
   /** The global id */
-  unsigned long m_gid;
+  unsigned long m_gid{};
 
   /** The local/global ids of the upper elements */
   Utype m_upward;
