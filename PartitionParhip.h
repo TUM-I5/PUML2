@@ -64,7 +64,7 @@ class PartitionParhip : public PartitionBase<Topo> {
     }
 
     int edgecut = 0;
-    int nparts = target.partitionCount();
+    auto nparts = static_cast<int>(target.partitionCount());
     std::vector<idxtype> part(cellCount);
     double imbalance = target.imbalance();
     MPI_Comm comm = graph.comm();
@@ -82,8 +82,8 @@ class PartitionParhip : public PartitionBase<Topo> {
                         part.data(),
                         &comm);
 
-    for (int i = 0; i < cellCount; i++) {
-      partition[i] = part[i];
+    for (std::size_t i = 0; i < cellCount; i++) {
+      partition[i] = static_cast<int>(part[i]);
     }
 
     return PartitioningResult::SUCCESS;

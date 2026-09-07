@@ -76,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partitioner: [parmetis, ptscotch]
+        partitioner: [parmetis, ptscotch, parhip]
 
     steps:
       - uses: actions/checkout@v4
@@ -88,11 +88,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build libopenmpi-dev openmpi-bin libhdf5-openmpi-dev
-          if [ "${{ matrix.partitioner }}" = "parmetis" ]; then
-            sudo apt-get install -y --no-install-recommends libparmetis-dev
-          else
-            sudo apt-get install -y --no-install-recommends libptscotch-dev
-          fi
+          case "${{ matrix.partitioner }}" in
+            parmetis) sudo apt-get install -y --no-install-recommends libparmetis-dev ;;
+            ptscotch) sudo apt-get install -y --no-install-recommends libptscotch-dev ;;
+          esac
+
+      # ParHIP is not packaged, so it is built from source.
+      - name: Build ParHIP
+        if: matrix.partitioner == 'parhip'
+        run: |
+          git clone --depth 1 https://github.com/KaHIP/KaHIP.git /tmp/kahip
+          cmake -S /tmp/kahip -B /tmp/kahip/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DPARHIP=ON
+          cmake --build /tmp/kahip/build --target parhip_interface -j $(nproc)
+          sudo cp /tmp/kahip/build/parallel/parallel_src/libparhip_interface.so /usr/local/lib/
+          sudo cp /tmp/kahip/parallel/parallel_src/interface/parhip_interface.h /usr/local/include/
+          sudo ldconfig
 
       - name: Configure
         run: |
