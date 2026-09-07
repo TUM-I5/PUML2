@@ -787,6 +787,9 @@ class PUML {
                   rDispls.data(),
                   MPI_UNSIGNED_LONG,
                   m_comm);
+#else  // USE_MPI
+    exchangeLocally(
+        requiredVertices.data(), distribVertexIds.data(), totalRecv * sizeof(unsigned long));
 #endif // USE_MPI
 
     // Send back vertex coordinates (and other data)
@@ -840,6 +843,10 @@ class PUML {
                     m_vertexDataType[i],
                     m_comm);
     }
+#else  // USE_MPI
+    for (std::size_t i = 0; i < m_originalVertexData.size(); i++) {
+      exchangeLocally(distribData[i], m_vertexData[i], totalVertices * m_vertexDataSize[i]);
+    }
 #endif // USE_MPI
 
     for (auto& it : distribData) {
@@ -867,6 +874,9 @@ class PUML {
                   sDispls.data(),
                   MPI_UNSIGNED,
                   m_comm);
+#else  // USE_MPI
+    exchangeLocally(
+        distNsharedRanks.data(), recvNsharedRanks.data(), totalVertices * sizeof(unsigned int));
 #endif // USE_MPI
 
     // Setup buffers for exchanging shared ranks
@@ -926,6 +936,9 @@ class PUML {
                   rDispls.data(),
                   MPI_INT,
                   m_comm);
+#else  // USE_MPI
+    exchangeLocally(
+        distSharedRanks.data(), recvSharedRanks.data(), recvTotalSharedRanks * sizeof(int));
 #endif // USE_MPI
 
     // Generate the vertex array
@@ -1454,6 +1467,14 @@ class PUML {
       }
     }
     MPI_Type_free(&type);
+#else  // USE_MPI
+    static_cast<void>(down);
+
+    // This rank owns every element, so the global ids are the local ones and no
+    // element sits on a partition boundary.
+    for (std::size_t i = 0; i < elements.size(); ++i) {
+      elements[i].m_gid = i;
+    }
 #endif // USE_MPI
   }
 
@@ -1478,6 +1499,20 @@ class PUML {
     edgeUpward[lid].insert(plid2);
 
     return lid;
+  }
+
+  /**
+   * Transfers an exchange buffer for the case that this rank is the only
+   * participant in the exchange.
+   *
+   * @param send The send buffer
+   * @param recv The receive buffer
+   * @param bytes The number of bytes to transfer
+   */
+  static void exchangeLocally(const void* send, void* recv, std::size_t bytes) {
+    if (bytes > 0) {
+      std::memcpy(recv, send, bytes);
+    }
   }
 
   /**
