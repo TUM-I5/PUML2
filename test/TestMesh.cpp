@@ -147,6 +147,60 @@ TEST(Mesh, TwoDimensionalUpward) {
   }
 }
 
+/// A mesh of hexahedra and tetrahedra at once.
+TEST(Mesh, InMemoryMixed) {
+  for (const int n : {2, 3}) {
+    const auto mesh = makeMixedMesh(n);
+    PUML::MIXEDPUML puml;
+    feed(puml,
+         mesh,
+         evenSplit(mesh.numCells, commRank(), commSize()),
+         evenSplit(mesh.numVertices, commRank(), commSize()));
+    puml.generateMesh();
+
+    const auto counts = measure(puml);
+
+    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.faces, mesh.numFaces);
+    EXPECT_EQ(counts.edges, mesh.numEdges);
+    EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces);
+    EXPECT_EQ(counts.unusedFaces, 0);
+
+    // Two blocks that do not touch, so the characteristic counts twice.
+    EXPECT_EQ(counts.euler(), 2);
+
+    // Six faces per hexahedron and four per tetrahedron, interior ones twice.
+    EXPECT_EQ(2 * counts.faces - counts.boundaryFaces,
+              6 * static_cast<long>(mesh.numHexCells) + 4 * static_cast<long>(mesh.numTetCells));
+
+    for (const auto& gids : {allGids(puml.faces()), allGids(puml.edges())}) {
+      EXPECT_TRUE(isContiguousFromZero(gids));
+    }
+  }
+}
+
+/// A triangular face and a quadrilateral one never match, however their keys
+/// are padded.
+TEST(Mesh, MixedFacesDoNotMatchAcrossKinds) {
+  const auto mesh = makeMixedMesh(2);
+  PUML::MIXEDPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  // Every face belongs to cells of one kind only.
+  const auto types = puml.cellTypes();
+  for (const auto& face : puml.faces()) {
+    const auto adjacent = PUML::Upward::cells(puml, face);
+    if (adjacent[1] != PUML::InvalidLocalId) {
+      EXPECT_EQ(types[adjacent[0]], types[adjacent[1]]);
+    }
+  }
+}
+
 /// The same invariants on a hexahedral mesh.
 TEST(Mesh, InMemoryHexCube) {
   for (const int n : {2, 3}) {

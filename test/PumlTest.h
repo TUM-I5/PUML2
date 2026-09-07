@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -316,6 +317,87 @@ inline void
   puml.setSize(PUML::VERTEX, vertices.size);
   puml.addDataArray<unsigned long>(
       "connectivity", mesh.connect.data() + 3 * cells.offset, PUML::CELL, {3});
+  puml.addDataArray<double>(
+      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
+}
+
+/// A mesh of both hexahedra and tetrahedra, in two blocks that do not touch:
+/// a hexahedral grid and a Kuhn-subdivided one, set apart along x. A shared
+/// face between the two would need a pyramid or a wedge, which comes later.
+struct MixedMesh {
+  std::vector<unsigned long> connect; // padded to eight vertices per cell
+  std::vector<std::uint8_t> types;
+  std::vector<double> geometry;
+  std::size_t numCells{0};
+  std::size_t numVertices{0};
+  std::size_t numHexCells{0};
+  std::size_t numTetCells{0};
+  long numFaces{0};
+  long numEdges{0};
+  long numBoundaryFaces{0};
+};
+
+inline auto makeMixedMesh(int n) -> MixedMesh {
+  const auto hex = makeHexCubeMesh(n);
+  const auto tet = makeCubeMesh(n);
+
+  MixedMesh mesh;
+  mesh.numHexCells = hex.numCells;
+  mesh.numTetCells = tet.numCells;
+  mesh.numCells = hex.numCells + tet.numCells;
+  mesh.numVertices = hex.numVertices + tet.numVertices;
+
+  mesh.geometry = hex.geometry;
+  for (std::size_t v = 0; v < tet.numVertices; ++v) {
+    mesh.geometry.push_back(tet.geometry[3 * v + 0] + 2.0 * n);
+    mesh.geometry.push_back(tet.geometry[3 * v + 1]);
+    mesh.geometry.push_back(tet.geometry[3 * v + 2]);
+  }
+
+  const auto pad = [&mesh](const unsigned long* first, std::size_t count) {
+    for (std::size_t i = 0; i < 8; ++i) {
+      mesh.connect.push_back(i < count ? first[i] : first[0]);
+    }
+  };
+
+  for (std::size_t c = 0; c < hex.numCells; ++c) {
+    pad(hex.connect.data() + 8 * c, 8);
+    mesh.types.push_back(static_cast<std::uint8_t>(PUML::CellType::Hexahedron));
+  }
+  for (std::size_t c = 0; c < tet.numCells; ++c) {
+    const auto* first = tet.connect.data() + 4 * c;
+    std::array<unsigned long, 4> shifted{};
+    for (std::size_t i = 0; i < 4; ++i) {
+      shifted[i] = first[i] + hex.numVertices;
+    }
+    pad(shifted.data(), 4);
+    mesh.types.push_back(static_cast<std::uint8_t>(PUML::CellType::Tetrahedron));
+  }
+
+  mesh.numBoundaryFaces = hex.numBoundaryFaces() + tet.numBoundaryFaces();
+
+  // Every hexahedron brings six faces and every tetrahedron four, and an
+  // interior face is brought by both of its cells.
+  mesh.numFaces = (6L * static_cast<long>(mesh.numHexCells) +
+                   4L * static_cast<long>(mesh.numTetCells) + mesh.numBoundaryFaces) /
+                  2;
+
+  // Two blocks that do not touch, so the Euler characteristic counts twice.
+  mesh.numEdges =
+      static_cast<long>(mesh.numVertices) + mesh.numFaces - static_cast<long>(mesh.numCells) - 2;
+  return mesh;
+}
+
+inline void feed(PUML::MIXEDPUML& puml, const MixedMesh& mesh, Split cells, Split vertices) {
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+
+  puml.setSize(PUML::CELL, cells.size);
+  puml.setSize(PUML::VERTEX, vertices.size);
+  puml.addDataArray<unsigned long>(
+      "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8});
+  puml.setCellTypes(reinterpret_cast<const PUML::CellType*>(mesh.types.data() + cells.offset));
   puml.addDataArray<double>(
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
 }

@@ -15,6 +15,7 @@
 #ifndef PUML_PUML_H
 #define PUML_PUML_H
 
+#include "CellType.h"
 #include "DataBuffer.h"
 #include "Error.h"
 #include "DataHandle.h"
@@ -533,6 +534,30 @@ class PUML {
   void setComm(MPI_Comm comm) { m_comm = comm; }
 #endif // USE_MPI
 
+  /** The name the kind of every cell is filed under */
+  static constexpr const char* CellTypeName = "celltype";
+
+  /**
+   * Hands over the kind of every cell of a mixed mesh. It is filed as cell
+   * data, so it travels with its cell through partitioning and cloning.
+   */
+  void setCellTypes(const CellType* types) {
+    static_assert(Topo == MIXED, "only a mixed mesh needs the kind of its cells");
+    addDataArray<std::uint8_t>(
+        CellTypeName, reinterpret_cast<const std::uint8_t*>(types), DataType::Cell, {});
+  }
+
+  /**
+   * The kind of every cell of a mixed mesh.
+   */
+  [[nodiscard]] auto cellTypes() const -> DataView<const std::uint8_t> {
+    static_assert(Topo == MIXED, "only a mixed mesh has cells of more than one kind");
+    if (!has(CellTypeName, DataType::Cell)) {
+      throwError("a mixed mesh needs the kind of every cell; call setCellTypes first");
+    }
+    return data(find<std::uint8_t>(CellTypeName, DataType::Cell));
+  }
+
   /**
    * Gives the entity distribution for cells or vertices.
    */
@@ -1012,42 +1037,92 @@ class PUML {
                              internal::Topology<Topo>::cellfaces() * m_originalSize[0]);
       }
 
-      for (std::size_t i = 0; i < m_originalSize[0]; i++) {
-        m_cells[i].m_gid = i + cellOffset;
+      // A mesh of one kind of cell walks the tables of that kind, known while
+      // compiling. A mixed one looks up the kind of every cell; the two paths
+      // are written out separately so that the common case keeps its tables.
+      if constexpr (Topo == MIXED) {
+        const auto types = cellTypes();
 
-        for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-          m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
-        }
+        for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+          m_cells[i].m_gid = i + cellOffset;
 
-        // Faces
-        std::array<LocalId, internal::Topology<Topo>::facevertices()> v{};
-        std::array<LocalId, internal::Topology<Topo>::cellfaces()> faces{};
-        for (std::size_t j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
-          const auto& face = internal::Numbering<Topo>::facevertices()[j];
-          for (std::size_t d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
-            v[d] = m_cells[i].m_vertices[face[d]];
+          const auto type = static_cast<CellType>(types[i]);
+          if (!internal::isSupported(type)) {
+            throwError("cell",
+                       i,
+                       "is a",
+                       internal::nameOf(type),
+                       ", which a mixed mesh cannot be built from yet");
           }
-          faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
-          if constexpr (internal::Topology<Topo>::dimension() == 2) {
-            for (unsigned int d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
-              vertexUpward.add(v[d], faces[j]);
+          const auto& shape = internal::shapeOf(type);
+
+          for (std::size_t j = 0; j < shape.vertexCount; j++) {
+            m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
+          }
+          for (std::size_t j = shape.vertexCount; j < internal::MaxCellVertices; j++) {
+            m_cells[i].m_vertices[j] = InvalidLocalId;
+          }
+
+          // Faces. A face of fewer vertices than the widest kind is padded,
+          // and the padding sorts to the end of the key.
+          std::array<LocalId, internal::MaxCellFaces> faces{};
+          for (std::size_t j = 0; j < shape.faceCount; ++j) {
+            std::array<LocalId, internal::MaxFaceVertices> v{};
+            v.fill(InvalidLocalId);
+            for (std::size_t d = 0; d < shape.faceVertexCount[j]; ++d) {
+              v[d] = m_cells[i].m_vertices[shape.faceVertices[j][d]];
             }
+            faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
           }
-        }
 
-        // Edges + Vertex upward information
-        if constexpr (internal::Topology<Topo>::dimension() == 3) {
-          std::array<LocalId, 2> w{};
-          for (std::size_t j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
-            const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
-            const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
-            w[0] = m_cells[i].m_vertices[edge[0]];
-            w[1] = m_cells[i].m_vertices[edge[1]];
+          for (std::size_t j = 0; j < shape.edgeCount; ++j) {
+            const std::array<LocalId, 2> w{m_cells[i].m_vertices[shape.edgeVertices[j][0]],
+                                           m_cells[i].m_vertices[shape.edgeVertices[j][1]]};
             const auto edgeIdx = m_v2e.add(w);
-            edgeUpward.add(edgeIdx, faces[edgeadj[0]]);
-            edgeUpward.add(edgeIdx, faces[edgeadj[1]]);
+            edgeUpward.add(edgeIdx, faces[shape.edgeFaces[j][0]]);
+            edgeUpward.add(edgeIdx, faces[shape.edgeFaces[j][1]]);
             vertexUpward.add(w[0], edgeIdx);
             vertexUpward.add(w[1], edgeIdx);
+          }
+        }
+      } else {
+        for (std::size_t i = 0; i < m_originalSize[0]; i++) {
+          m_cells[i].m_gid = i + cellOffset;
+
+          for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
+            m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
+          }
+
+          // Faces
+          std::array<LocalId, internal::Topology<Topo>::facevertices()> v{};
+          std::array<LocalId, internal::Topology<Topo>::cellfaces()> faces{};
+          for (std::size_t j = 0; j < internal::Topology<Topo>::cellfaces(); ++j) {
+            const auto& face = internal::Numbering<Topo>::facevertices()[j];
+            for (std::size_t d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
+              v[d] = m_cells[i].m_vertices[face[d]];
+            }
+            faces[j] = addFace(m_v2f.add(v), static_cast<LocalId>(i));
+            if constexpr (internal::Topology<Topo>::dimension() == 2) {
+              for (unsigned int d = 0; d < internal::Topology<Topo>::facevertices(); ++d) {
+                vertexUpward.add(v[d], faces[j]);
+              }
+            }
+          }
+
+          // Edges + Vertex upward information
+          if constexpr (internal::Topology<Topo>::dimension() == 3) {
+            std::array<LocalId, 2> w{};
+            for (std::size_t j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
+              const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
+              const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];
+              w[0] = m_cells[i].m_vertices[edge[0]];
+              w[1] = m_cells[i].m_vertices[edge[1]];
+              const auto edgeIdx = m_v2e.add(w);
+              edgeUpward.add(edgeIdx, faces[edgeadj[0]]);
+              edgeUpward.add(edgeIdx, faces[edgeadj[1]]);
+              vertexUpward.add(w[0], edgeIdx);
+              vertexUpward.add(w[1], edgeIdx);
+            }
           }
         }
       }
@@ -1255,9 +1330,9 @@ class PUML {
     {
       // Collect all shared ranks for each element and downward gids
       std::vector<std::array<const internal::SmallVector<int, 4>*, N>> allShared(elements.size());
+      std::vector<std::size_t> downPos(elements.size());
 
       {
-        std::vector<std::size_t> downPos(elements.size());
 
         for (const auto& downElem : down) {
           for (const auto& upwardElem : downElem.m_upward) {
@@ -1269,9 +1344,12 @@ class PUML {
         }
       }
 
-      // Create the intersection of the shared ranks and update the elements
-      assert(N >= 2);
+      // Create the intersection of the shared ranks and update the elements.
+      // An element is not bounded by N of the ones below it in every kind of
+      // cell -- a triangular face has three edges where a quadrilateral one has
+      // four -- so the count recorded above says how many there are.
       for (std::size_t i = 0; i < elements.size(); ++i) {
+        assert(downPos[i] >= 2);
         assert(allShared[i][0] != nullptr);
         assert(allShared[i][1] != nullptr);
 
@@ -1282,7 +1360,8 @@ class PUML {
                               std::back_inserter(elements[i].m_sharedRanks));
 
         internal::SmallVector<int, 4> buffer;
-        for (std::size_t j = 2; j < N; ++j) {
+        const auto count = std::min<std::size_t>(downPos[i], N);
+        for (std::size_t j = 2; j + 1 <= count && j < N; ++j) {
           buffer.clear();
 
           assert(allShared[i][j] != nullptr);
@@ -1293,6 +1372,11 @@ class PUML {
                                 std::back_inserter(buffer));
 
           elements[i].m_sharedRanks.swap(buffer);
+        }
+
+        // The slots that stay unused have to sort behind the real ids.
+        for (std::size_t j = count; j < N; ++j) {
+          downward[i][j] = std::numeric_limits<GlobalId>::max();
         }
       }
     }
@@ -1611,6 +1695,7 @@ class PUML {
 /** Convenient typedef for tetrahrdral meshes */
 using TETPUML = PUML<TETRAHEDRON>;
 using HEXPUML = PUML<HEXAHEDRON>;
+using MIXEDPUML = PUML<MIXED>;
 
 } // namespace PUML
 
