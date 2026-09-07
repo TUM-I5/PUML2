@@ -27,6 +27,7 @@
 #include <cstring>
 #include <iterator>
 #include <numeric>
+#include <memory>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -225,8 +226,15 @@ class PUML {
   /** The original number of total cells/vertices */
   std::array<GlobalId, 2> m_originalTotalSize{};
 
-  /** Tells the handles of this mesh from those of another one */
-  Size m_instanceId{++s_instances};
+  /**
+   * Tells the handles of this mesh from those of another one.
+   *
+   * A byte of its own, whose address no other live mesh can hold. A counter
+   * would need a global to run on, which two threads building a mesh at the
+   * same time would race for, and which a library loaded twice would keep two
+   * of.
+   */
+  std::unique_ptr<char> m_identity{new char};
 
   /** The arrays the mesh is built from, by the part they play */
   DataHandle<GlobalId> m_connectivity;
@@ -237,8 +245,6 @@ class PUML {
   std::array<std::optional<Distributor>, 2> m_distributor{};
 
   using g2l_t = std::unordered_map<GlobalId, LocalId>;
-
-  inline static Size s_instances = 0;
 
   /** The list of all local cells */
   std::vector<cell_t> m_cells;
@@ -353,22 +359,23 @@ class PUML {
    * Stops if a handle was not handed out by this mesh. A clone hands out its
    * own, so a handle taken before cloning names an array of the original.
    */
-  void requireOwn(bool valid, Size owner) const {
+  void requireOwn(bool valid, const void* owner) const {
     if (!valid) {
       throwError("a data handle was used before it named anything");
     }
-    if (owner != m_instanceId) {
-      throwError("a data handle of another mesh was used here; a clone hands out its own");
+    if (owner != m_identity.get()) {
+      throwError("a data handle of another mesh was used here; rebase() gives the one of this"
+                 " mesh that names the same array");
     }
   }
 
-  /// Gives back the same array as a handle of this mesh.
+  /// Gives back the same array as a handle of this mesh, without checking.
   template <typename T>
-  auto rebase(const DataHandle<T>& handle) const -> DataHandle<T> {
+  auto adopt(const DataHandle<T>& handle) const -> DataHandle<T> {
     if (!handle.valid()) {
       return {};
     }
-    return DataHandle<T>(handle.m_index, handle.m_type, handle.m_elemCount, m_instanceId);
+    return DataHandle<T>(handle.m_index, handle.m_type, handle.m_elemCount, m_identity.get());
   }
 
   /// The array a handle names, as it was handed over.
@@ -422,9 +429,9 @@ class PUML {
     copy.m_vertexDataIndex = m_vertexDataIndex;
 
     // The arrays sit where they sat, but in the copy they are its own.
-    copy.m_connectivity = copy.rebase(m_connectivity);
-    copy.m_geometry = copy.rebase(m_geometry);
-    copy.m_cellTypes = copy.rebase(m_cellTypes);
+    copy.m_connectivity = copy.adopt(m_connectivity);
+    copy.m_geometry = copy.adopt(m_geometry);
+    copy.m_cellTypes = copy.adopt(m_cellTypes);
 
     return copy;
   }
@@ -468,7 +475,7 @@ class PUML {
 #endif // USE_MPI
     );
     const auto index = store(name, type, std::move(buffer));
-    return DataHandle<T>(index, type, elemSize, m_instanceId);
+    return DataHandle<T>(index, type, elemSize, m_identity.get());
   }
 
   /**
@@ -516,7 +523,7 @@ class PUML {
     }
     m_cellRagged[index].reset(std::move(offsets), std::move(values));
 
-    return RaggedHandle<T>(index, DataType::Cell, m_instanceId);
+    return RaggedHandle<T>(index, DataType::Cell, m_identity.get());
   }
 
   /**
@@ -537,7 +544,7 @@ class PUML {
                  sizeof(T),
                  "byte values of another type");
     }
-    return RaggedHandle<T>(it->second, DataType::Cell, m_instanceId);
+    return RaggedHandle<T>(it->second, DataType::Cell, m_identity.get());
   }
 
   /**
@@ -558,6 +565,37 @@ class PUML {
     return RaggedView<const T>(reinterpret_cast<const T*>(array.values().data()),
                                array.offsets().data(),
                                array.entities());
+  }
+
+  /**
+   * Gives back the handle of this mesh that names the array a handle of another
+   * one names. A clone holds the same arrays at the same places, so a caller
+   * that cloned a mesh can carry its handles over.
+   *
+   * The value type is checked, so an array that the two meshes no longer agree
+   * on is caught here rather than read as the wrong thing.
+   */
+  template <typename T>
+  [[nodiscard]] auto rebase(const DataHandle<T>& handle) const -> DataHandle<T> {
+    if (!handle.valid()) {
+      throwError("a data handle was used before it named anything");
+    }
+    const auto& index = (handle.type() == DataType::Vertex) ? m_vertexDataIndex : m_cellDataIndex;
+    const auto count =
+        (handle.type() == DataType::Vertex) ? m_vertexData.size() : m_cellData.size();
+    static_cast<void>(index);
+    if (handle.m_index >= count) {
+      throwError("this mesh holds no array where the handle points; it was not cloned from the"
+                 " mesh that handed the handle out");
+    }
+    const auto& buffer = (handle.type() == DataType::Vertex) ? m_vertexData[handle.m_index].original
+                                                             : m_cellData[handle.m_index];
+    if (buffer.typeTag() != internal::typeTag<T>()) {
+      throwError("the array this handle points at holds values of",
+                 buffer.elemBytes(),
+                 "bytes of another type here");
+    }
+    return adopt(handle);
   }
 
   /**
@@ -624,7 +662,7 @@ class PUML {
                  "byte values of another type");
     }
 
-    return DataHandle<T>(it->second, type, buffer.elemCount(), m_instanceId);
+    return DataHandle<T>(it->second, type, buffer.elemCount(), m_identity.get());
   }
 
   /**

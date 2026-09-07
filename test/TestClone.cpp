@@ -154,6 +154,36 @@ TEST(Clone, RejectsAHandleOfAnotherMesh) {
 
   // Its own handle works, and names the same array.
   EXPECT_EQ(copy.data(copy.connectivity()).size(), puml.data(handle).size());
+
+  // And the handle of the original can be carried over, once, on purpose.
+  EXPECT_EQ(copy.data(copy.rebase(handle)).size(), puml.data(handle).size());
+}
+
+/// Carrying a handle over is checked: the two meshes have to agree on what the
+/// array at that place holds.
+TEST(Clone, RefusesToCarryOverAnArrayThatChanged) {
+  const auto mesh = makeCubeMesh(2);
+  const auto cells = evenSplit(mesh.numCells, commRank(), commSize());
+
+  PUML::TETPUML puml;
+  feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
+
+  const std::vector<int> groups(cells.size, 1);
+  const auto groupHandle = puml.addDataArray<int>("group", groups.data(), PUML::CELL, {});
+
+  auto copy = puml.clone();
+
+  // The copy puts something else of a different type in that place.
+  const std::vector<double> weights(cells.size, 1.0);
+  copy.addDataArray<double>("group", weights.data(), PUML::CELL, {});
+
+  std::string message;
+  try {
+    static_cast<void>(copy.rebase(groupHandle));
+  } catch (const PUML::Error& error) {
+    message = error.what();
+  }
+  EXPECT_NE(message.find("another type"), std::string::npos) << message;
 }
 
 } // namespace

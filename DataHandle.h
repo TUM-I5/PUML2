@@ -120,14 +120,14 @@ class DataHandle {
   template <TopoType Topo>
   friend class PUML;
 
-  DataHandle(Size index, DataType type, Size elemCount, Size owner)
+  DataHandle(Size index, DataType type, Size elemCount, const void* owner)
       : m_index(index), m_type(type), m_elemCount(elemCount), m_owner(owner) {}
 
   Size m_index{0};
   DataType m_type{DataType::Cell};
   Size m_elemCount{0};
   /** Checked on every use, so that a handle of another mesh cannot read here */
-  Size m_owner{0};
+  const void* m_owner{nullptr};
 };
 
 } // namespace PUML
