@@ -1786,36 +1786,31 @@ class PUML {
    * @param indexDataName The cell data array holding input vertex ids
    * @param localizedName The name to file the translated array under
    */
-  void localize(const std::string& indexDataName, const std::string& localizedName) {
-    using IndexType = GlobalId;
+  auto localize(DataHandle<GlobalId> source, const std::string& localizedName)
+      -> DataHandle<GlobalId> {
+    const auto input = data(source);
+    const auto elemCount = input.elemCount();
 
-    const auto& source = m_cellData[m_cellDataIndex.at(indexDataName)];
-    const auto elemCount = source.entitySize() / sizeof(IndexType);
-    const auto* input = reinterpret_cast<const IndexType*>(source.data());
+    const auto target = allocateData<GlobalId>(localizedName, DataType::Cell, {elemCount});
+    auto* output = data(target).data();
 
-    const auto outputHandle = allocateData<IndexType>(localizedName, DataType::Cell, {elemCount});
-    auto* output = data(outputHandle).data();
-
-    for (std::size_t i = 0; i < m_originalSize[0] * elemCount; ++i) {
+    for (std::size_t i = 0; i < input.size(); ++i) {
       const auto local = m_verticesg2l.find(input[i]);
       if (local == m_verticesg2l.end()) {
         throwError("vertex",
                    input[i],
-                   "of",
-                   indexDataName,
-                   "is not held by this rank; pass",
-                   indexDataName,
-                   "to distributeVertices");
+                   "is not held by this rank; pass the array it comes from to"
+                   " distributeVertices");
       }
       output[i] = local->second;
     }
+    return target;
   }
 
-  void identify(const std::string& connectivityToUpdate, const std::string& identify) {
-    const auto identifierValues = distributedData(find<GlobalId>(identify, DataType::Vertex));
+  void identify(DataHandle<GlobalId> connectivityToUpdate, DataHandle<GlobalId> identifiersHandle) {
+    const auto identifierValues = distributedData(identifiersHandle);
     const auto* identifiers = identifierValues.data();
-    auto* connectivity =
-        reinterpret_cast<ocell_t*>(m_cellData[m_cellDataIndex.at(connectivityToUpdate)].data());
+    auto* connectivity = reinterpret_cast<ocell_t*>(data(connectivityToUpdate).data());
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {
       for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
         connectivity[i][j] = identifiers[m_cells[i].m_vertices[j]];

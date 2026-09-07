@@ -26,8 +26,8 @@ TEST(Localize, AgreesWithTheConstructedCells) {
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
   puml.generateMesh();
 
-  puml.localize("connectivity", "local-connectivity");
-  const auto local = puml.data(puml.find<PUML::GlobalId>("local-connectivity", PUML::CELL));
+  const auto localHandle = puml.localize(puml.connectivity(), "local-connectivity");
+  const auto local = puml.data(localHandle);
 
   for (std::size_t i = 0; i < puml.cells().size(); ++i) {
     std::array<PUML::LocalId, 4> expected{};
@@ -54,8 +54,8 @@ TEST(Localize, HandlesASecondIndexArray) {
   puml.constructGeometry(puml.geometry());
   puml.constructMesh(puml.find<PUML::GlobalId>("topology", PUML::CELL));
 
-  puml.localize("connectivity", "local-connectivity");
-  const auto local = puml.data(puml.find<PUML::GlobalId>("local-connectivity", PUML::CELL));
+  const auto localHandle = puml.localize(puml.connectivity(), "local-connectivity");
+  const auto local = puml.data(localHandle);
 
   // Both arrays hold the same vertices here, so the translation has to
   // reproduce the cells the topology was built from.
