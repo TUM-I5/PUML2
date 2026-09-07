@@ -86,7 +86,7 @@ class Vertex : public BoundaryElement<internal::SmallVector<LocalId, 16>> {
   friend class PUML<Topo>;
 
   private:
-  std::array<double, internal::Topology<Topo>::dimension()> m_coordinate{};
+  std::array<double, 3> m_coordinate{};
 
   public:
   /**

@@ -194,7 +194,11 @@ class PUML {
   using ocell_t = std::array<GlobalId, internal::Topology<Topo>::cellvertices()>;
 
   /** The vertex type from the file */
-  using overtex_t = std::array<double, internal::Topology<Topo>::dimension()>;
+  /**
+   * The position of a vertex. A mesh of any dimension is placed in space, so a
+   * position is always three numbers.
+   */
+  using overtex_t = std::array<double, 3>;
 
   /** Internal cell type */
   using cell_t = Cell<Topo>;
@@ -1004,7 +1008,7 @@ class PUML {
         edgeUpward.reserve(2 * internal::Topology<Topo>::celledges() * m_originalSize[0]);
         vertexUpward.reserve(2 * internal::Topology<Topo>::celledges() * m_originalSize[0]);
       } else {
-        vertexUpward.reserve(internal::Topology<Topo>::dimension() *
+        vertexUpward.reserve(internal::Topology<Topo>::facevertices() *
                              internal::Topology<Topo>::cellfaces() * m_originalSize[0]);
       }
 
@@ -1033,7 +1037,7 @@ class PUML {
 
         // Edges + Vertex upward information
         if constexpr (internal::Topology<Topo>::dimension() == 3) {
-          std::array<LocalId, internal::Topology<Topo>::dimension() - 1> w{};
+          std::array<LocalId, 2> w{};
           for (std::size_t j = 0; j < internal::Topology<Topo>::celledges(); ++j) {
             const auto& edge = internal::Numbering<Topo>::edgevertices()[j];
             const auto& edgeadj = internal::Numbering<Topo>::edgefaces()[j];

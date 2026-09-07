@@ -258,6 +258,68 @@ inline void feed(PUML::HEXPUML& puml, const HexCubeMesh& mesh, Split cells, Spli
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
 }
 
+struct SquareMesh {
+  std::vector<unsigned long> connect; // numCells * 3
+  std::vector<double> geometry;       // numVertices * 3
+  std::size_t numCells{0};
+  std::size_t numVertices{0};
+  int n{0};
+
+  /// The mesh edges on the border of the square.
+  [[nodiscard]] auto numBoundaryFaces() const -> long { return 4L * n; }
+
+  /// Every square contributes two triangles, and the grid lines and diagonals
+  /// give the mesh edges.
+  [[nodiscard]] auto numFaces() const -> long {
+    return 2L * n * (n + 1) + static_cast<long>(n) * n;
+  }
+};
+
+/// An n x n grid of squares, each split along one diagonal. The mesh is two
+/// dimensional but sits in space, so its vertices carry three coordinates.
+inline auto makeSquareMesh(int n) -> SquareMesh {
+  const auto vid = [&](int i, int j) { return static_cast<unsigned long>(j * (n + 1) + i); };
+
+  SquareMesh mesh;
+  mesh.n = n;
+  mesh.numVertices = static_cast<std::size_t>(n + 1) * (n + 1);
+  mesh.geometry.resize(mesh.numVertices * 3);
+  for (int j = 0; j <= n; ++j) {
+    for (int i = 0; i <= n; ++i) {
+      const auto v = vid(i, j);
+      mesh.geometry[3 * v + 0] = i;
+      mesh.geometry[3 * v + 1] = j;
+      mesh.geometry[3 * v + 2] = 0.0;
+    }
+  }
+
+  for (int j = 0; j < n; ++j) {
+    for (int i = 0; i < n; ++i) {
+      for (const auto& tri : {std::array<int, 6>{0, 0, 1, 0, 1, 1}, {0, 0, 1, 1, 0, 1}}) {
+        for (int c = 0; c < 3; ++c) {
+          mesh.connect.push_back(vid(i + tri[2 * c], j + tri[(2 * c) + 1]));
+        }
+      }
+    }
+  }
+  mesh.numCells = mesh.connect.size() / 3;
+  return mesh;
+}
+
+inline void
+    feed(PUML::PUML<PUML::TRIANGLE>& puml, const SquareMesh& mesh, Split cells, Split vertices) {
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+
+  puml.setSize(PUML::CELL, cells.size);
+  puml.setSize(PUML::VERTEX, vertices.size);
+  puml.addDataArray<unsigned long>(
+      "connectivity", mesh.connect.data() + 3 * cells.offset, PUML::CELL, {3});
+  puml.addDataArray<double>(
+      "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3});
+}
+
 /// Hands the given portion of a cube mesh to PUML without touching a file.
 inline void feed(PUML::TETPUML& puml, const CubeMesh& mesh, Split cells, Split vertices) {
 #ifdef USE_MPI

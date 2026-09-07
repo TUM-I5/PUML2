@@ -164,8 +164,7 @@ class Hdf5Reader {
     // now actually read the data
     addData<unsigned long>(
         "connectivity", cellName, DataType::Cell, {internal::Topology<Topo>::cellvertices()});
-    addData<double>(
-        "geometry", vertexName, DataType::Vertex, {internal::Topology<Topo>::dimension()});
+    addData<double>("geometry", vertexName, DataType::Vertex, {3});
   }
 
   void inferSize(DataType type, const std::string& dataset) {

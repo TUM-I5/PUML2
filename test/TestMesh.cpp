@@ -85,6 +85,68 @@ TEST(Mesh, UpwardListsAreSortedAndFreeOfDuplicates) {
 
 /// Every cell reached upwards from an edge has to be a real cell that the edge
 /// belongs to.
+/// A two-dimensional mesh: its faces are edges, it has no edge entities, and
+/// its vertices still carry three coordinates.
+TEST(Mesh, InMemorySquare) {
+  for (const int n : {2, 4}) {
+    const auto mesh = makeSquareMesh(n);
+    PUML::PUML<PUML::TRIANGLE> puml;
+    feed(puml,
+         mesh,
+         evenSplit(mesh.numCells, commRank(), commSize()),
+         evenSplit(mesh.numVertices, commRank(), commSize()));
+    puml.generateMesh();
+
+    const auto counts = measure(puml);
+
+    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.faces, mesh.numFaces());
+    EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
+    EXPECT_EQ(counts.unusedFaces, 0);
+    EXPECT_EQ(counts.edges, 0) << "a two-dimensional mesh has no edge entities";
+
+    // Euler in two dimensions, where a face is an edge of the mesh.
+    EXPECT_EQ(counts.vertices - counts.faces + counts.cells, 1);
+
+    // A triangle has three edges, an interior one shared by two cells.
+    EXPECT_EQ(2 * counts.faces - counts.boundaryFaces, 3 * counts.cells);
+
+    EXPECT_TRUE(isContiguousFromZero(allGids(puml.faces())));
+    EXPECT_TRUE(isContiguousFromZero(allGids(puml.vertices())));
+
+    // The third coordinate survives the distribution.
+    for (const auto& vertex : puml.vertices()) {
+      EXPECT_DOUBLE_EQ(vertex.coordinate()[2], 0.0);
+      EXPECT_GE(vertex.coordinate()[0], 0.0);
+      EXPECT_LE(vertex.coordinate()[0], static_cast<double>(n));
+    }
+  }
+}
+
+/// Walking up from a vertex in two dimensions goes straight to the cells.
+TEST(Mesh, TwoDimensionalUpward) {
+  const auto mesh = makeSquareMesh(3);
+  PUML::PUML<PUML::TRIANGLE> puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  for (const auto& vertex : puml.vertices()) {
+    std::vector<PUML::LocalId> cells;
+    PUML::Upward::cells(puml, vertex, cells);
+
+    EXPECT_FALSE(cells.empty());
+    EXPECT_TRUE(std::is_sorted(cells.begin(), cells.end()));
+    for (const auto cell : cells) {
+      EXPECT_NE(cell, PUML::InvalidLocalId);
+      EXPECT_LT(cell, puml.cells().size());
+    }
+  }
+}
+
 /// The same invariants on a hexahedral mesh.
 TEST(Mesh, InMemoryHexCube) {
   for (const int n : {2, 3}) {

@@ -87,19 +87,25 @@ class Upward {
   static void cells([[maybe_unused]] const PUML<Topo>& puml,
                     const typename PUML<Topo>::vertex_t& vertex,
                     std::vector<LocalId>& lid) {
+    // In three dimensions a vertex knows its edges, and an edge its faces. In
+    // two there are no edges, and a vertex knows its faces directly.
     std::vector<LocalId> intermediateIds;
-    if constexpr (internal::Topology<Topo>::dimension() == 3) {
-      edges(puml, vertex, intermediateIds);
-    } else {
-      faces(puml, vertex, intermediateIds);
-    }
+    merge<false>(intermediateIds, vertex.m_upward);
 
     std::vector<LocalId> cellIds;
     for (const LocalId id : intermediateIds) {
       if constexpr (internal::Topology<Topo>::dimension() == 3) {
         merge<true>(cellIds, puml.edges()[id].m_upward);
       } else {
-        merge<true>(cellIds, puml.faces()[id].m_upward);
+        std::array<LocalId, 2> adjacent{};
+        cells(puml, puml.faces()[id], adjacent.data());
+        std::vector<LocalId> present;
+        for (const auto cell : adjacent) {
+          if (cell != InvalidLocalId) {
+            present.push_back(cell);
+          }
+        }
+        merge<true>(cellIds, present);
       }
     }
 
