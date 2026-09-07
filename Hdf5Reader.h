@@ -346,6 +346,64 @@ class Hdf5Reader {
   }
 
   /**
+   * Reads a cell data array that holds a different number of values per cell.
+   *
+   * The values of all cells lie in one flat dataset, and the offsets say where
+   * the ones of each cell begin, with one entry more than there are cells. The
+   * number of cells has to be known already.
+   *
+   * @param name The name to file the array under
+   * @param valuesPath The flat values, as "file:/dataset"
+   * @param offsetsPath The offsets into them
+   */
+  template <typename T>
+  auto readRaggedData(const std::string& name,
+                      const std::string& valuesPath,
+                      const std::string& offsetsPath,
+                      hid_t hdf5Type = HDF5TypeInfer<T>::type()
+#ifdef USE_MPI
+                          ,
+                      MPI_Datatype mpiType = MPITypeInfer<T>::type()
+#endif
+                          ) -> RaggedHandle<T> {
+    const auto& distributor = m_puml.distributor(DataType::Cell);
+    const auto expected = distributor.totalSize() + 1;
+    const auto given = datasetLength(offsetsPath);
+    if (given != expected) {
+      logError() << "The offsets of" << name << "hold" << given << "entries, but the mesh has"
+                 << distributor.totalSize() << "cells and so needs" << expected;
+    }
+
+    const auto [firstCell, cellCount] = distributor.offsetAndSize(m_rank);
+
+    std::vector<GlobalId> offsets(cellCount + 1);
+    readSlab(offsetsPath, firstCell, cellCount + 1, offsets.data());
+
+    std::vector<Size> counts(cellCount);
+    for (Size i = 0; i < cellCount; ++i) {
+      counts[i] = offsets[i + 1] - offsets[i];
+    }
+
+    const auto handle = m_puml.template allocateRaggedData<T>(name,
+                                                              counts
+#ifdef USE_MPI
+                                                              ,
+                                                              mpiType
+#endif // USE_MPI
+    );
+    auto values = m_puml.raggedData(handle);
+    if (values.size() > 0) {
+      readSlabImpl(valuesPath,
+                   {offsets.front(), 0},
+                   {offsets.back() - offsets.front(), 0},
+                   1,
+                   hdf5Type,
+                   values.data());
+    }
+    return handle;
+  }
+
+  /**
    * Whether the file holds the given dataset.
    */
   auto exists(const std::string& path) -> bool {
@@ -457,20 +515,21 @@ class Hdf5Reader {
 
   /// Reads count values of a one-dimensional dataset, starting at offset.
   void readSlab(const std::string& path, hsize_t offset, hsize_t count, GlobalId* into) {
-    readSlabImpl(path, {offset, 0}, {count, 0}, 1, into);
+    readSlabImpl(path, {offset, 0}, {count, 0}, 1, HDF5TypeInfer<GlobalId>::type(), into);
   }
 
   /// Reads count rows of a two-dimensional dataset, starting at offset.
   void readSlab2d(
       const std::string& path, hsize_t offset, hsize_t count, hsize_t width, GlobalId* into) {
-    readSlabImpl(path, {offset, 0}, {count, width}, 2, into);
+    readSlabImpl(path, {offset, 0}, {count, width}, 2, HDF5TypeInfer<GlobalId>::type(), into);
   }
 
   void readSlabImpl(const std::string& path,
                     std::array<hsize_t, 2> start,
                     std::array<hsize_t, 2> count,
                     int rank,
-                    GlobalId* into) {
+                    hid_t hdf5Type,
+                    void* into) {
     const hid_t h5file = fileOf(path);
     hid_t h5dataset = H5Dopen(h5file, datasetOf(path).c_str(), H5P_DEFAULT);
     checkH5Err(h5dataset);
@@ -489,8 +548,7 @@ class Hdf5Reader {
     checkH5Err(H5Pset_dxpl_mpio(h5alist, H5FD_MPIO_COLLECTIVE));
 #endif // USE_MPI
 
-    checkH5Err(
-        H5Dread(h5dataset, HDF5TypeInfer<GlobalId>::type(), h5memspace, h5space, h5alist, into));
+    checkH5Err(H5Dread(h5dataset, hdf5Type, h5memspace, h5space, h5alist, into));
 
     checkH5Err(H5Pclose(h5alist));
     checkH5Err(H5Sclose(h5memspace));

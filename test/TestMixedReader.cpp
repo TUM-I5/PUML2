@@ -162,4 +162,81 @@ TEST(MixedReader, FallsBackToTheGivenKind) {
   }
 }
 
+/// A file that carries a different number of nodes per cell, the way a mesh of
+/// mixed polynomial order does.
+TEST(MixedReader, ReadsADifferentNodeCountPerCell) {
+  const auto cube = makeCubeMesh(3);
+  const auto path = scratch("highorder");
+
+  const auto countOf = [](std::size_t cell) -> std::size_t { return 4 + (cell % 3); };
+
+  if (commRank() == 0) {
+    std::vector<double> nodes;
+    std::vector<unsigned long> offsets{0};
+    for (std::size_t c = 0; c < cube.numCells; ++c) {
+      for (std::size_t j = 0; j < countOf(c); ++j) {
+        nodes.push_back(static_cast<double>((100 * c) + j));
+      }
+      offsets.push_back(nodes.size());
+    }
+
+    const hid_t file = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    ASSERT_GE(file, 0);
+    writeDataset(file, "Points", H5T_NATIVE_DOUBLE, {cube.numVertices, 3}, cube.geometry.data());
+    writeDataset(file, "Connectivity", H5T_NATIVE_ULONG, {cube.numCells, 4}, cube.connect.data());
+    writeDataset(file, "Nodes", H5T_NATIVE_DOUBLE, {nodes.size()}, nodes.data());
+    writeDataset(file, "NodeOffsets", H5T_NATIVE_ULONG, {offsets.size()}, offsets.data());
+    H5Fclose(file);
+  }
+  barrier();
+
+  PUML::TETPUML puml;
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> reader(puml);
+  reader.open(path + ":/Connectivity", path + ":/Points");
+
+  const auto handle =
+      reader.readRaggedData<double>("nodes", path + ":/Nodes", path + ":/NodeOffsets");
+
+  // The values arrive with the cells this rank was given.
+  const auto first = puml.distributor(PUML::CELL).offsetAndSize(commRank()).first;
+  const auto values = puml.raggedData(handle);
+  EXPECT_EQ(values.entities(), puml.numOriginalCells());
+  for (std::size_t i = 0; i < values.entities(); ++i) {
+    const auto cell = first + i;
+    EXPECT_EQ(values.count(i), countOf(cell)) << "cell " << cell;
+    const auto* node = values.begin(i);
+    for (std::size_t j = 0; j < values.count(i); ++j) {
+      EXPECT_DOUBLE_EQ(node[j], static_cast<double>((100 * cell) + j)) << "cell " << cell;
+    }
+  }
+
+  // And they follow their cells when those move.
+  std::vector<unsigned long> identity(puml.numOriginalCells());
+  for (std::size_t i = 0; i < identity.size(); ++i) {
+    identity[i] = first + i;
+  }
+  puml.addDataArray<unsigned long>("identity", identity.data(), PUML::CELL, {});
+
+  std::vector<int> target(puml.numOriginalCells());
+  for (std::size_t i = 0; i < target.size(); ++i) {
+    target[i] = static_cast<int>(i % commSize());
+  }
+  puml.partition(target.data());
+
+  const auto moved = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
+  const auto movedNodes = puml.raggedData(puml.findRagged<double>("nodes"));
+  for (std::size_t i = 0; i < moved.size(); ++i) {
+    EXPECT_EQ(movedNodes.count(i), countOf(moved[i])) << "cell " << moved[i];
+    EXPECT_DOUBLE_EQ(movedNodes.begin(i)[0], static_cast<double>(100 * moved[i]));
+  }
+
+  barrier();
+  if (commRank() == 0) {
+    std::remove(path.c_str());
+  }
+}
+
 } // namespace
