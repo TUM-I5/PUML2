@@ -18,6 +18,8 @@
 
 #include "Topology.h"
 
+#include <iterator>
+
 namespace PUML::internal {
 
 template <TopoType Topo>
@@ -40,18 +42,24 @@ class Numbering<TETRAHEDRON> {
   typedef unsigned int faceadj_t[2];
 
   static auto facevertices() -> const face_t* {
-    static const face_t Vertices[4] = {{1, 0, 2}, {0, 1, 3}, {1, 2, 3}, {2, 0, 3}};
+    static const face_t Vertices[] = {{1, 0, 2}, {0, 1, 3}, {1, 2, 3}, {2, 0, 3}};
+    static_assert(std::size(Vertices) == Topology<TETRAHEDRON>::cellfaces(),
+                  "The face table needs one entry per cell face");
 
     return Vertices;
   }
 
   static auto edgevertices() -> const edge_t* {
-    static const edge_t Vertices[6] = {{0, 1}, {1, 2}, {2, 0}, {0, 3}, {1, 3}, {2, 3}};
+    static const edge_t Vertices[] = {{0, 1}, {1, 2}, {2, 0}, {0, 3}, {1, 3}, {2, 3}};
+    static_assert(std::size(Vertices) == Topology<TETRAHEDRON>::celledges(),
+                  "The edge table needs one entry per cell edge");
     return Vertices;
   }
 
   static auto edgefaces() -> const faceadj_t* {
-    static const faceadj_t Faces[6] = {{0, 1}, {0, 2}, {0, 3}, {1, 3}, {1, 2}, {2, 3}};
+    static const faceadj_t Faces[] = {{0, 1}, {0, 2}, {0, 3}, {1, 3}, {1, 2}, {2, 3}};
+    static_assert(std::size(Faces) == Topology<TETRAHEDRON>::celledges(),
+                  "The edge adjacency table needs one entry per cell edge");
     return Faces;
   }
 };
@@ -66,7 +74,9 @@ class Numbering<TRIANGLE> {
   typedef unsigned int faceadj_t[2];
 
   static auto facevertices() -> const face_t* {
-    static const face_t Vertices[3] = {{1, 0}, {2, 1}, {0, 2}};
+    static const face_t Vertices[] = {{1, 0}, {2, 1}, {0, 2}};
+    static_assert(std::size(Vertices) == Topology<TRIANGLE>::cellfaces(),
+                  "The face table needs one entry per cell face");
 
     return Vertices;
   }
@@ -90,7 +100,9 @@ class Numbering<QUADRANGLE> {
   typedef unsigned int faceadj_t[2];
 
   static auto facevertices() -> const face_t* {
-    static const face_t Vertices[4] = {{1, 0}, {2, 1}, {3, 2}, {0, 3}};
+    static const face_t Vertices[] = {{1, 0}, {2, 1}, {3, 2}, {0, 3}};
+    static_assert(std::size(Vertices) == Topology<QUADRANGLE>::cellfaces(),
+                  "The face table needs one entry per cell face");
 
     return Vertices;
   }
