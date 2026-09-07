@@ -231,6 +231,7 @@ class PUML {
   /** The arrays the mesh is built from, by the part they play */
   DataHandle<GlobalId> m_connectivity;
   DataHandle<double> m_geometry;
+  DataHandle<std::uint8_t> m_cellTypes;
 
   /** How the cells/vertices are spread over the ranks */
   std::array<std::optional<Distributor>, 2> m_distributor{};
@@ -423,6 +424,7 @@ class PUML {
     // The arrays sit where they sat, but in the copy they are its own.
     copy.m_connectivity = copy.rebase(m_connectivity);
     copy.m_geometry = copy.rebase(m_geometry);
+    copy.m_cellTypes = copy.rebase(m_cellTypes);
 
     return copy;
   }
@@ -666,7 +668,7 @@ class PUML {
    */
   void setCellTypes(const CellType* types) {
     static_assert(Topo == MIXED, "only a mixed mesh needs the kind of its cells");
-    addDataArray<std::uint8_t>(
+    m_cellTypes = addDataArray<std::uint8_t>(
         CellTypeName, reinterpret_cast<const std::uint8_t*>(types), DataType::Cell, {});
   }
 
@@ -675,10 +677,10 @@ class PUML {
    */
   [[nodiscard]] auto cellTypes() const -> DataView<const std::uint8_t> {
     static_assert(Topo == MIXED, "only a mixed mesh has cells of more than one kind");
-    if (!has(CellTypeName, DataType::Cell)) {
+    if (!m_cellTypes.valid()) {
       throwError("a mixed mesh needs the kind of every cell; call setCellTypes first");
     }
-    return data(find<std::uint8_t>(CellTypeName, DataType::Cell));
+    return data(m_cellTypes);
   }
 
   /**
@@ -1348,16 +1350,14 @@ class PUML {
    * @note The pointer gets invalid when {@link partition()} is called
    */
   auto originalCells() const -> const ocell_t* {
-    return reinterpret_cast<const ocell_t*>(
-        data(find<GlobalId>("connectivity", DataType::Cell)).data());
+    return reinterpret_cast<const ocell_t*>(data(m_connectivity).data());
   }
 
   /**
    * @return The original vertices on this rank
    */
   auto originalVertices() const -> const overtex_t* {
-    return reinterpret_cast<const overtex_t*>(
-        distributedData(find<double>("geometry", DataType::Vertex)).data());
+    return reinterpret_cast<const overtex_t*>(distributedData(m_geometry).data());
   }
 
   /**

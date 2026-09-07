@@ -103,4 +103,42 @@ TEST(Error, ReportsAWrongArrayForConstruction) {
   EXPECT_NE(message.find("another type"), std::string::npos) << message;
 }
 
+/// The steps that rewrite an array check what it holds, the same way the ones
+/// that build the mesh do.
+TEST(Error, ReportsAWrongArrayForLocalize) {
+  const auto mesh = makeCubeMesh(2);
+  const auto cells = evenSplit(mesh.numCells, commRank(), commSize());
+
+  PUML::TETPUML puml;
+  feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
+
+  const std::vector<int> groups(cells.size, 1);
+  puml.addDataArray<int>("group", groups.data(), PUML::CELL, {});
+  puml.generateMesh();
+
+  const auto message = messageOf([&puml]() {
+    static_cast<void>(puml.localize(puml.find<PUML::GlobalId>("group", PUML::CELL), "localized"));
+  });
+  EXPECT_NE(message.find("group"), std::string::npos) << message;
+  EXPECT_NE(message.find("another type"), std::string::npos) << message;
+}
+
+TEST(Error, ReportsAWrongArrayForIdentify) {
+  const auto mesh = makeCubeMesh(2);
+  const auto vertices = evenSplit(mesh.numVertices, commRank(), commSize());
+
+  PUML::TETPUML puml;
+  feed(puml, mesh, evenSplit(mesh.numCells, commRank(), commSize()), vertices);
+
+  const std::vector<double> weights(vertices.size, 1.0);
+  puml.addDataArray<double>("weights", weights.data(), PUML::VERTEX, {});
+  puml.generateMesh();
+
+  const auto message = messageOf([&puml]() {
+    puml.identify(puml.connectivity(), puml.find<PUML::GlobalId>("weights", PUML::VERTEX));
+  });
+  EXPECT_NE(message.find("weights"), std::string::npos) << message;
+  EXPECT_NE(message.find("another type"), std::string::npos) << message;
+}
+
 } // namespace
