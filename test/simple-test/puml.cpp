@@ -138,10 +138,10 @@ int main(int argc, char* argv[]) {
   const std::vector<PUML::TETPUML::vertex_t>& vertices = puml.vertices();
   printArray(vertices);
 
-  const int* groups = reinterpret_cast<const int*>(puml.cellData(0));
-  printArray(groups, cells.size());
-  const unsigned long long* testt = reinterpret_cast<const unsigned long long*>(puml.cellData(2));
-  printArray(testt, cells.size());
+  const auto groups = puml.data(puml.find<int>("_0", PUML::CELL));
+  printArray(groups.data(), cells.size());
+  const auto testt = puml.data(puml.find<unsigned long long>("_2", PUML::CELL));
+  printArray(testt.data(), cells.size());
 
   logInfo(rank) << "Done";
 

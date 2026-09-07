@@ -4,6 +4,8 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -48,7 +50,7 @@ TEST(Localize, HandlesASecondIndexArray) {
   puml.addDataArray<unsigned long>(
       "topology", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4});
 
-  puml.distributeVertices({"connectivity", "topology"});
+  puml.distributeVertices(std::vector<std::string>{"connectivity", "topology"});
   puml.constructGeometry("geometry");
   puml.constructMesh("topology");
 

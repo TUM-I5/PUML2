@@ -85,4 +85,21 @@ TEST(Error, ReportsDataAddedBeforeTheEntityCount) {
   EXPECT_NE(message.find("setSize"), std::string::npos) << message;
 }
 
+/// Handing a construction step the wrong kind of array is caught where it is
+/// looked up, not deep inside the mesh construction.
+TEST(Error, ReportsAWrongArrayForConstruction) {
+  const auto mesh = makeCubeMesh(2);
+  const auto cells = evenSplit(mesh.numCells, commRank(), commSize());
+
+  PUML::TETPUML puml;
+  feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
+
+  const std::vector<int> groups(cells.size, 1);
+  puml.addDataArray<int>("group", groups.data(), PUML::CELL, {});
+
+  const auto message = messageOf([&puml]() { puml.constructMesh("group"); });
+  EXPECT_NE(message.find("group"), std::string::npos) << message;
+  EXPECT_NE(message.find("another type"), std::string::npos) << message;
+}
+
 } // namespace

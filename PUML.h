@@ -347,14 +347,6 @@ class PUML {
     return m_cellData.size() - 1;
   }
 
-  auto rawCellData(const std::string& name) const -> const void* {
-    return m_cellData[m_cellDataIndex.at(name)].data();
-  }
-
-  auto rawVertexData(const std::string& name) const -> const void* {
-    return m_vertexData[m_vertexDataIndex.at(name)].distributed.data();
-  }
-
   /// The array a handle names, as it was handed over.
   template <typename T>
   auto bufferOf(const DataHandle<T>& handle) const -> const internal::DataBuffer& {
@@ -906,16 +898,35 @@ class PUML {
   }
 
   void generateMesh() {
-    distributeVertices({"connectivity"});
-    constructGeometry("geometry");
-    constructMesh("connectivity");
+    const auto connectivity = find<GlobalId>("connectivity", DataType::Cell);
+    distributeVertices({connectivity});
+    constructGeometry(find<double>("geometry", DataType::Vertex));
+    constructMesh(connectivity);
+  }
+
+  /// Looks the arrays up by name and hands them to the step below.
+  void distributeVertices(const std::vector<std::string>& indexDataNames) {
+    std::vector<DataHandle<GlobalId>> handles;
+    handles.reserve(indexDataNames.size());
+    for (const auto& name : indexDataNames) {
+      handles.push_back(find<GlobalId>(name, DataType::Cell));
+    }
+    distributeVertices(handles);
+  }
+
+  void constructGeometry(const std::string& geometryName) {
+    constructGeometry(find<double>(geometryName, DataType::Vertex));
+  }
+
+  void constructMesh(const std::string& cellDataName) {
+    constructMesh(find<GlobalId>(cellDataName, DataType::Cell));
   }
 
   /**
     Distribute all vertex data (including geometric positions)
     to all cells that need it.
    */
-  void distributeVertices(const std::vector<std::string>& indexDataNames) {
+  void distributeVertices(const std::vector<DataHandle<GlobalId>>& indexArrays) {
     int rank = 0;
     int procs = 1;
 #ifdef USE_MPI
@@ -925,12 +936,11 @@ class PUML {
 
     const auto& vertexDistributor = distributor(DataType::Vertex);
     // Generate a list of vertices we need from other processors
-    using IndexType = GlobalId;
     std::vector<std::unordered_set<GlobalId>> requiredVertexSets(procs);
-    for (const auto& indexDataName : indexDataNames) {
-      const auto& indexArray = m_cellData[m_cellDataIndex.at(indexDataName)];
-      const auto elemCount = indexArray.entitySize() / sizeof(IndexType);
-      const auto* data = reinterpret_cast<const IndexType*>(indexArray.data());
+    for (const auto& indexArrayHandle : indexArrays) {
+      const auto values = data(indexArrayHandle);
+      const auto elemCount = values.elemCount();
+      const auto* data = values.data();
       for (std::size_t i = 0; i < m_originalSize[0]; i++) {
         for (std::size_t j = 0; j < elemCount; j++) {
           const auto index = data[i * elemCount + j];
@@ -1170,8 +1180,8 @@ class PUML {
 
     Deprecated.
    */
-  void constructGeometry(const std::string& geometryName) {
-    const auto* data = reinterpret_cast<const overtex_t*>(rawVertexData(geometryName));
+  void constructGeometry(DataHandle<double> geometry) {
+    const auto* data = reinterpret_cast<const overtex_t*>(distributedData(geometry).data());
     for (std::size_t i = 0; i < m_vertices.size(); ++i) {
       std::copy(data[i].begin(), data[i].end(), m_vertices[i].m_coordinate.begin());
     }
@@ -1180,8 +1190,8 @@ class PUML {
   /**
     Given all locally-needed vertex data, construct edge and face topology.
    */
-  void constructMesh(const std::string& cellDataName) {
-    const auto* originalCells = reinterpret_cast<const ocell_t*>(rawCellData(cellDataName));
+  void constructMesh(DataHandle<GlobalId> connectivity) {
+    const auto* originalCells = reinterpret_cast<const ocell_t*>(data(connectivity).data());
 
     // Create the cell, face and edge list
     m_cells.resize(m_originalSize[0]);
@@ -1353,14 +1363,16 @@ class PUML {
    * @note The pointer gets invalid when {@link partition()} is called
    */
   auto originalCells() const -> const ocell_t* {
-    return reinterpret_cast<const ocell_t*>(rawCellData("connectivity"));
+    return reinterpret_cast<const ocell_t*>(
+        data(find<GlobalId>("connectivity", DataType::Cell)).data());
   }
 
   /**
    * @return The original vertices on this rank
    */
   auto originalVertices() const -> const overtex_t* {
-    return reinterpret_cast<const overtex_t*>(rawVertexData("geometry"));
+    return reinterpret_cast<const overtex_t*>(
+        distributedData(find<double>("geometry", DataType::Vertex)).data());
   }
 
   /**
@@ -1382,38 +1394,6 @@ class PUML {
    * @return The vertices of the mesh
    */
   auto vertices() const -> const std::vector<vertex_t>& { return m_vertices; }
-
-  /**
-   * @return User cell data
-   */
-  [[deprecated("use find<T>() and data() instead")]] auto cellData(const std::string& name) const
-      -> const void* {
-    return rawCellData(name);
-  }
-
-  /**
-   * @return User vertex data
-   */
-  [[deprecated("use find<T>() and distributedData() instead")]] auto
-      vertexData(const std::string& name) const -> const void* {
-    return rawVertexData(name);
-  }
-
-  /**
-   * @return User cell data
-   */
-  [[deprecated("use find<T>() and data() instead")]] auto cellData(unsigned int index) const
-      -> const void* {
-    return rawCellData("_" + std::to_string(index));
-  }
-
-  /**
-   * @return User vertex data
-   */
-  [[deprecated("use find<T>() and distributedData() instead")]] auto
-      vertexData(unsigned int index) const -> const void* {
-    return rawVertexData("_" + std::to_string(index));
-  }
 
   /**
    * @param vertexIds A list of local vertex ids
@@ -1852,7 +1832,8 @@ class PUML {
   }
 
   void identify(const std::string& connectivityToUpdate, const std::string& identify) {
-    const auto* identifiers = reinterpret_cast<const GlobalId*>(rawVertexData(identify));
+    const auto identifierValues = distributedData(find<GlobalId>(identify, DataType::Vertex));
+    const auto* identifiers = identifierValues.data();
     auto* connectivity =
         reinterpret_cast<ocell_t*>(m_cellData[m_cellDataIndex.at(connectivityToUpdate)].data());
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {
