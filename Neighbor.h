@@ -44,6 +44,11 @@ class Neighbor {
     Downward::faces(puml, puml.cells()[clid], faces);
 
     for (unsigned int i = 0; i < internal::Topology<Topo>::cellfaces(); i++) {
+      // a cell of a mixed mesh which has fewer faces than the widest kind has no neighbours there
+      if (faces[i] == InvalidLocalId) {
+        flid[i] = InvalidLocalId;
+        continue;
+      }
       LocalId neighbors[2];
       Upward::cells(puml, puml.faces()[faces[i]], neighbors);
 
@@ -55,7 +60,8 @@ class Neighbor {
     }
   }
   /// The neighbouring cells of a cell, one per face, InvalidLocalId where the
-  /// neighbour is not on this rank.
+  /// neighbour is not on this rank, and where a cell of a mixed mesh has fewer
+  /// faces than the widest kind.
   template <TopoType Topo>
   static auto face(const PUML<Topo>& puml, LocalId clid)
       -> std::array<LocalId, internal::Topology<Topo>::cellfaces()> {

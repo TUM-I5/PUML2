@@ -40,6 +40,12 @@ using Size = std::size_t;
  */
 constexpr LocalId InvalidLocalId = ~LocalId{0};
 
+/**
+ * Stands for "no such entity" wherever a global id is optional, such as for the vertices which a
+ * cell of a mixed mesh lacks.
+ */
+constexpr GlobalId InvalidGlobalId = ~GlobalId{0};
+
 // Ranks stay int throughout, because that is what MPI uses for them.
 
 } // namespace PUML

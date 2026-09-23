@@ -10,6 +10,8 @@
 #include <gtest/gtest.h>
 
 #include "Downward.h"
+#include "Neighbor.h"
+#include "PartitionGraph.h"
 #include "PumlTest.h"
 #include "Upward.h"
 
@@ -417,6 +419,119 @@ TEST(Mesh, CellsKnowTheirKind) {
   }
   for (const auto count : kinds) {
     EXPECT_GT(globalSum(count), 0);
+  }
+}
+
+/// Walking down from a cell of any kind finds as many faces as the kind has, each as wide as its
+/// side of the cell, and walking back up finds the cell again. The rest of the array is invalid.
+TEST(Mesh, DownwardAndUpwardAgreeForMixedCells) {
+  PUML::MIXEDPUML puml;
+  feedAllKinds(puml);
+
+  for (unsigned int c = 0; c < puml.cells().size(); ++c) {
+    const auto& cell = puml.cells()[c];
+    const auto& shape = PUML::internal::shapeOf(cell.type());
+    const auto vertices = PUML::Downward::vertices(puml, cell);
+    const auto faces = PUML::Downward::faces(puml, cell);
+
+    for (unsigned int f = 0; f < faces.size(); ++f) {
+      if (f >= shape.faceCount) {
+        EXPECT_EQ(faces[f], PUML::InvalidLocalId) << "cell " << c << ", side " << f;
+        continue;
+      }
+      ASSERT_NE(faces[f], PUML::InvalidLocalId) << "cell " << c << ", side " << f;
+      const auto& face = puml.faces()[faces[f]];
+      EXPECT_EQ(face.vertexCount(), shape.faceVertexCount[f]);
+
+      std::array<PUML::LocalId, 2> adjacent{};
+      PUML::Upward::cells(puml, face, adjacent.data());
+      EXPECT_TRUE(adjacent[0] == c || adjacent[1] == c) << "cell " << c << ", side " << f;
+      EXPECT_EQ(PUML::Downward::faceSide(puml, cell, faces[f]), static_cast<int>(f));
+
+      std::array<PUML::LocalId, PUML::internal::MaxFaceVertices> sideVertices{};
+      PUML::Downward::faceVertices(puml, cell, f, sideVertices.data());
+      for (unsigned int k = 0; k < sideVertices.size(); ++k) {
+        EXPECT_EQ(sideVertices[k],
+                  k < shape.faceVertexCount[f] ? vertices[shape.faceVertices[f][k]]
+                                               : PUML::InvalidLocalId);
+      }
+    }
+
+    std::vector<PUML::LocalId> own(faces.begin(), faces.begin() + shape.faceCount);
+    std::sort(own.begin(), own.end());
+    EXPECT_EQ(std::unique(own.begin(), own.end()), own.end()) << "cell " << c;
+  }
+}
+
+/// The global ids of the vertices of a cell of any kind; the rest of the array is invalid.
+TEST(Mesh, GlobalVerticesOfMixedCells) {
+  PUML::MIXEDPUML puml;
+  feedAllKinds(puml);
+
+  for (const auto& cell : puml.cells()) {
+    const auto& shape = PUML::internal::shapeOf(cell.type());
+    const auto vertices = PUML::Downward::vertices(puml, cell);
+    std::array<unsigned long, PUML::internal::MaxCellVertices> gids{};
+    PUML::Downward::gvertices(puml, cell, gids.data());
+    for (unsigned int k = 0; k < gids.size(); ++k) {
+      EXPECT_EQ(gids[k],
+                k < shape.vertexCount ? puml.vertices()[vertices[k]].gid() : PUML::InvalidGlobalId);
+    }
+  }
+}
+
+/// A neighbour across a face of a cell of any kind has the cell as a neighbour, and every face
+/// between two cells of this rank joins two neighbours. A cell has no neighbours beyond its
+/// faces.
+TEST(Mesh, NeighborsOfMixedCells) {
+  PUML::MIXEDPUML puml;
+  feedAllKinds(puml);
+
+  long links = 0;
+  for (unsigned int c = 0; c < puml.cells().size(); ++c) {
+    const auto& shape = PUML::internal::shapeOf(puml.cells()[c].type());
+    const auto neighbors = PUML::Neighbor::face(puml, c);
+    for (unsigned int f = 0; f < neighbors.size(); ++f) {
+      if (f >= shape.faceCount) {
+        EXPECT_EQ(neighbors[f], PUML::InvalidLocalId) << "cell " << c << ", side " << f;
+      } else if (neighbors[f] != PUML::InvalidLocalId) {
+        const auto back = PUML::Neighbor::face(puml, neighbors[f]);
+        EXPECT_NE(std::find(back.begin(), back.end(), c), back.end()) << "cell " << c;
+        ++links;
+      }
+    }
+  }
+
+  long inner = 0;
+  for (const auto& face : puml.faces()) {
+    std::array<PUML::LocalId, 2> adjacent{};
+    PUML::Upward::cells(puml, face, adjacent.data());
+    inner += static_cast<long>(adjacent[0] != PUML::InvalidLocalId &&
+                               adjacent[1] != PUML::InvalidLocalId);
+  }
+  EXPECT_EQ(links, 2 * inner);
+}
+
+/// The coordinates the geometric partitioners get for a cell of any kind: the mean of its
+/// vertices.
+TEST(Mesh, BarycentersOfMixedCells) {
+  PUML::MIXEDPUML puml;
+  feedAllKinds(puml);
+
+  std::vector<double> coordinates;
+  PUML::PartitionGraph<PUML::MIXED>(puml).geometricCoordinates(coordinates);
+  ASSERT_EQ(coordinates.size(), 3 * puml.cells().size());
+  for (std::size_t c = 0; c < puml.cells().size(); ++c) {
+    const auto& cell = puml.cells()[c];
+    const auto& shape = PUML::internal::shapeOf(cell.type());
+    const auto vertices = PUML::Downward::vertices(puml, cell);
+    for (std::size_t d = 0; d < 3; ++d) {
+      double sum = 0;
+      for (unsigned int k = 0; k < shape.vertexCount; ++k) {
+        sum += puml.vertices()[vertices[k]].coordinate()[d];
+      }
+      EXPECT_NEAR(coordinates[3 * c + d], sum / shape.vertexCount, 1e-12) << "cell " << c;
+    }
   }
 }
 

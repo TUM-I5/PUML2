@@ -204,13 +204,20 @@ class PartitionGraph {
       OutputType x = OutputType{0};
       OutputType y = OutputType{0};
       OutputType z = OutputType{0};
+      unsigned int count = 0;
       for (unsigned long j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
+        // a cell of a mixed mesh which has fewer vertices than the widest kind leaves the rest
+        // invalid
+        if (lid[j] == InvalidLocalId) {
+          continue;
+        }
+        ++count;
         auto vertex = m_puml.vertices()[lid[j]];
         x += static_cast<OutputType>(vertex.coordinate()[0]);
         y += static_cast<OutputType>(vertex.coordinate()[1]);
         z += static_cast<OutputType>(vertex.coordinate()[2]);
       }
-      const auto cellvertices = static_cast<OutputType>(internal::Topology<Topo>::cellvertices());
+      const auto cellvertices = static_cast<OutputType>(count);
       x /= cellvertices;
       y /= cellvertices;
       z /= cellvertices;
