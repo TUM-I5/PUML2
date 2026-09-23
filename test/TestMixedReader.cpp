@@ -28,10 +28,11 @@ void writeDataset(hid_t file,
   H5Sclose(space);
 }
 
-/// Writes a mixed mesh the way the reader expects it: one flat connectivity in
-/// which every cell begins with the kind it is of, plus the offsets into it.
-/// With withOffsets off, the connectivity is written as a rectangle of the one
-/// kind of cell instead, which is what an older file looks like.
+/// Writes a mixed mesh the way the reader expects it, as a VTKHDF unstructured
+/// grid lays it out: one flat connectivity, the offsets into it, and the kind
+/// of every cell. With withOffsets off, the connectivity is written as a
+/// rectangle of the one kind of cell instead, which is what an older file looks
+/// like.
 auto writeMesh(const MixedMesh& mesh, const std::string& path, bool withOffsets) -> void {
   if (commRank() != 0) {
     return;
@@ -48,7 +49,6 @@ auto writeMesh(const MixedMesh& mesh, const std::string& path, bool withOffsets)
     for (std::size_t c = 0; c < mesh.numCells; ++c) {
       const auto type = static_cast<PUML::CellType>(mesh.types[c]);
       const auto count = PUML::internal::shapeOf(type).vertexCount;
-      flat.push_back(mesh.types[c]);
       for (unsigned int v = 0; v < count; ++v) {
         flat.push_back(mesh.connect[(8 * c) + v]);
       }
@@ -56,6 +56,7 @@ auto writeMesh(const MixedMesh& mesh, const std::string& path, bool withOffsets)
     }
     writeDataset(file, "Connectivity", H5T_NATIVE_ULONG, {flat.size()}, flat.data());
     writeDataset(file, "Offsets", H5T_NATIVE_ULONG, {offsets.size()}, offsets.data());
+    writeDataset(file, "Types", H5T_NATIVE_UINT8, {mesh.types.size()}, mesh.types.data());
   } else {
     const auto count = PUML::internal::shapeOf(PUML::CellType::Tetrahedron).vertexCount;
     std::vector<unsigned long> rect;
@@ -90,7 +91,8 @@ TEST(MixedReader, ReadsAMeshOfSeveralKinds) {
   puml.setComm(MPI_COMM_WORLD);
 #endif // USE_MPI
   PUML::Hdf5Reader<PUML::MIXED> reader(puml);
-  reader.openMixed(path + ":/Connectivity", path + ":/Offsets", path + ":/Points");
+  reader.openMixed(
+      path + ":/Connectivity", path + ":/Offsets", path + ":/Types", path + ":/Points");
   puml.generateMesh();
 
   const auto counts = measure(puml);
@@ -136,7 +138,8 @@ TEST(MixedReader, FallsBackToTheGivenKind) {
   puml.setComm(MPI_COMM_WORLD);
 #endif // USE_MPI
   PUML::Hdf5Reader<PUML::MIXED> reader(puml, PUML::CellType::Tetrahedron);
-  reader.openMixed(path + ":/Connectivity", path + ":/Offsets", path + ":/Points");
+  reader.openMixed(
+      path + ":/Connectivity", path + ":/Offsets", path + ":/Types", path + ":/Points");
   puml.generateMesh();
 
   const auto counts = measure(puml);
@@ -261,7 +264,8 @@ TEST(MixedReader, RefusesAConnectivityOfAnotherWidth) {
 #endif // USE_MPI
     PUML::Hdf5Reader<PUML::MIXED> reader(puml, PUML::CellType::Tetrahedron);
     try {
-      reader.openMixed(path + ":/Connectivity", path + ":/Offsets", path + ":/Points");
+      reader.openMixed(
+          path + ":/Connectivity", path + ":/Offsets", path + ":/Types", path + ":/Points");
     } catch (const PUML::Error& error) {
       message = error.what();
     }
@@ -303,7 +307,8 @@ TEST(MixedReader, ReadsWithRanksWithoutCells) {
   puml.setComm(MPI_COMM_WORLD);
 #endif // USE_MPI
   PUML::Hdf5Reader<PUML::MIXED> reader(puml);
-  reader.openMixed(path + ":/Connectivity", path + ":/Offsets", path + ":/Points");
+  reader.openMixed(
+      path + ":/Connectivity", path + ":/Offsets", path + ":/Types", path + ":/Points");
   const auto handle =
       reader.readRaggedData<double>("nodes", path + ":/Nodes", path + ":/NodeOffsets");
   reader.close();

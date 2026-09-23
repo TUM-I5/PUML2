@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -302,22 +303,26 @@ class Hdf5Reader {
   /**
    * Reads a mesh whose cells need not all be of the same kind.
    *
-   * The connectivity is one flat array in which every cell is preceded by the
-   * kind it is of, and the offsets say where each cell begins in it. A file
-   * without the offsets holds cells of one kind only, laid out as a rectangle,
-   * and is read as the kind this reader was given.
+   * The layout is the one of a VTKHDF unstructured grid: the connectivity is
+   * one flat array of the vertices of all cells, the offsets say where each
+   * cell begins in it (one entry more than there are cells), and the kinds
+   * array holds the VTK cell type of every cell. A file without the offsets
+   * holds cells of one kind only, laid out as a rectangle, and is read as the
+   * kind this reader was given.
    *
    * @param connectivityName The flat connectivity, as "file:/dataset"
    * @param offsetsName The offsets into it; may be absent from the file
+   * @param kindsName The kind of every cell; read only with the offsets
    * @param vertexName The vertex positions
    */
   void openMixed(const std::string& connectivityName,
                  const std::string& offsetsName,
+                 const std::string& kindsName,
                  const std::string& vertexName) {
     static_assert(Topo == MIXED, "only a mixed mesh is read this way");
 
     if (exists(offsetsName)) {
-      readRaggedCells(connectivityName, offsetsName);
+      readRaggedCells(connectivityName, offsetsName, kindsName);
     } else {
       readUniformCells(connectivityName);
     }
@@ -429,18 +434,31 @@ class Hdf5Reader {
 
   private:
   /**
-   * Reads a flat connectivity, splitting every cell into the kind it is of and
-   * the vertices it is built from.
+   * Reads a flat connectivity together with the kind of every cell.
    */
-  void readRaggedCells(const std::string& connectivityName, const std::string& offsetsName) {
+  void readRaggedCells(const std::string& connectivityName,
+                       const std::string& offsetsName,
+                       const std::string& kindsName) {
     // The offsets hold one entry per cell plus one behind the last.
     const auto totalCells = datasetLength(offsetsName) - 1;
+    if (datasetLength(kindsName) != totalCells) {
+      throwError("the cell kinds",
+                 kindsName,
+                 "hold",
+                 datasetLength(kindsName),
+                 "entries, but the offsets describe",
+                 totalCells,
+                 "cells");
+    }
     m_puml.setTotalSize(DataType::Cell, totalCells);
 
     const auto [firstCell, cellCount] = m_puml.distributor(DataType::Cell).offsetAndSize(m_rank);
 
     std::vector<GlobalId> offsets(cellCount + 1);
     readSlab(offsetsName, firstCell, cellCount + 1, offsets.data());
+
+    std::vector<std::uint8_t> kinds(cellCount);
+    readSlabImpl(kindsName, {firstCell, 0}, {cellCount, 0}, 1, H5T_NATIVE_UINT8, kinds.data());
 
     const auto base = offsets.front();
     std::vector<GlobalId> flat(offsets.back() - base);
@@ -455,20 +473,20 @@ class Hdf5Reader {
     for (Size i = 0; i < cellCount; ++i) {
       const auto first = offsets[i] - base;
       const auto last = offsets[i + 1] - base;
-      if (last <= first) {
-        throwError("cell", firstCell + i, "holds no values at all");
+      if (last < first) {
+        throwError("the offsets of cell", firstCell + i, "run backwards");
       }
 
-      const auto type = static_cast<CellType>(flat[first]);
+      const auto type = static_cast<CellType>(kinds[i]);
       if (!internal::isSupported(type)) {
         throwError("cell",
                    firstCell + i,
                    "is of kind",
-                   static_cast<unsigned int>(flat[first]),
+                   static_cast<unsigned int>(kinds[i]),
                    "which a mesh cannot be built from");
       }
       const auto& shape = internal::shapeOf(type);
-      if (last - first - 1 != shape.vertexCount) {
+      if (last - first != shape.vertexCount) {
         throwError("cell",
                    firstCell + i,
                    "is a",
@@ -476,13 +494,13 @@ class Hdf5Reader {
                    "and needs",
                    shape.vertexCount,
                    "vertices, but the file gives it",
-                   last - first - 1);
+                   last - first);
       }
 
       types[i] = type;
       auto* cell = view.entity(i);
       for (Size v = 0; v < internal::MaxCellVertices; ++v) {
-        cell[v] = flat[first + 1 + std::min<Size>(v, shape.vertexCount - 1)];
+        cell[v] = flat[first + std::min<Size>(v, shape.vertexCount - 1)];
       }
     }
 

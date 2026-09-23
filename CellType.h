@@ -27,16 +27,16 @@ namespace PUML {
 /**
  * The kind of a single cell, for a mesh that holds more than one kind.
  *
- * The values are the ones XDMF and VTK use, so a file can be read without a
- * translation table.
+ * The values are the cell types of VTK, which a VTKHDF file stores in its
+ * Types array, so that array can be read without a translation table.
  */
 enum class CellType : std::uint8_t {
-  Triangle = 4,
-  Quadrangle = 5,
-  Tetrahedron = 6,
-  Pyramid = 7,
-  Wedge = 8,
-  Hexahedron = 9,
+  Triangle = 5,
+  Quadrangle = 9,
+  Tetrahedron = 10,
+  Hexahedron = 12,
+  Wedge = 13,
+  Pyramid = 14,
 };
 
 namespace internal {
