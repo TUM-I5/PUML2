@@ -246,11 +246,6 @@ class Hdf5Reader {
     // Read the cells
     auto [offset, localSize] = cellDistributor.offsetAndSize(m_rank);
 
-    size_t elemSize = 1;
-    for (auto size : sizes) {
-      elemSize *= size;
-    }
-
     std::vector<hsize_t> start = {offset};
     std::vector<hsize_t> count = {localSize};
 

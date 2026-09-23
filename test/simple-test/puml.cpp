@@ -109,6 +109,8 @@ int main(int argc, char* argv[]) {
   case utils::Args::Help:
     MPI_Finalize();
     return 1;
+  case utils::Args::Success:
+    break;
   }
 
   PUML::TETPUML puml;

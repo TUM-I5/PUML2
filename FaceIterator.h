@@ -91,7 +91,7 @@ class FaceIterator {
   void forEach(const std::vector<T>& cellData,
                FaceHandlerFunc&& faceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto cellHandler = [&cellData](int fid, int cid) { return cellData[cid]; };
+    auto cellHandler = [&cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
                   std::move([](int /*a*/, int /*b*/) {}),
@@ -110,7 +110,7 @@ class FaceIterator {
                FaceHandlerFunc&& faceHandler,
                BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto cellHandler = [&cellData](int fid, int cid) { return cellData[cid]; };
+    auto cellHandler = [&cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
                   std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
@@ -127,10 +127,10 @@ class FaceIterator {
                const std::vector<S>& internalCellData,
                FaceHandlerFunc&& faceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [&externalCellData](int fid, int cid) {
+    auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
-    auto internalCellHandler = [&internalCellData](int fid, int cid) {
+    auto internalCellHandler = [&internalCellData](int /*fid*/, int cid) {
       return internalCellData[cid];
     };
     forEach<T, S>(std::move(externalCellHandler),
@@ -154,10 +154,10 @@ class FaceIterator {
                FaceHandlerFunc&& faceHandler,
                BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [&externalCellData](int fid, int cid) {
+    auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
-    auto internalCellHandler = [&internalCellData](int fid, int cid) {
+    auto internalCellHandler = [&internalCellData](int /*fid*/, int cid) {
       return internalCellData[cid];
     };
     forEach<T, S>(std::move(externalCellHandler),
@@ -174,7 +174,7 @@ class FaceIterator {
   void forEach(const std::vector<T>& externalCellData,
                FaceHandlerFunc&& faceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [&externalCellData](int fid, int cid) {
+    auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),
@@ -194,7 +194,7 @@ class FaceIterator {
                FaceHandlerFunc&& faceHandler,
                BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [&externalCellData](int fid, int cid) {
+    auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),
@@ -211,7 +211,7 @@ class FaceIterator {
   void forEach(const T* cellData,
                FaceHandlerFunc&& faceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto cellHandler = [cellData](int fid, int cid) { return cellData[cid]; };
+    auto cellHandler = [cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
                   std::move([](int /*a*/, int /*b*/) {}),
@@ -230,7 +230,7 @@ class FaceIterator {
                FaceHandlerFunc&& faceHandler,
                BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto cellHandler = [cellData](int fid, int cid) { return cellData[cid]; };
+    auto cellHandler = [cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
                   std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
@@ -247,10 +247,10 @@ class FaceIterator {
                const S* internalCellData,
                FaceHandlerFunc&& faceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [externalCellData](int fid, int cid) {
+    auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
-    auto internalCellHandler = [internalCellData](int fid, int cid) {
+    auto internalCellHandler = [internalCellData](int /*fid*/, int cid) {
       return internalCellData[cid];
     };
     forEach<T, S>(std::move(externalCellHandler),
@@ -274,10 +274,10 @@ class FaceIterator {
                FaceHandlerFunc&& faceHandler,
                BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [externalCellData](int fid, int cid) {
+    auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
-    auto internalCellHandler = [internalCellData](int fid, int cid) {
+    auto internalCellHandler = [internalCellData](int /*fid*/, int cid) {
       return internalCellData[cid];
     };
     forEach<T, S>(std::move(externalCellHandler),
@@ -294,7 +294,7 @@ class FaceIterator {
   void forEach(const T* externalCellData,
                FaceHandlerFunc&& faceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [externalCellData](int fid, int cid) {
+    auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),
@@ -314,7 +314,7 @@ class FaceIterator {
                FaceHandlerFunc&& faceHandler,
                BoundaryFaceHandlerFunc&& boundaryFaceHandler,
                MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto externalCellHandler = [externalCellData](int fid, int cid) {
+    auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),

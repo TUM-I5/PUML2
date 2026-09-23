@@ -36,9 +36,9 @@ target_compile_definitions(puml-tests
 # -Wconversion catches the narrowing between the id and size types. Its
 # sign-conversion half is left off: MPI counts ranks in int while the
 # containers index in size_t, so it fires on every rank loop without pointing
-# at a defect.
+# at a defect. Clang counts it into -Wconversion, hence the explicit switch.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(puml-tests PRIVATE -Wall -Wextra -Wconversion -Werror)
+  target_compile_options(puml-tests PRIVATE -Wall -Wextra -Wconversion -Wno-sign-conversion -Werror)
 endif()
 
 # Built, but not run: they take their input on the command line.
