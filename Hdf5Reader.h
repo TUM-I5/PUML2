@@ -484,6 +484,20 @@ class Hdf5Reader {
   void readUniformCells(const std::string& connectivityName) {
     const auto& shape = internal::shapeOf(m_defaultType);
 
+    const auto layout = datasetShape(connectivityName);
+    const auto width = layout.dims.size() == 2 ? layout.dims[1] : hsize_t{1};
+    if (layout.dims.size() != 2 || width != shape.vertexCount) {
+      throwError("the connectivity",
+                 connectivityName,
+                 "has",
+                 width,
+                 "columns per cell, but a",
+                 internal::nameOf(m_defaultType),
+                 "has",
+                 shape.vertexCount,
+                 "vertices");
+    }
+
     inferSize(DataType::Cell, connectivityName);
     const auto cellCount = m_puml.numOriginalCells();
 

@@ -239,4 +239,40 @@ TEST(MixedReader, ReadsADifferentNodeCountPerCell) {
   }
 }
 
+/// A connectivity of another width than the kind the reader was given is
+/// refused instead of being cut to that kind.
+TEST(MixedReader, RefusesAConnectivityOfAnotherWidth) {
+  const auto hex = makeHexCubeMesh(2);
+  const auto path = scratch("width");
+  if (commRank() == 0) {
+    const hid_t file = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    ASSERT_GE(file, 0);
+    writeDataset(file, "Points", H5T_NATIVE_DOUBLE, {hex.numVertices, 3}, hex.geometry.data());
+    writeDataset(file, "Connectivity", H5T_NATIVE_ULONG, {hex.numCells, 8}, hex.connect.data());
+    H5Fclose(file);
+  }
+  barrier();
+
+  std::string message;
+  {
+    PUML::MIXEDPUML puml;
+#ifdef USE_MPI
+    puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+    PUML::Hdf5Reader<PUML::MIXED> reader(puml, PUML::CellType::Tetrahedron);
+    try {
+      reader.openMixed(path + ":/Connectivity", path + ":/Offsets", path + ":/Points");
+    } catch (const PUML::Error& error) {
+      message = error.what();
+    }
+  }
+  EXPECT_NE(message.find("8 columns per cell, but a tetrahedron has 4"), std::string::npos)
+      << message;
+
+  barrier();
+  if (commRank() == 0) {
+    std::remove(path.c_str());
+  }
+}
+
 } // namespace
