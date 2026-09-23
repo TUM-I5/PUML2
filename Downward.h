@@ -27,6 +27,7 @@
 
 #include "PUML.h"
 #include "Types.h"
+#include "Upward.h"
 #include "Topology.h"
 #include "Utils.h"
 
@@ -140,6 +141,33 @@ class Downward {
     std::array<LocalId, internal::Topology<Topo>::cellvertices()> lid{};
     vertices(puml, cell, lid.data());
     return lid;
+  }
+
+  /**
+   * The vertices of a face, in the order in which the first cell that has the
+   * face lists them on that side. A face keeps no vertices of its own, so they
+   * are taken from that side of the cell; a face of fewer vertices than the
+   * widest one leaves the rest invalid.
+   *
+   * @param face A face of the mesh, not a copy of one
+   * @param lid The local ids of the vertices
+   */
+  template <TopoType Topo>
+  static void
+      vertices(const PUML<Topo>& puml, const typename PUML<Topo>::face_t& face, LocalId* lid) {
+    std::fill_n(lid, internal::Topology<Topo>::facevertices(), InvalidLocalId);
+    std::array<LocalId, 2> adjacent{};
+    Upward::cells(puml, face, adjacent.data());
+    assert(adjacent[0] != InvalidLocalId);
+    const auto& cell = puml.cells()[adjacent[0]];
+    const auto sides = faces(puml, cell);
+    for (unsigned int side = 0; side < sides.size(); side++) {
+      if (sides[side] != InvalidLocalId && &puml.faces()[sides[side]] == &face) {
+        faceVertices(puml, cell, side, lid);
+        return;
+      }
+    }
+    assert(false && "a face is a side of the first cell that has it");
   }
 
   /**

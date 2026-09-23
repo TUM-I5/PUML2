@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <set>
+#include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -533,6 +534,55 @@ TEST(Mesh, BarycentersOfMixedCells) {
       EXPECT_NEAR(coordinates[3 * c + d], sum / shape.vertexCount, 1e-12) << "cell " << c;
     }
   }
+}
+
+/// The vertices of a face are those of its side of the first cell that has it, in that order,
+/// and they name the face; the rest of the array is invalid.
+template <PUML::TopoType Topo>
+void checkVerticesOfFaces(const PUML::PUML<Topo>& puml) {
+  for (unsigned int f = 0; f < puml.faces().size(); ++f) {
+    const auto& face = puml.faces()[f];
+    const auto [vertices, count] = PUML::Downward::vertices(puml, face);
+    ASSERT_EQ(count, face.vertexCount()) << "face " << f;
+    for (unsigned int k = 0; k < vertices.size(); ++k) {
+      EXPECT_EQ(vertices[k] == PUML::InvalidLocalId, k >= count) << "face " << f;
+    }
+    EXPECT_EQ(puml.faceByVertices(vertices), f);
+
+    std::array<PUML::LocalId, 2> adjacent{};
+    PUML::Upward::cells(puml, face, adjacent.data());
+    const auto& cell = puml.cells()[adjacent[0]];
+    std::remove_const_t<decltype(vertices)> side{};
+    PUML::Downward::faceVertices(puml,
+                                 cell,
+                                 static_cast<unsigned int>(PUML::Downward::faceSide(puml, cell, f)),
+                                 side.data());
+    EXPECT_EQ(side, vertices) << "face " << f;
+  }
+}
+
+TEST(Mesh, VerticesOfFaces) {
+  const auto cube = makeCubeMesh(2);
+  PUML::TETPUML tetrahedra;
+  feed(tetrahedra,
+       cube,
+       evenSplit(cube.numCells, commRank(), commSize()),
+       evenSplit(cube.numVertices, commRank(), commSize()));
+  tetrahedra.generateMesh();
+  checkVerticesOfFaces(tetrahedra);
+
+  const auto hexCube = makeHexCubeMesh(2);
+  PUML::HEXPUML hexahedra;
+  feed(hexahedra,
+       hexCube,
+       evenSplit(hexCube.numCells, commRank(), commSize()),
+       evenSplit(hexCube.numVertices, commRank(), commSize()));
+  hexahedra.generateMesh();
+  checkVerticesOfFaces(hexahedra);
+
+  PUML::MIXEDPUML mixed;
+  feedAllKinds(mixed);
+  checkVerticesOfFaces(mixed);
 }
 
 /// Rebuilding the mesh from the same input has to give the same result.
