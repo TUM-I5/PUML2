@@ -254,11 +254,24 @@ class Hdf5Reader {
       count.push_back(size);
     }
 
-    checkH5Err(
-        H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
+    // A rank without entities takes part in the collective read with nothing
+    // selected.
+    const bool nothing = localSize == 0;
+    if (nothing) {
+      checkH5Err(H5Sselect_none(h5space));
+    } else {
+      checkH5Err(H5Sselect_hyperslab(
+          h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
+    }
 
-    hid_t h5memspace = H5Screate_simple(static_cast<int>(count.size()), count.data(), nullptr);
+    auto memCount = count;
+    memCount[0] = std::max<hsize_t>(memCount[0], 1);
+    hid_t h5memspace =
+        H5Screate_simple(static_cast<int>(memCount.size()), memCount.data(), nullptr);
     checkH5Err(h5memspace);
+    if (nothing) {
+      checkH5Err(H5Sselect_none(h5memspace));
+    }
 
     hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
     checkH5Err(h5alist);
@@ -363,14 +376,12 @@ class Hdf5Reader {
 #endif // USE_MPI
     );
     auto values = m_puml.raggedData(handle);
-    if (values.size() > 0) {
-      readSlabImpl(valuesPath,
-                   {offsets.front(), 0},
-                   {offsets.back() - offsets.front(), 0},
-                   1,
-                   hdf5Type,
-                   values.data());
-    }
+    readSlabImpl(valuesPath,
+                 {offsets.front(), 0},
+                 {offsets.back() - offsets.front(), 0},
+                 1,
+                 hdf5Type,
+                 values.data());
     return handle;
   }
 
@@ -557,11 +568,23 @@ class Hdf5Reader {
 
     hid_t h5space = H5Dget_space(h5dataset);
     checkH5Err(h5space);
-    checkH5Err(
-        H5Sselect_hyperslab(h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
+    // A rank without values takes part in the collective read with nothing
+    // selected.
+    const bool nothing = count[0] == 0;
+    if (nothing) {
+      checkH5Err(H5Sselect_none(h5space));
+    } else {
+      checkH5Err(H5Sselect_hyperslab(
+          h5space, H5S_SELECT_SET, start.data(), nullptr, count.data(), nullptr));
+    }
 
-    hid_t h5memspace = H5Screate_simple(rank, count.data(), nullptr);
+    auto memCount = count;
+    memCount[0] = std::max<hsize_t>(memCount[0], 1);
+    hid_t h5memspace = H5Screate_simple(rank, memCount.data(), nullptr);
     checkH5Err(h5memspace);
+    if (nothing) {
+      checkH5Err(H5Sselect_none(h5memspace));
+    }
 
     hid_t h5alist = H5Pcreate(H5P_DATASET_XFER);
     checkH5Err(h5alist);

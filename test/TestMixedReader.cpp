@@ -275,4 +275,50 @@ TEST(MixedReader, RefusesAConnectivityOfAnotherWidth) {
   }
 }
 
+/// With more ranks than cells, the ranks without cells take part in the
+/// collective reads all the same.
+TEST(MixedReader, ReadsWithRanksWithoutCells) {
+  MixedMesh mesh;
+  mesh.numVertices = 4;
+  mesh.numCells = 1;
+  mesh.geometry = {0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1};
+  mesh.connect = {0, 1, 2, 3, 3, 3, 3, 3};
+  mesh.types = {static_cast<std::uint8_t>(PUML::CellType::Tetrahedron)};
+
+  const auto path = scratch("single");
+  writeMesh(mesh, path, true);
+  if (commRank() == 0) {
+    const hid_t file = H5Fopen(path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+    ASSERT_GE(file, 0);
+    const std::vector<double> nodes{1.5, 2.5, 3.5};
+    const std::vector<unsigned long> offsets{0, 3};
+    writeDataset(file, "Nodes", H5T_NATIVE_DOUBLE, {nodes.size()}, nodes.data());
+    writeDataset(file, "NodeOffsets", H5T_NATIVE_ULONG, {offsets.size()}, offsets.data());
+    H5Fclose(file);
+  }
+  barrier();
+
+  PUML::MIXEDPUML puml;
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+  PUML::Hdf5Reader<PUML::MIXED> reader(puml);
+  reader.openMixed(path + ":/Connectivity", path + ":/Offsets", path + ":/Points");
+  const auto handle =
+      reader.readRaggedData<double>("nodes", path + ":/Nodes", path + ":/NodeOffsets");
+  reader.close();
+
+  const auto values = puml.raggedData(handle);
+  EXPECT_EQ(puml.numOriginalCells(), commRank() == 0 ? 1U : 0U);
+  EXPECT_EQ(values.size(), commRank() == 0 ? 3U : 0U);
+  if (commRank() == 0) {
+    EXPECT_DOUBLE_EQ(values.begin(0)[2], 3.5);
+  }
+
+  barrier();
+  if (commRank() == 0) {
+    std::remove(path.c_str());
+  }
+}
+
 } // namespace
