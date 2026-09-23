@@ -161,6 +161,24 @@ inline auto shapeOf(CellType type) -> const CellShape& {
 }
 
 /**
+ * The kind of every cell of a mesh of one kind.
+ */
+template <TopoType Topo>
+constexpr auto cellTypeOf() -> CellType {
+  static_assert(Topo != MIXED, "the cells of a mixed mesh are of more than one kind");
+  switch (Topo) {
+  case TRIANGLE:
+    return CellType::Triangle;
+  case QUADRANGLE:
+    return CellType::Quadrangle;
+  case HEXAHEDRON:
+    return CellType::Hexahedron;
+  default:
+    return CellType::Tetrahedron;
+  }
+}
+
+/**
  * Whether a mixed mesh can be built from cells of this kind.
  */
 inline auto isSupported(CellType type) -> bool {

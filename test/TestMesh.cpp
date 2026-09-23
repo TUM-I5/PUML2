@@ -351,6 +351,75 @@ TEST(Mesh, DownwardAndUpwardAgree) {
   }
 }
 
+/// The cells of both meshes, the second one moved away from the first. Only the cells and
+/// vertices are joined, not the counts of faces and edges.
+auto join(MixedMesh first, const MixedMesh& second) -> MixedMesh {
+  const auto offset = static_cast<unsigned long>(first.numVertices);
+  for (const auto vertex : second.connect) {
+    first.connect.push_back(vertex + offset);
+  }
+  first.types.insert(first.types.end(), second.types.begin(), second.types.end());
+  for (std::size_t i = 0; i < second.geometry.size(); ++i) {
+    first.geometry.push_back(second.geometry[i] + (i % 3 == 1 ? 100.0 : 0.0));
+  }
+  first.numCells += second.numCells;
+  first.numVertices += second.numVertices;
+  return first;
+}
+
+/// Hexahedra, tetrahedra, pyramids and wedges.
+auto makeAllKindsMesh() -> MixedMesh {
+  return join(join(makeMixedMesh(2), makeHexPyramidMesh(2)), makeWedgeMesh(2));
+}
+
+auto feedAllKinds(PUML::MIXEDPUML& puml) -> MixedMesh {
+  auto mesh = makeAllKindsMesh();
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+  return mesh;
+}
+
+/// A cell tells its kind: the one it was given in a mixed mesh, the kind of the mesh otherwise.
+TEST(Mesh, CellsKnowTheirKind) {
+  const auto cube = makeCubeMesh(2);
+  PUML::TETPUML tetrahedra;
+  feed(tetrahedra,
+       cube,
+       evenSplit(cube.numCells, commRank(), commSize()),
+       evenSplit(cube.numVertices, commRank(), commSize()));
+  tetrahedra.generateMesh();
+  for (const auto& cell : tetrahedra.cells()) {
+    EXPECT_EQ(cell.type(), PUML::CellType::Tetrahedron);
+  }
+
+  PUML::MIXEDPUML puml;
+  const auto mesh = feedAllKinds(puml);
+  std::array<long, 4> kinds{};
+  for (const auto& cell : puml.cells()) {
+    EXPECT_EQ(static_cast<std::uint8_t>(cell.type()), mesh.types[cell.gid()]);
+    switch (cell.type()) {
+    case PUML::CellType::Tetrahedron:
+      ++kinds[0];
+      break;
+    case PUML::CellType::Pyramid:
+      ++kinds[1];
+      break;
+    case PUML::CellType::Wedge:
+      ++kinds[2];
+      break;
+    default:
+      ++kinds[3];
+      break;
+    }
+  }
+  for (const auto count : kinds) {
+    EXPECT_GT(globalSum(count), 0);
+  }
+}
+
 /// Rebuilding the mesh from the same input has to give the same result.
 TEST(Mesh, GenerateMeshIsRepeatable) {
   const auto mesh = makeCubeMesh(3);

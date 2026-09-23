@@ -1259,6 +1259,7 @@ class PUML {
                        ", which a mixed mesh cannot be built from yet");
           }
           const auto& shape = internal::shapeOf(type);
+          m_cells[i].m_type = type;
 
           for (std::size_t j = 0; j < shape.vertexCount; j++) {
             m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
@@ -1292,6 +1293,7 @@ class PUML {
       } else {
         for (std::size_t i = 0; i < m_originalSize[0]; i++) {
           m_cells[i].m_gid = i + cellOffset;
+          m_cells[i].m_type = internal::cellTypeOf<Topo>();
 
           for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
             m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];

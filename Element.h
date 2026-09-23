@@ -17,6 +17,7 @@
 
 #include <vector>
 
+#include "CellType.h"
 #include "SmallVector.h"
 #include "Topology.h"
 #include "Types.h"
@@ -121,8 +122,16 @@ class Cell : public Element<std::array<int, 0>> {
   friend class PUML<Topo>;
   friend class Downward;
 
+  public:
+  /**
+   * @return The kind of this cell: in a mixed mesh the kind it was given, otherwise the kind of
+   *  the mesh
+   */
+  [[nodiscard]] auto type() const -> CellType { return m_type; }
+
   private:
   std::array<LocalId, internal::Topology<Topo>::cellvertices()> m_vertices{};
+  CellType m_type{};
 };
 
 } // namespace PUML
