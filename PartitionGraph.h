@@ -46,7 +46,6 @@ class PartitionGraph {
     m_processCount = commSize;
 
     const unsigned long cellfaces = internal::Topology<Topo>::cellfaces();
-    const auto& faces = m_puml.faces();
     const auto& cells = m_puml.cells();
     unsigned long vertexCount = cells.size();
 
@@ -55,9 +54,9 @@ class PartitionGraph {
 
     FaceIterator<Topo> iterator(m_puml);
     iterator.template forEach<unsigned long>(
-        [&cells](int fid, int cid) { return cells[cid].gid(); },
-        [&adjRawCount, &adjRaw](int id, int lid, const unsigned long& gid) {
-          int idx = (cellfaces * lid) + adjRawCount[lid]++;
+        [&cells](int /*fid*/, int cid) { return cells[cid].gid(); },
+        [&adjRawCount, &adjRaw](int /*id*/, int lid, const unsigned long& gid) {
+          const auto idx = (cellfaces * lid) + adjRawCount[lid]++;
           adjRaw[idx] = gid;
         });
 
@@ -117,7 +116,7 @@ class PartitionGraph {
   void forEachLocalEdges(const T* cellData,
                          FaceHandlerFunc&& faceHandler,
                          MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto handler = [&cellData](int fid, int id) { return cellData[id]; };
+    auto handler = [&cellData](int /*fid*/, int id) { return cellData[id]; };
     forEachLocalEdges<T>(std::move(handler), std::forward<FaceHandlerFunc>(faceHandler), mpit);
   }
 
@@ -130,7 +129,7 @@ class PartitionGraph {
   void forEachLocalEdges(const std::vector<T>& cellData,
                          FaceHandlerFunc&& faceHandler,
                          MPI_Datatype mpit = MPITypeInfer<T>::type()) {
-    auto handler = [&cellData](int fid, int id) { return cellData[id]; };
+    auto handler = [&cellData](int /*fid*/, int id) { return cellData[id]; };
     forEachLocalEdges<T>(std::move(handler), std::forward<FaceHandlerFunc>(faceHandler), mpit);
   }
 
@@ -178,7 +177,7 @@ class PartitionGraph {
     FaceIterator<Topo> iterator(m_puml);
     iterator.template forEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                                  std::move(realFaceHandler),
-                                 std::move([](int a, int b) {}),
+                                 std::move([](int /*a*/, int /*b*/) {}),
                                  mpit);
   }
 
@@ -202,18 +201,26 @@ class PartitionGraph {
       const auto& cell = m_puml.cells()[i];
       unsigned int lid[internal::Topology<Topo>::cellvertices()];
       Downward::vertices(m_puml, cell, lid);
-      OutputType x = 0.0;
-      OutputType y = 0.0;
-      OutputType z = 0.0;
+      OutputType x = OutputType{0};
+      OutputType y = OutputType{0};
+      OutputType z = OutputType{0};
+      unsigned int count = 0;
       for (unsigned long j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
+        // a cell of a mixed mesh which has fewer vertices than the widest kind leaves the rest
+        // invalid
+        if (lid[j] == InvalidLocalId) {
+          continue;
+        }
+        ++count;
         auto vertex = m_puml.vertices()[lid[j]];
-        x += vertex.coordinate()[0];
-        y += vertex.coordinate()[1];
-        z += vertex.coordinate()[2];
+        x += static_cast<OutputType>(vertex.coordinate()[0]);
+        y += static_cast<OutputType>(vertex.coordinate()[1]);
+        z += static_cast<OutputType>(vertex.coordinate()[2]);
       }
-      x /= internal::Topology<Topo>::cellvertices();
-      y /= internal::Topology<Topo>::cellvertices();
-      z /= internal::Topology<Topo>::cellvertices();
+      const auto cellvertices = static_cast<OutputType>(count);
+      x /= cellvertices;
+      y /= cellvertices;
+      z /= cellvertices;
       coord[(i * 3) + 0] = x;
       coord[(i * 3) + 1] = y;
       coord[(i * 3) + 2] = z;
