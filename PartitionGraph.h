@@ -25,6 +25,7 @@
 #include <vector>
 #include <cassert>
 #include <functional>
+#include <numeric>
 #include <type_traits>
 #include <utility>
 #include "Topology.h"
@@ -70,10 +71,22 @@ class PartitionGraph {
       m_adjDisp[i + 1] = m_adjDisp[i] + adjRawCount[i];
     }
 
+    // The face iterator visits the neighbours of a cell in the order of its local faces, and that
+    // follows the order in which the mesh file lists the vertices of the cell. The partitioners
+    // break ties in the order of the adjacency, so sort every row by the global id of the
+    // neighbour: the partition then only depends on the cells, not on how their vertices are
+    // listed. m_edgeOrder maps the position of an edge in iterator order to its sorted position.
     m_adj.resize(m_adjDisp[vertexCount]);
-    for (unsigned long i = 0, j = 0; i < vertexCount; ++i) {
-      for (unsigned long k = 0; k < adjRawCount[i]; ++k, ++j) {
-        m_adj[j] = adjRaw[(i * cellfaces) + k];
+    m_edgeOrder.resize(m_adjDisp[vertexCount]);
+    std::vector<unsigned long> row;
+    for (unsigned long i = 0; i < vertexCount; ++i) {
+      row.resize(adjRawCount[i]);
+      std::iota(row.begin(), row.end(), 0UL);
+      const auto* raw = &adjRaw[i * cellfaces];
+      std::stable_sort(row.begin(), row.end(), [raw](auto a, auto b) { return raw[a] < raw[b]; });
+      for (unsigned long k = 0; k < row.size(); ++k) {
+        m_adj[m_adjDisp[i] + k] = raw[row[k]];
+        m_edgeOrder[m_adjDisp[i] + row[k]] = m_adjDisp[i] + k;
       }
     }
 
@@ -170,10 +183,14 @@ class PartitionGraph {
 
     std::vector<unsigned long> adjRawCount(localVertexCount());
     const auto& adjDisp = m_adjDisp;
+    const auto& edgeOrder = m_edgeOrder;
     auto realFaceHandler =
-        [&adjDisp, &adjRawCount, faceHandler = std::forward<FaceHandlerFunc>(faceHandler)](
-            int fid, int lid, const T& a) {
-          std::invoke(faceHandler, fid, lid, a, adjDisp[lid] + adjRawCount[lid]++);
+        [&adjDisp,
+         &adjRawCount,
+         &edgeOrder,
+         faceHandler = std::forward<FaceHandlerFunc>(faceHandler)](int fid, int lid, const T& a) {
+          // the edge id is the position in the sorted adjacency (see the constructor)
+          std::invoke(faceHandler, fid, lid, a, edgeOrder[adjDisp[lid] + adjRawCount[lid]++]);
         };
     FaceIterator<Topo> iterator(m_puml);
     iterator.template forEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
@@ -196,27 +213,28 @@ class PartitionGraph {
 
   template <typename OutputType>
   void geometricCoordinates(std::vector<OutputType>& coord) const {
-    // basic idea: compute the barycenter of the cell (i.e. tetrahedron/hexahedron)
+    // basic idea: compute the barycenter of the cell (i.e. tetrahedron/hexahedron); summed in
+    // double over the vertices in the order of their global ids, so that it does not depend on
+    // the order in which the mesh file lists the vertices of the cell
+    constexpr auto CellVertices = internal::Topology<Topo>::cellvertices();
+    const auto& vertices = m_puml.vertices();
     coord.resize(3 * localVertexCount());
     for (unsigned long i = 0; i < m_puml.cells().size(); ++i) {
       const auto& cell = m_puml.cells()[i];
-      unsigned int lid[internal::Topology<Topo>::cellvertices()];
+      unsigned int lid[CellVertices];
       Downward::vertices(m_puml, cell, lid);
-      OutputType x = 0.0;
-      OutputType y = 0.0;
-      OutputType z = 0.0;
-      for (unsigned long j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
-        auto vertex = m_puml.vertices()[lid[j]];
-        x += vertex.coordinate()[0];
-        y += vertex.coordinate()[1];
-        z += vertex.coordinate()[2];
+      std::sort(lid, lid + CellVertices, [&vertices](auto a, auto b) {
+        return vertices[a].gid() < vertices[b].gid();
+      });
+      double sum[3] = {0.0, 0.0, 0.0};
+      for (unsigned long j = 0; j < CellVertices; ++j) {
+        for (int d = 0; d < 3; ++d) {
+          sum[d] += vertices[lid[j]].coordinate()[d];
+        }
       }
-      x /= internal::Topology<Topo>::cellvertices();
-      y /= internal::Topology<Topo>::cellvertices();
-      z /= internal::Topology<Topo>::cellvertices();
-      coord[(i * 3) + 0] = x;
-      coord[(i * 3) + 1] = y;
-      coord[(i * 3) + 2] = z;
+      for (int d = 0; d < 3; ++d) {
+        coord[(i * 3) + d] = static_cast<OutputType>(sum[d] / CellVertices);
+      }
     }
   }
 
@@ -284,6 +302,8 @@ class PartitionGraph {
   private:
   std::vector<unsigned long> m_adj;
   std::vector<unsigned long> m_adjDisp;
+  // position of an edge in face iterator order -> its position in m_adj
+  std::vector<unsigned long> m_edgeOrder;
   std::vector<unsigned long> m_vertexWeights;
   std::vector<unsigned long> m_edgeWeights;
   std::vector<unsigned long> m_vertexDistribution;

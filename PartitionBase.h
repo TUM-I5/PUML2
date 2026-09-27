@@ -22,6 +22,7 @@
 #include "Topology.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
+#include <algorithm>
 #include <vector>
 
 namespace PUML {
@@ -49,6 +50,11 @@ class PartitionBase {
                  const PartitionGraph<Topo>& graph,
                  const PartitionTarget& target,
                  int seed = 1) -> PartitioningResult {
+    // a single part needs no partitioner, and not all of them return for it (ParHIP does not)
+    if (target.vertexCount() == 1) {
+      std::fill(part.begin(), part.end(), 0);
+      return PartitioningResult::SUCCESS;
+    }
     return partition(part.data(), graph, target, seed);
   }
 
