@@ -51,6 +51,13 @@ class PartitionParhip : public PartitionBase<Topo> {
     int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
 
+    // ParHIP does not come back for a single part; PartitionBase skips it as well, but not for
+    // direct calls of this function
+    if (target.vertexCount() == 1) {
+      std::fill_n(partition, graph.localVertexCount(), 0);
+      return PartitioningResult::SUCCESS;
+    }
+
     std::vector<idxtype> vtxdist(graph.vertexDistribution().begin(),
                                  graph.vertexDistribution().end());
     std::vector<idxtype> xadj(graph.adjDisp().begin(), graph.adjDisp().end());
