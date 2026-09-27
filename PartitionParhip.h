@@ -29,7 +29,10 @@
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <parhip_interface.h>
+#include <vector>
 
 #include "Topology.h"
 
@@ -52,7 +55,16 @@ class PartitionParhip : public PartitionBase<Topo> {
                                  graph.vertexDistribution().end());
     std::vector<idxtype> xadj(graph.adjDisp().begin(), graph.adjDisp().end());
     std::vector<idxtype> adjncy(graph.adj().begin(), graph.adj().end());
-    std::vector<idxtype> vwgt(graph.vertexWeights().begin(), graph.vertexWeights().end());
+    // with several weights per vertex (stored vertex by vertex), use their sum: a single weight
+    // per vertex is all this partitioner takes, and the first one alone may well be zero (as
+    // for the encoded balanced weights of SeisSol, which set one entry per vertex)
+    const auto weightCount = std::max(graph.vertexWeightCount(), 1UL);
+    std::vector<idxtype> vwgt(graph.vertexWeights().size() / weightCount);
+    for (std::size_t i = 0; i < vwgt.size(); ++i) {
+      for (std::size_t j = 0; j < weightCount; ++j) {
+        vwgt[i] += graph.vertexWeights()[(i * weightCount) + j];
+      }
+    }
     std::vector<idxtype> adjwgt(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
 
@@ -60,7 +72,7 @@ class PartitionParhip : public PartitionBase<Topo> {
       logWarning() << "Node weights (target vertex weights) are currently ignored by ParHIP.";
     }
     if (graph.vertexWeights().size() > graph.localVertexCount()) {
-      logWarning() << "Multiple vertex weights are currently ignored by ParHIP.";
+      logWarning() << "ParHIP uses the sum of multiple vertex weights.";
     }
 
     int edgecut = 0;
