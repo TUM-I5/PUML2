@@ -52,7 +52,7 @@ void checkRepartition(int n, const std::vector<int>& (*assign)(std::size_t, int,
   const auto movedIdentity = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
   const auto movedDerived = puml.data(puml.find<unsigned long>("derived", PUML::CELL));
 
-  std::vector<unsigned long> local(movedIdentity.begin(), movedIdentity.end());
+  const std::vector<unsigned long> local(movedIdentity.begin(), movedIdentity.end());
   for (std::size_t i = 0; i < movedIdentity.size(); ++i) {
     EXPECT_EQ(movedDerived[i], 2 * movedIdentity[i] + 1) << "cell " << i;
   }

@@ -58,7 +58,7 @@ void checkPartitioner(const std::string& name, PUML::PartitionerType type) {
 
   puml.generateMesh();
 
-  PUML::TETPartitionGraph graph(puml);
+  const PUML::TETPartitionGraph graph(puml);
   PUML::PartitionTarget target;
   target.setPartitionCount(procs);
   target.setImbalance(0.05);
@@ -105,7 +105,7 @@ TEST(Partitioner, GraphMatchesTheMesh) {
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
   puml.generateMesh();
 
-  PUML::TETPartitionGraph graph(puml);
+  const PUML::TETPartitionGraph graph(puml);
 
   EXPECT_EQ(graph.localVertexCount(), cells.size);
   EXPECT_EQ(globalSum(static_cast<long>(graph.localVertexCount())),

@@ -923,7 +923,7 @@ class PUML {
         recvValueDispls[p] = (p == 0) ? 0 : recvValueDispls[p - 1] + recvValues[p - 1];
       }
 
-      std::vector<Size> counts(recvCounts.begin(), recvCounts.end());
+      const std::vector<Size> counts(recvCounts.begin(), recvCounts.end());
       auto offsets = internal::RaggedBuffer::offsetsOf(counts);
       auto received = array.values().sameLayout(offsets.back());
       MPI_Alltoallv(array.values().data(),
@@ -1234,6 +1234,10 @@ class PUML {
     cellOffset -= m_originalSize[0];
 
     {
+      // A mesh of two dimensions builds no edges (its faces are the segments), so
+      // it leaves this builder untouched, which clang-tidy takes for a variable
+      // that could be const.
+      // NOLINTNEXTLINE(misc-const-correctness)
       internal::UpwardBuilder edgeUpward;
       internal::UpwardBuilder vertexUpward;
       if constexpr (internal::Topology<Topo>::dimension() == 3) {
@@ -1602,7 +1606,7 @@ class PUML {
           std::vector<std::size_t> sharedPos(procs);
 
           for (std::size_t i = 0; i < elements.size(); ++i) {
-            for (const auto& rank : elements[i].m_sharedRanks) {
+            for (const int rank : elements[i].m_sharedRanks) {
               assert(sharedPos[rank] < static_cast<std::size_t>(nShared[rank]));
               sendShared[sDispls[rank] + sharedPos[rank]] = downward[i];
               ++sharedPos[rank];
@@ -1706,7 +1710,7 @@ class PUML {
 
           for (std::size_t i = 0; i < elements.size(); i++) {
             if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
-              for (const auto& rank : elements[i].m_sharedRanks) {
+              for (const int rank : elements[i].m_sharedRanks) {
                 assert(sendPos[rank] < static_cast<std::size_t>(nSendGid[rank]));
 
                 sendGid[sDispls[rank] + sendPos[rank]] = elements[i].m_gid;

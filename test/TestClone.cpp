@@ -104,7 +104,7 @@ TEST(Clone, CanBeRepartitioned) {
   EXPECT_EQ(cloned.euler(), 1);
 
   const auto moved = copy.data(copy.find<unsigned long>("identity", PUML::CELL));
-  std::vector<unsigned long> local(moved.begin(), moved.end());
+  const std::vector<unsigned long> local(moved.begin(), moved.end());
   auto all = gather(local);
   std::sort(all.begin(), all.end());
   EXPECT_TRUE(isContiguousFromZero(all));

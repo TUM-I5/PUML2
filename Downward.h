@@ -47,10 +47,8 @@ class Downward {
                     const typename PUML<Topo>::cell_t& cell,
                     LocalId* lid) {
     // a cell of a mixed mesh which has fewer faces than the widest kind leaves the rest invalid
-    unsigned int faceCount = internal::Topology<Topo>::cellfaces();
-    if constexpr (Topo == MIXED) {
-      faceCount = internal::shapeOf(cell.type()).faceCount;
-    }
+    const unsigned int faceCount = Topo == MIXED ? internal::shapeOf(cell.type()).faceCount
+                                                 : internal::Topology<Topo>::cellfaces();
     for (unsigned int i = 0; i < internal::Topology<Topo>::cellfaces(); i++) {
       if (i >= faceCount) {
         lid[i] = InvalidLocalId;
