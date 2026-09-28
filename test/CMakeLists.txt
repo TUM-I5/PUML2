@@ -21,6 +21,7 @@ add_executable(puml-tests
   TestMesh.cpp
   TestPartition.cpp
   TestPartitioner.cpp
+  TestFaceIterator.cpp
   TestReader.cpp
   TestClone.cpp
   TestError.cpp

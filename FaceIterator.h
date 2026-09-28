@@ -102,12 +102,12 @@ class FaceIterator {
 #endif // USE_MPI
   ) {
     auto cellHandler = [&cellData](int /*fid*/, int cid) { return cellData[cid]; };
-    forEach<T, T>(std::move(cellHandler),
-                  std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int /*a*/, int /*b*/) {})
+    forEach<T>(std::move(cellHandler),
+               std::forward<FaceHandlerFunc>(faceHandler),
+               std::move([](int /*a*/, int /*b*/) {})
 #ifdef USE_MPI
-                      ,
-                  mpit
+                   ,
+               mpit
 #endif // USE_MPI
     );
   }
@@ -129,12 +129,12 @@ class FaceIterator {
 #endif // USE_MPI
   ) {
     auto cellHandler = [&cellData](int /*fid*/, int cid) { return cellData[cid]; };
-    forEach<T, T>(std::move(cellHandler),
-                  std::forward<FaceHandlerFunc>(faceHandler),
-                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+    forEach<T>(std::move(cellHandler),
+               std::forward<FaceHandlerFunc>(faceHandler),
+               std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
 #ifdef USE_MPI
-                      ,
-                  mpit
+                   ,
+               mpit
 #endif // USE_MPI
     );
   }
@@ -270,12 +270,12 @@ class FaceIterator {
 #endif // USE_MPI
   ) {
     auto cellHandler = [cellData](int /*fid*/, int cid) { return cellData[cid]; };
-    forEach<T, T>(std::move(cellHandler),
-                  std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int /*a*/, int /*b*/) {})
+    forEach<T>(std::move(cellHandler),
+               std::forward<FaceHandlerFunc>(faceHandler),
+               std::move([](int /*a*/, int /*b*/) {})
 #ifdef USE_MPI
-                      ,
-                  mpit
+                   ,
+               mpit
 #endif // USE_MPI
     );
   }
@@ -297,12 +297,12 @@ class FaceIterator {
 #endif // USE_MPI
   ) {
     auto cellHandler = [cellData](int /*fid*/, int cid) { return cellData[cid]; };
-    forEach<T, T>(std::move(cellHandler),
-                  std::forward<FaceHandlerFunc>(faceHandler),
-                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+    forEach<T>(std::move(cellHandler),
+               std::forward<FaceHandlerFunc>(faceHandler),
+               std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
 #ifdef USE_MPI
-                      ,
-                  mpit
+                   ,
+               mpit
 #endif // USE_MPI
     );
   }
