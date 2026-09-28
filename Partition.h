@@ -25,6 +25,11 @@
 #include "PartitionBase.h"
 #include "PartitionDummy.h"
 
+// The graph partitioners run over MPI; without it, only the dummy is there.
+#if !defined(USE_MPI) && (defined(USE_PARMETIS) || defined(USE_PTSCOTCH) || defined(USE_PARHIP))
+#error "ParMETIS, PT-Scotch and ParHIP need USE_MPI"
+#endif
+
 #ifdef USE_PARMETIS
 #include "PartitionParmetis.h"
 #endif

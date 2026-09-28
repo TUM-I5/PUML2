@@ -41,15 +41,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(puml-tests PRIVATE -Wall -Wextra -Wconversion -Wno-sign-conversion -Werror)
 endif()
 
-# Built, but not run: they take their input on the command line.
+# Built, but not run: they take their input on the command line. The example
+# talks to MPI directly; the benchmark runs on a single process without it.
 if(PUML_USE_MPI)
   add_executable(puml-example-simple simple-test/puml.cpp)
   target_link_libraries(puml-example-simple PRIVATE PUML::Hdf5)
-
-  add_executable(puml-partition-benchmark PartitionBenchmark.cpp)
-  target_link_libraries(puml-partition-benchmark PRIVATE PUML::Hdf5)
-  target_include_directories(puml-partition-benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
+
+add_executable(puml-partition-benchmark PartitionBenchmark.cpp)
+target_link_libraries(puml-partition-benchmark PRIVATE PUML::Hdf5)
+target_include_directories(puml-partition-benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(PUML_USE_MPI)
   foreach(ranks IN ITEMS 1 2 3 4)

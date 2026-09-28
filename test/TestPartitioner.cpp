@@ -10,7 +10,6 @@
 
 #include "PumlTest.h"
 
-#ifdef USE_MPI
 #include "Partition.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
@@ -114,5 +113,60 @@ TEST(Partitioner, GraphMatchesTheMesh) {
   EXPECT_EQ(globalSum(static_cast<long>(graph.localEdgeCount())), 2 * interior);
 }
 
+/// Walking the edges of the graph hands every edge over once, together with the
+/// cell on its far side, which may be held by another rank.
+TEST(Partitioner, LocalEdgesMatchTheGraph) {
+  const auto mesh = makeCubeMesh(4);
+
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  PUML::TETPartitionGraph graph(puml);
+  const auto& cells = puml.cells();
+  const auto& adj = graph.adj();
+  const auto& adjDisp = graph.adjDisp();
+
+  std::vector<int> visits(graph.localEdgeCount());
+  graph.forEachLocalEdges<unsigned long>(
+      [&cells](int /*fid*/, int cid) { return cells[cid].gid(); },
+      [&](int /*fid*/, int cid, const unsigned long& neighbor, int eid) {
+        ASSERT_GE(static_cast<unsigned long>(eid), adjDisp[cid]);
+        ASSERT_LT(static_cast<unsigned long>(eid), adjDisp[cid + 1]);
+        EXPECT_EQ(adj[eid], neighbor);
+        ++visits[eid];
+      });
+
+  for (const int count : visits) {
+    EXPECT_EQ(count, 1);
+  }
+}
+
+/// Without a partitioner, every cell stays on the rank that holds it.
+TEST(Partitioner, NoneKeepsEveryCellWhereItIs) {
+  const auto mesh = makeCubeMesh(3);
+
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  const PUML::TETPartitionGraph graph(puml);
+  PUML::PartitionTarget target;
+  target.setPartitionCount(commSize());
+
+  // The pointer variant goes to the partitioner even for a single part.
+  std::vector<int> part(graph.localVertexCount(), -1);
+  const auto partitioner = PUML::TETPartition::getPartitioner(PUML::PartitionerType::None);
+  EXPECT_EQ(partitioner->partition(part.data(), graph, target), PUML::PartitioningResult::SUCCESS);
+  for (const int owner : part) {
+    EXPECT_EQ(owner, commRank());
+  }
+}
+
 } // namespace
-#endif // USE_MPI

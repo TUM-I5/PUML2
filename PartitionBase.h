@@ -35,7 +35,6 @@ class PartitionBase {
   PartitionBase() = default;
   virtual ~PartitionBase() = default;
 
-#ifdef USE_MPI
   auto partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
       -> std::vector<int> {
     std::vector<int> part(graph.localVertexCount());
@@ -62,7 +61,6 @@ class PartitionBase {
                          const PartitionGraph<Topo>& graph,
                          const PartitionTarget& target,
                          int seed = 1) -> PartitioningResult = 0;
-#endif // USE_MPI
 };
 
 using TETPartitionBase = PartitionBase<TETRAHEDRON>;

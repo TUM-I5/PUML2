@@ -127,10 +127,20 @@ class PartitionGraph {
       std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&, int>,
                        bool> = true>
   void forEachLocalEdges(const T* cellData,
-                         FaceHandlerFunc&& faceHandler,
-                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+                         FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+                         ,
+                         MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto handler = [&cellData](int /*fid*/, int id) { return cellData[id]; };
-    forEachLocalEdges<T>(std::move(handler), std::forward<FaceHandlerFunc>(faceHandler), mpit);
+    forEachLocalEdges<T>(std::move(handler),
+                         std::forward<FaceHandlerFunc>(faceHandler)
+#ifdef USE_MPI
+                             ,
+                         mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const T&,int)
@@ -140,10 +150,20 @@ class PartitionGraph {
       std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&, int>,
                        bool> = true>
   void forEachLocalEdges(const std::vector<T>& cellData,
-                         FaceHandlerFunc&& faceHandler,
-                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+                         FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+                         ,
+                         MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto handler = [&cellData](int /*fid*/, int id) { return cellData[id]; };
-    forEachLocalEdges<T>(std::move(handler), std::forward<FaceHandlerFunc>(faceHandler), mpit);
+    forEachLocalEdges<T>(std::move(handler),
+                         std::forward<FaceHandlerFunc>(faceHandler)
+#ifdef USE_MPI
+                             ,
+                         mpit
+#endif // USE_MPI
+    );
   }
 
   // CellHandlerFunc: T(int,int)
@@ -156,16 +176,25 @@ class PartitionGraph {
       std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&, int>,
                        bool> = true>
   void forEachLocalEdges(CellHandlerFunc&& cellHandler,
-                         FaceHandlerFunc&& faceHandler,
-                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+                         FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+                         ,
+                         MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto realFaceHandler = [faceHandler = std::forward<FaceHandlerFunc>(faceHandler),
                             cellHandler = std::forward<CellHandlerFunc>(cellHandler)](
                                int fid, int lid, const T& a, int eid) {
       auto b = std::invoke(cellHandler, fid, lid);
       std::invoke(faceHandler, fid, lid, a, b, eid);
     };
-    forEachLocalEdges<T>(
-        std::forward<CellHandlerFunc>(cellHandler), std::move(realFaceHandler), mpit);
+    forEachLocalEdges<T>(std::forward<CellHandlerFunc>(cellHandler),
+                         std::move(realFaceHandler)
+#ifdef USE_MPI
+                             ,
+                         mpit
+#endif // USE_MPI
+    );
   }
 
   // ExternalCellHandlerFunc: T(int,int)
@@ -177,8 +206,12 @@ class PartitionGraph {
       std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
       std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, int>, bool> = true>
   void forEachLocalEdges(ExternalCellHandlerFunc&& externalCellHandler,
-                         FaceHandlerFunc&& faceHandler,
-                         MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+                         FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+                         ,
+                         MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
 
     std::vector<unsigned long> adjRawCount(localVertexCount());
     const auto& adjDisp = m_adjDisp;
@@ -194,8 +227,12 @@ class PartitionGraph {
     FaceIterator<Topo> iterator(m_puml);
     iterator.template forEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                                  std::move(realFaceHandler),
-                                 std::move([](int /*a*/, int /*b*/) {}),
-                                 mpit);
+                                 std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                                     ,
+                                 mpit
+#endif // USE_MPI
+    );
   }
 
   [[nodiscard]] auto localVertexCount() const -> unsigned long { return m_adjDisp.size() - 1; }
@@ -294,7 +331,9 @@ class PartitionGraph {
     return m_edgeWeights;
   }
 
+#ifdef USE_MPI
   [[nodiscard]] auto comm() const -> const MPI_Comm& { return m_comm; }
+#endif // USE_MPI
 
   auto puml() const -> const PUML<Topo>& { return m_puml; }
 

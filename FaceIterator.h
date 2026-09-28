@@ -38,12 +38,18 @@ class FaceIterator {
   class Face;
 
   public:
-  FaceIterator(const PUML<Topo>& puml, bool sparseComm = true)
-      : m_puml(puml), m_sparseComm(sparseComm) {
+  FaceIterator(const PUML<Topo>& puml, [[maybe_unused]] bool sparseComm = true)
+      : m_puml(puml)
+#ifdef USE_MPI
+        ,
+        m_sparseComm(sparseComm)
+#endif // USE_MPI
+  {
+    // Without MPI there is a single rank, so no face leads to a cell elsewhere
+    // and there is nothing to exchange.
+#ifdef USE_MPI
     int rank = 0;
     int commSize = 1;
-
-#ifdef USE_MPI
     MPI_Comm_rank(m_puml.comm(), &rank);
     MPI_Comm_size(m_puml.comm(), &commSize);
 
@@ -89,13 +95,21 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>,
                              bool> = true>
   void forEach(const std::vector<T>& cellData,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto cellHandler = [&cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int /*a*/, int /*b*/) {}),
-                  mpit);
+                  std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const T&)
@@ -108,13 +122,21 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
   void forEach(const std::vector<T>& cellData,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto cellHandler = [&cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                  mpit);
+                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const S&)
@@ -125,8 +147,12 @@ class FaceIterator {
                              bool> = true>
   void forEach(const std::vector<T>& externalCellData,
                const std::vector<S>& internalCellData,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
@@ -136,8 +162,12 @@ class FaceIterator {
     forEach<T, S>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int /*a*/, int /*b*/) {}),
-                  mpit);
+                  std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const S&)
@@ -152,8 +182,12 @@ class FaceIterator {
   void forEach(const std::vector<T>& externalCellData,
                const std::vector<S>& internalCellData,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
@@ -163,8 +197,12 @@ class FaceIterator {
     forEach<T, S>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                  mpit);
+                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&)
@@ -172,15 +210,23 @@ class FaceIterator {
             typename FaceHandlerFunc,
             std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true>
   void forEach(const std::vector<T>& externalCellData,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::move([](int /*a*/, int /*b*/) {}),
-                       mpit);
+                       std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                           ,
+                       mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&)
@@ -192,15 +238,23 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
   void forEach(const std::vector<T>& externalCellData,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [&externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                       mpit);
+                       std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                           ,
+                       mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const T&)
@@ -209,13 +263,21 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>,
                              bool> = true>
   void forEach(const T* cellData,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto cellHandler = [cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int /*a*/, int /*b*/) {}),
-                  mpit);
+                  std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const T&)
@@ -228,13 +290,21 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
   void forEach(const T* cellData,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto cellHandler = [cellData](int /*fid*/, int cid) { return cellData[cid]; };
     forEach<T, T>(std::move(cellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                  mpit);
+                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const S&)
@@ -245,8 +315,12 @@ class FaceIterator {
                              bool> = true>
   void forEach(const T* externalCellData,
                const S* internalCellData,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
@@ -256,8 +330,12 @@ class FaceIterator {
     forEach<T, S>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int /*a*/, int /*b*/) {}),
-                  mpit);
+                  std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&,const S&)
@@ -272,8 +350,12 @@ class FaceIterator {
   void forEach(const T* externalCellData,
                const S* internalCellData,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
@@ -283,8 +365,12 @@ class FaceIterator {
     forEach<T, S>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                  mpit);
+                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&)
@@ -292,15 +378,23 @@ class FaceIterator {
             typename FaceHandlerFunc,
             std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true>
   void forEach(const T* externalCellData,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::move([](int /*a*/, int /*b*/) {}),
-                       mpit);
+                       std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                           ,
+                       mpit
+#endif // USE_MPI
+    );
   }
 
   // FaceHandlerFunc: void(int,int,const T&)
@@ -312,15 +406,23 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
   void forEach(const T* externalCellData,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto externalCellHandler = [externalCellData](int /*fid*/, int cid) {
       return externalCellData[cid];
     };
     internalforEach<T>(std::move(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                       mpit);
+                       std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                           ,
+                       mpit
+#endif // USE_MPI
+    );
   }
 
   // CellHandlerFunc: T(int,int)
@@ -332,8 +434,12 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&, const T&>,
                              bool> = true>
   void forEach(CellHandlerFunc&& cellHandler,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     // no direct move/forward possible here for cellHandler
     auto externalCellHandler = [&cellHandler](int fid, int cid) {
       return std::invoke(cellHandler, fid, cid);
@@ -344,8 +450,12 @@ class FaceIterator {
     forEach<T, T>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::move([](int /*a*/, int /*b*/) {}),
-                  mpit);
+                  std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // CellHandlerFunc: T(int,int)
@@ -361,8 +471,12 @@ class FaceIterator {
             std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
   void forEach(CellHandlerFunc&& cellHandler,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     // no direct move/forward possible here for cellHandler
     auto externalCellHandler = [&cellHandler](int fid, int cid) {
       return std::invoke(cellHandler, fid, cid);
@@ -373,8 +487,12 @@ class FaceIterator {
     forEach<T, T>(std::move(externalCellHandler),
                   std::move(internalCellHandler),
                   std::forward<FaceHandlerFunc>(faceHandler),
-                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                  mpit);
+                  std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                      ,
+                  mpit
+#endif // USE_MPI
+    );
   }
 
   // ExternalCellHandlerFunc: T(int,int)
@@ -392,8 +510,12 @@ class FaceIterator {
           true>
   void forEach(ExternalCellHandlerFunc&& externalCellHandler,
                InternalCellHandlerFunc&& internalCellHandler,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto realFaceHandler = [faceHandler = std::forward<FaceHandlerFunc>(faceHandler),
                             internalCellHandler = std::forward<InternalCellHandlerFunc>(
                                 internalCellHandler)](int fid, int cid, const T& tv) {
@@ -401,8 +523,12 @@ class FaceIterator {
     };
     forEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                std::move(realFaceHandler),
-               std::move([](int /*a*/, int /*b*/) {}),
-               mpit);
+               std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                   ,
+               mpit
+#endif // USE_MPI
+    );
   }
 
   // ExternalCellHandlerFunc: T(int,int)
@@ -424,8 +550,12 @@ class FaceIterator {
   void forEach(ExternalCellHandlerFunc&& externalCellHandler,
                InternalCellHandlerFunc&& internalCellHandler,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     auto realFaceHandler = [faceHandler = std::forward<FaceHandlerFunc>(faceHandler),
                             internalCellHandler = std::forward<InternalCellHandlerFunc>(
                                 internalCellHandler)](int fid, int cid, const T& tv) {
@@ -433,8 +563,12 @@ class FaceIterator {
     };
     forEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                std::move(realFaceHandler),
-               std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-               mpit);
+               std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                   ,
+               mpit
+#endif // USE_MPI
+    );
   }
 
   // ExternalCellHandlerFunc: T(int,int)
@@ -446,12 +580,20 @@ class FaceIterator {
       std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
       std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true>
   void forEach(ExternalCellHandlerFunc&& externalCellHandler,
-               FaceHandlerFunc&& faceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               FaceHandlerFunc&& faceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     internalforEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::move([](int /*a*/, int /*b*/) {}),
-                       mpit);
+                       std::move([](int /*a*/, int /*b*/) {})
+#ifdef USE_MPI
+                           ,
+                       mpit
+#endif // USE_MPI
+    );
   }
 
   // ExternalCellHandlerFunc: T(int,int)
@@ -467,12 +609,20 @@ class FaceIterator {
       std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
   void forEach(ExternalCellHandlerFunc&& externalCellHandler,
                FaceHandlerFunc&& faceHandler,
-               BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-               MPI_Datatype mpit = MPITypeInfer<T>::type()) {
+               BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+               ,
+               MPI_Datatype mpit = MPITypeInfer<T>::type()
+#endif // USE_MPI
+  ) {
     internalforEach<T>(std::forward<ExternalCellHandlerFunc>(externalCellHandler),
                        std::forward<FaceHandlerFunc>(faceHandler),
-                       std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler),
-                       mpit);
+                       std::forward<BoundaryFaceHandlerFunc>(boundaryFaceHandler)
+#ifdef USE_MPI
+                           ,
+                       mpit
+#endif // USE_MPI
+    );
   }
 
   auto puml() const -> const PUML<Topo>& { return m_puml; }
@@ -491,11 +641,12 @@ class FaceIterator {
       std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
   void internalforEach(ExternalCellHandlerFunc&& externalCellHandler,
                        FaceHandlerFunc&& faceHandler,
-                       BoundaryFaceHandlerFunc&& boundaryFaceHandler,
-                       MPI_Datatype mpit) {
-    int rank = 0;
-    int commSize = 1;
-
+                       BoundaryFaceHandlerFunc&& boundaryFaceHandler
+#ifdef USE_MPI
+                       ,
+                       MPI_Datatype mpit
+#endif // USE_MPI
+  ) {
     for (std::size_t i = 0; i < m_puml.faces().size(); ++i) {
       const auto& face = m_puml.faces()[i];
       const auto lid = Upward::cells(m_puml, face);
@@ -513,6 +664,8 @@ class FaceIterator {
     }
 
 #ifdef USE_MPI
+    int rank = 0;
+    int commSize = 1;
     MPI_Comm_rank(m_puml.comm(), &rank);
     MPI_Comm_size(m_puml.comm(), &commSize);
 
