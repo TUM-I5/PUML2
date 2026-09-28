@@ -309,8 +309,9 @@ CheckOptions:
 #    value:           CamelCase
   - key:             readability-identifier-naming.TypeAliasCase
     value:           CamelCase
-    # the element types of the public API are lower case with a _t suffix
-    # (cell_t, face_t, g2l_t, ...); SeisSol names them, so they keep their names
+    # PUML names its element types lower case with a _t suffix, public and
+    # internal alike (cell_t, face_t, vertex_t, ocell_t, faceadj_t, g2l_t, ...);
+    # SeisSol uses the public ones by these names, so they keep them
   - key:             readability-identifier-naming.TypeAliasIgnoredRegexp
     value:           '^[a-z0-9]+_t$'
 #  - key:             readability-identifier-naming.TypeAliasPrefix
