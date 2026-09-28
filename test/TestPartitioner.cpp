@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -241,12 +242,28 @@ TEST(Partitioner, NoneKeepsEveryCellWhereItIs) {
   }
 }
 
-/// Partitions the graph of a cube mesh of which only the last rank holds cells,
-/// hands the cells to the ranks they are meant for, and checks that the mesh is
-/// still whole.
+/// What a mesh adds up to over all ranks, wherever its cells are.
+struct Whole {
+  long cells{0};
+  long vertices{0};
+  long boundaryFaces{0};
+  /// The Euler characteristic, one for each piece of the mesh.
+  long euler{0};
+};
+
+auto wholeOf(const CubeMesh& mesh) -> Whole {
+  return {static_cast<long>(mesh.numCells),
+          static_cast<long>(mesh.numVertices),
+          mesh.numBoundaryFaces(),
+          1};
+}
+
+/// Partitions the graph of a mesh with a rank that holds no cells, or none that
+/// have a neighbour, hands the cells to the ranks they are meant for, and
+/// checks that the mesh is still whole.
 void repartition(PUML::TETPUML& puml,
                  const PUML::TETPartitionGraph& graph,
-                 const CubeMesh& mesh,
+                 const Whole& whole,
                  const std::string& name,
                  PUML::PartitionerType type) {
   const int procs = commSize();
@@ -257,7 +274,8 @@ void repartition(PUML::TETPUML& puml,
   const auto result = PUML::TETPartition::getPartitioner(type)->partition(part, graph, target);
 
   // ParMETIS refuses a graph in which a rank holds no vertices ("Poor initial
-  // vertex distribution"), and has to say so on all ranks alike.
+  // vertex distribution") or no edges ("adjncy is NULL"), and has to say so on
+  // all ranks alike.
   if (type == PUML::PartitionerType::Parmetis && procs > 1) {
     EXPECT_EQ(result, PUML::PartitioningResult::ERROR) << name;
     return;
@@ -273,7 +291,8 @@ void repartition(PUML::TETPUML& puml,
     EXPECT_GE(owner, 0) << name;
     EXPECT_LT(owner, procs) << name;
   }
-  // Without a partitioner, the last rank keeps all the cells.
+  // Without a partitioner, the cells stay where they are, and not every rank
+  // starts out with some.
   if (type != PUML::PartitionerType::None) {
     expectEveryPartUsed(part, procs, name);
   }
@@ -282,10 +301,10 @@ void repartition(PUML::TETPUML& puml,
   puml.generateMesh();
 
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells)) << name;
-  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices)) << name;
-  EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces()) << name;
-  EXPECT_EQ(counts.euler(), 1) << name;
+  EXPECT_EQ(counts.cells, whole.cells) << name;
+  EXPECT_EQ(counts.vertices, whole.vertices) << name;
+  EXPECT_EQ(counts.boundaryFaces, whole.boundaryFaces) << name;
+  EXPECT_EQ(counts.euler(), whole.euler) << name;
 }
 
 /// A rank that holds no cells has an empty part of the graph, and takes part in
@@ -308,7 +327,7 @@ TEST(Partitioner, RanksWithoutCellsTakePart) {
     EXPECT_EQ(graph.adjDisp().size(), cells.size + 1) << name;
     EXPECT_EQ(graph.globalVertexCount(), mesh.numCells) << name;
 
-    repartition(puml, graph, mesh, name, type);
+    repartition(puml, graph, wholeOf(mesh), name, type);
   }
 }
 
@@ -348,7 +367,60 @@ TEST(Partitioner, RanksWithoutCellsKeepTheWeights) {
       EXPECT_EQ(globalMin(edgeWeighted), 1) << name;
       EXPECT_EQ(globalMax(edgeWeighted), 1) << name;
 
-      repartition(puml, graph, mesh, name, type);
+      repartition(puml, graph, wholeOf(mesh), name, type);
+    }
+  }
+}
+
+/// A rank whose cells have no neighbours at all holds no edges of the graph, and
+/// takes part in partitioning all the same.
+TEST(Partitioner, RanksWithoutEdgesTakePart) {
+  const int rank = commRank();
+  const int procs = commSize();
+
+  // A cube, and one more tetrahedron beside it that shares no face with any
+  // other cell. It makes a piece of the mesh of its own, with its four faces
+  // on the boundary.
+  const auto cube = makeCubeMesh(2);
+  auto mesh = cube;
+  const auto firstVertex = static_cast<unsigned long>(mesh.numVertices);
+  const double x = cube.n + 1.0;
+  const std::array<double, 12> corners{x, 0, 0, x + 1, 0, 0, x, 1, 0, x, 0, 1};
+  mesh.geometry.insert(mesh.geometry.end(), corners.begin(), corners.end());
+  for (unsigned long v = 0; v < 4; ++v) {
+    mesh.connect.push_back(firstVertex + v);
+  }
+  mesh.numVertices += 4;
+  mesh.numCells += 1;
+  const Whole whole{static_cast<long>(mesh.numCells),
+                    static_cast<long>(mesh.numVertices),
+                    cube.numBoundaryFaces() + 4,
+                    2};
+
+  // The last rank holds the lone tetrahedron and nothing else, and the others
+  // share the cube.
+  Split cells{0, mesh.numCells};
+  if (procs > 1) {
+    cells = rank == procs - 1 ? Split{cube.numCells, 1} : evenSplit(cube.numCells, rank, procs - 1);
+  }
+
+  for (const auto& [name, type] : available()) {
+    for (const bool weighted : {false, true}) {
+      PUML::TETPUML puml;
+      feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
+      puml.generateMesh();
+
+      PUML::TETPartitionGraph graph(puml);
+      if (procs > 1 && rank == procs - 1) {
+        EXPECT_EQ(graph.localVertexCount(), 1UL) << name;
+        EXPECT_EQ(graph.localEdgeCount(), 0UL) << name;
+      }
+      if (weighted) {
+        graph.setVertexWeights(std::vector<int>(graph.localVertexCount() * 2, 1), 2);
+        graph.setEdgeWeights(std::vector<int>(graph.localEdgeCount(), 1));
+      }
+
+      repartition(puml, graph, whole, name + (weighted ? " with weights" : ""), type);
     }
   }
 }

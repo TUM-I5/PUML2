@@ -55,12 +55,20 @@ class PartitionParmetis : public PartitionBase<Topo> {
     MPI_Comm_rank(comm, &rank);
 
     // ParMETIS refuses a graph with a rank that holds no vertices ("Poor initial vertex
-    // distribution"), and with weights, such a rank leaves it before the others do and lets them
-    // wait forever. Every rank knows the distribution, so they all give up here together.
+    // distribution"), or no edges, since the adjacency of that rank is empty and its pointer null
+    // ("adjncy is NULL"). With weights, such a rank leaves the checks before the others do, which
+    // go on to sum the weights over all ranks: they wait for it forever, or take part in
+    // different reductions. Every rank knows both distributions, so they all give up here
+    // together.
     for (std::size_t i = 0; i < graph.processCount(); ++i) {
       if (graph.vertexDistribution()[i + 1] == graph.vertexDistribution()[i]) {
         logWarning(rank) << "ParMETIS cannot partition a graph in which a rank holds no cells, as"
                          << "rank" << i << "does.";
+        return PartitioningResult::ERROR;
+      }
+      if (graph.edgeDistribution()[i + 1] == graph.edgeDistribution()[i]) {
+        logWarning(rank) << "ParMETIS cannot partition a graph in which the cells of a rank have no"
+                         << "neighbours, as those of rank" << i << "do not.";
         return PartitioningResult::ERROR;
       }
     }
