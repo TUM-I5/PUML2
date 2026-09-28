@@ -45,10 +45,10 @@ class PartitionPtscotch : public PartitionBase<Topo> {
   public:
   PartitionPtscotch(int mode) : mode(mode) {}
 #ifdef USE_MPI
-  virtual auto partition(int* partition,
-                         const PartitionGraph<Topo>& graph,
-                         const PartitionTarget& target,
-                         int seed = 1) -> PartitioningResult {
+  auto partition(int* partition,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& target,
+                 int seed = 1) -> PartitioningResult override {
     int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
 

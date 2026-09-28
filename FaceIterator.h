@@ -625,7 +625,7 @@ class FaceIterator {
     );
   }
 
-  auto puml() const -> const PUML<Topo>& { return m_puml; }
+  [[nodiscard]] auto puml() const -> const PUML<Topo>& { return m_puml; }
 
   private:
   // ExternalCellHandlerFunc: T(int,int)

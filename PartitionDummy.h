@@ -33,10 +33,10 @@ class PartitionDummy : public PartitionBase<Topo> {
   public:
   using PartitionBase<Topo>::PartitionBase;
 
-  virtual auto partition(int* partition,
-                         const PartitionGraph<Topo>& graph,
-                         const PartitionTarget& /*target*/,
-                         int /*seed*/ = 1) -> PartitioningResult {
+  auto partition(int* partition,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& /*target*/,
+                 int /*seed*/ = 1) -> PartitioningResult override {
     // all data stays where it is (i.e. where it was read); without MPI, that is
     // the only rank there is
     int rank = 0;

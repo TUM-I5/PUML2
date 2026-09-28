@@ -1815,8 +1815,7 @@ class PUML {
     g2lMap.clear();
 
     unsigned int i = 0;
-    for (typename std::vector<TT>::const_iterator it = elements.begin(); it != elements.end();
-         ++it, i++) {
+    for (auto it = elements.begin(); it != elements.end(); ++it, i++) {
       assert(g2lMap.find(it->m_gid) == g2lMap.end());
       g2lMap[it->m_gid] = i;
     }

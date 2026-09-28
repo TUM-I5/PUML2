@@ -46,10 +46,10 @@ class PartitionParmetis : public PartitionBase<Topo> {
   public:
   PartitionParmetis(ParmetisPartitionMode mode) : mode(mode) {}
 #ifdef USE_MPI
-  virtual auto partition(int* partition,
-                         const PartitionGraph<Topo>& graph,
-                         const PartitionTarget& target,
-                         int seed = 1) -> PartitioningResult {
+  auto partition(int* partition,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& target,
+                 int seed = 1) -> PartitioningResult override {
     auto comm = graph.comm();
     std::vector<idx_t> vtxdist(graph.vertexDistribution().begin(),
                                graph.vertexDistribution().end());

@@ -343,7 +343,7 @@ class PartitionGraph {
   [[nodiscard]] auto comm() const -> const MPI_Comm& { return m_comm; }
 #endif // USE_MPI
 
-  auto puml() const -> const PUML<Topo>& { return m_puml; }
+  [[nodiscard]] auto puml() const -> const PUML<Topo>& { return m_puml; }
 
   [[nodiscard]] auto vertexWeightCount() const -> unsigned long { return m_vertexWeightCount; }
 
