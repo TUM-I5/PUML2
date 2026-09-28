@@ -11,6 +11,7 @@
 #include "PumlTest.h"
 
 #include "Partition.h"
+#include "PartitionBase.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 
