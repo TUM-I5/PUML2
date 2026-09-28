@@ -78,7 +78,7 @@ class PartitionParhip : public PartitionBase<Topo> {
     if (!target.partitionWeightsUniform()) {
       logWarning() << "Node weights (target vertex weights) are currently ignored by ParHIP.";
     }
-    if (graph.vertexWeights().size() > graph.localVertexCount()) {
+    if (graph.vertexWeightCount() > 1) {
       logWarning() << "ParHIP uses the sum of multiple vertex weights.";
     }
 
@@ -90,8 +90,8 @@ class PartitionParhip : public PartitionBase<Topo> {
     ParHIPPartitionKWay(vtxdist.data(),
                         xadj.data(),
                         adjncy.data(),
-                        vwgt.empty() ? nullptr : vwgt.data(),
-                        adjwgt.empty() ? nullptr : adjwgt.data(),
+                        internal::weightArray(vwgt, graph.vertexWeightCount() > 0),
+                        internal::weightArray(adjwgt, graph.hasEdgeWeights()),
                         &nparts,
                         &imbalance,
                         true,

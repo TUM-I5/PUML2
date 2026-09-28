@@ -48,6 +48,26 @@ inline auto globalSum(long value) -> long {
 #endif // USE_MPI
 }
 
+inline auto globalMin(long value) -> long {
+#ifdef USE_MPI
+  long result = 0;
+  MPI_Allreduce(&value, &result, 1, MPI_LONG, MPI_MIN, MPI_COMM_WORLD);
+  return result;
+#else  // USE_MPI
+  return value;
+#endif // USE_MPI
+}
+
+inline auto globalMax(long value) -> long {
+#ifdef USE_MPI
+  long result = 0;
+  MPI_Allreduce(&value, &result, 1, MPI_LONG, MPI_MAX, MPI_COMM_WORLD);
+  return result;
+#else  // USE_MPI
+  return value;
+#endif // USE_MPI
+}
+
 /// Collects the given per-rank values of all ranks into one array.
 inline auto gather(const std::vector<unsigned long>& local) -> std::vector<unsigned long> {
 #ifdef USE_MPI

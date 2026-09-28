@@ -22,6 +22,7 @@
 #endif // USE_MPI
 
 #include "Downward.h"
+#include "Error.h"
 #include "FaceIterator.h"
 #include "PUML.h"
 #include "Topology.h"
@@ -286,33 +287,81 @@ class PartitionGraph {
     }
   }
 
+  /**
+   * Gives every local vertex vertexWeightCount weights, stored vertex by vertex.
+   *
+   * The partitioners have to be told the same number of weights on every rank, and a rank cannot
+   * see what the others passed. So every rank has to call this with the same vertexWeightCount, a
+   * rank without cells included: it is the count that says whether there are weights, and a rank
+   * without cells takes it over although it has no weights to give. A count of 0 removes the
+   * weights.
+   */
   template <typename T>
   void setVertexWeights(const std::vector<T>& vertexWeights, int vertexWeightCount) {
+    if (vertexWeightCount > 0 &&
+        vertexWeights.size() < localVertexCount() * static_cast<unsigned long>(vertexWeightCount)) {
+      throwError("the graph needs",
+                 vertexWeightCount,
+                 "weights for each of its",
+                 localVertexCount(),
+                 "local vertices, but got",
+                 vertexWeights.size());
+    }
     setVertexWeights(vertexWeights.data(), vertexWeightCount);
   }
 
+  /**
+   * As above, with the localVertexCount() * vertexWeightCount weights read from vertexWeights.
+   *
+   * The pointer is read from only if there is something to read, so a rank without cells may pass
+   * nullptr, as data() of an empty vector may be. It does not stand for "no weights" there: the
+   * count is taken over all the same.
+   */
   template <typename T>
   void setVertexWeights(const T* vertexWeights, int vertexWeightCount) {
-    if (vertexWeights == nullptr) {
-      return;
+    if (vertexWeightCount < 0) {
+      throwError("the number of weights per vertex cannot be negative, but got", vertexWeightCount);
+    }
+    const auto size = localVertexCount() * static_cast<unsigned long>(vertexWeightCount);
+    if (vertexWeights == nullptr && size > 0) {
+      throwError("the graph needs", size, "vertex weights, but got none");
     }
     m_vertexWeightCount = vertexWeightCount;
-    m_vertexWeights.resize(localVertexCount() * vertexWeightCount);
+    m_vertexWeights.resize(size);
     for (size_t i = 0; i < m_vertexWeights.size(); ++i) {
       m_vertexWeights[i] = vertexWeights[i];
     }
   }
 
+  /**
+   * Gives every local edge a weight, in the order of adj().
+   *
+   * Like the vertex weights, the edge weights are a setting of the whole graph: every rank has to
+   * call this, a rank without edges included.
+   */
   template <typename T>
   void setEdgeWeights(const std::vector<T>& edgeWeights) {
+    if (edgeWeights.size() < localEdgeCount()) {
+      throwError("the graph needs a weight for each of its",
+                 localEdgeCount(),
+                 "local edges, but got",
+                 edgeWeights.size());
+    }
     setEdgeWeights(edgeWeights.data());
   }
 
+  /**
+   * As above, with the localEdgeCount() weights read from edgeWeights.
+   *
+   * As for the vertex weights, the pointer is read from only if there is something to read: a
+   * rank without edges may pass nullptr, and has edge weights all the same.
+   */
   template <typename T>
   void setEdgeWeights(const T* edgeWeights) {
-    if (edgeWeights == nullptr) {
-      return;
+    if (edgeWeights == nullptr && localEdgeCount() > 0) {
+      throwError("the graph needs", localEdgeCount(), "edge weights, but got none");
     }
+    m_hasEdgeWeights = true;
     m_edgeWeights.resize(m_adj.size());
     for (size_t i = 0; i < m_adj.size(); ++i) {
       m_edgeWeights[i] = edgeWeights[i];
@@ -347,6 +396,9 @@ class PartitionGraph {
 
   [[nodiscard]] auto vertexWeightCount() const -> unsigned long { return m_vertexWeightCount; }
 
+  /// Whether setEdgeWeights was called; the same on all ranks, those without edges included.
+  [[nodiscard]] auto hasEdgeWeights() const -> bool { return m_hasEdgeWeights; }
+
   [[nodiscard]] auto processCount() const -> unsigned long { return m_processCount; }
 
   private:
@@ -359,6 +411,7 @@ class PartitionGraph {
   std::vector<unsigned long> m_vertexDistribution;
   std::vector<unsigned long> m_edgeDistribution;
   unsigned long m_vertexWeightCount = 0;
+  bool m_hasEdgeWeights = false;
   unsigned long m_processCount = 0;
 #ifdef USE_MPI
   MPI_Comm m_comm;

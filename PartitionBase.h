@@ -29,6 +29,30 @@ namespace PUML {
 
 enum class PartitioningResult { SUCCESS = 0, ERROR };
 
+namespace internal {
+
+/**
+ * The weights to hand to a partitioner: nullptr if the graph has none, their array otherwise.
+ *
+ * The partitioners tell from the pointer whether there are weights, and the ranks have to agree
+ * on it: PT-Scotch refuses a graph on which they disagree, ParHIP reduces over all ranks only on
+ * the ranks that pass weights, and ParMETIS wants an array wherever its flags announce weights. A
+ * rank without cells (or without edges) has no weights to pass, and an empty vector need not have
+ * any storage, so the array gets a dummy entry there.
+ */
+template <typename T>
+auto weightArray(std::vector<T>& weights, bool present) -> T* {
+  if (!present) {
+    return nullptr;
+  }
+  if (weights.empty()) {
+    weights.resize(1);
+  }
+  return weights.data();
+}
+
+} // namespace internal
+
 template <TopoType Topo>
 class PartitionBase {
   public:

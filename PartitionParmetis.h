@@ -78,12 +78,14 @@ class PartitionParmetis : public PartitionBase<Topo> {
     std::array<idx_t, 3> options = {1, 0, static_cast<idx_t>(seed)};
     idx_t numflag = 0;
     idx_t wgtflag = 0;
-    if (!vwgt.empty()) {
+    if (graph.vertexWeightCount() > 0) {
       wgtflag |= 2;
     }
-    if (!adjwgt.empty()) {
+    if (graph.hasEdgeWeights()) {
       wgtflag |= 1;
     }
+    auto* vwgtArray = internal::weightArray(vwgt, graph.vertexWeightCount() > 0);
+    auto* adjwgtArray = internal::weightArray(adjwgt, graph.hasEdgeWeights());
     std::vector<real_t> ubvec(static_cast<std::size_t>(ncon),
                               static_cast<real_t>(target.imbalance() + 1.0));
 
@@ -94,8 +96,8 @@ class PartitionParmetis : public PartitionBase<Topo> {
       ParMETIS_V3_PartKway(vtxdist.data(),
                            xadj.data(),
                            adjncy.data(),
-                           vwgt.empty() ? nullptr : vwgt.data(),
-                           adjwgt.empty() ? nullptr : adjwgt.data(),
+                           vwgtArray,
+                           adjwgtArray,
                            &wgtflag,
                            &numflag,
                            &ncon,
@@ -113,8 +115,8 @@ class PartitionParmetis : public PartitionBase<Topo> {
       ParMETIS_V3_PartGeomKway(vtxdist.data(),
                                xadj.data(),
                                adjncy.data(),
-                               vwgt.empty() ? nullptr : vwgt.data(),
-                               adjwgt.empty() ? nullptr : adjwgt.data(),
+                               vwgtArray,
+                               adjwgtArray,
                                &wgtflag,
                                &numflag,
                                &ndims,

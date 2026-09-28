@@ -13,6 +13,7 @@
 #include "PumlTest.h"
 
 #include "DataHandle.h"
+#include "Error.h"
 #include "PUML.h"
 #include "Partition.h"
 #include "PartitionBase.h"
@@ -57,7 +58,7 @@ auto takingRanksWithoutCells() -> std::vector<std::pair<std::string, PUML::Parti
 }
 
 /// Builds a cube mesh, partitions it and rebuilds it on the new distribution.
-void checkPartitioner(const std::string& name, PUML::PartitionerType type) {
+void checkPartitioner(const std::string& name, PUML::PartitionerType type, bool weighted) {
   const int rank = commRank();
   const int procs = commSize();
   const auto mesh = makeCubeMesh(4);
@@ -74,7 +75,12 @@ void checkPartitioner(const std::string& name, PUML::PartitionerType type) {
 
   puml.generateMesh();
 
-  const PUML::TETPartitionGraph graph(puml);
+  PUML::TETPartitionGraph graph(puml);
+  if (weighted) {
+    // Two weights for every cell, as SeisSol gives them, and one for every edge.
+    graph.setVertexWeights(std::vector<int>(graph.localVertexCount() * 2, 1), 2);
+    graph.setEdgeWeights(std::vector<int>(graph.localEdgeCount(), 1));
+  }
   PUML::PartitionTarget target;
   target.setPartitionCount(procs);
   target.setImbalance(0.05);
@@ -107,7 +113,13 @@ void checkPartitioner(const std::string& name, PUML::PartitionerType type) {
 
 TEST(Partitioner, ProducesAUsableDistribution) {
   for (const auto& [name, type] : available()) {
-    checkPartitioner(name, type);
+    checkPartitioner(name, type, false);
+  }
+}
+
+TEST(Partitioner, ProducesAUsableDistributionWithWeights) {
+  for (const auto& [name, type] : available()) {
+    checkPartitioner(name, type, true);
   }
 }
 
@@ -240,6 +252,80 @@ TEST(Partitioner, RanksWithoutCellsTakePart) {
 
     repartition(puml, graph, mesh, name, type);
   }
+}
+
+/// The weights are a setting of the whole graph. A rank without cells has none
+/// to give, but has to end up with the same setting as the others all the same,
+/// or the partitioners are told different things on different ranks.
+TEST(Partitioner, RanksWithoutCellsKeepTheWeights) {
+  const int rank = commRank();
+  const int procs = commSize();
+  const auto mesh = makeCubeMesh(3);
+  const Split cells = rank == procs - 1 ? Split{0, mesh.numCells} : Split{};
+  constexpr int WeightCount = 2;
+
+  for (const auto& [name, type] : takingRanksWithoutCells()) {
+    // Once as SeisSol passes them, from the data of vectors that are empty on
+    // the ranks without cells, and once as the vectors themselves.
+    for (const bool asPointers : {true, false}) {
+      PUML::TETPUML puml;
+      feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
+      puml.generateMesh();
+
+      PUML::TETPartitionGraph graph(puml);
+      const std::vector<int> vertexWeights(graph.localVertexCount() * WeightCount, 1);
+      const std::vector<int> edgeWeights(graph.localEdgeCount(), 1);
+      if (asPointers) {
+        graph.setVertexWeights(vertexWeights.data(), WeightCount);
+        graph.setEdgeWeights(edgeWeights.data());
+      } else {
+        graph.setVertexWeights(vertexWeights, WeightCount);
+        graph.setEdgeWeights(edgeWeights);
+      }
+
+      const auto weightCount = static_cast<long>(graph.vertexWeightCount());
+      EXPECT_EQ(globalMin(weightCount), WeightCount) << name;
+      EXPECT_EQ(globalMax(weightCount), WeightCount) << name;
+      const long edgeWeighted = graph.hasEdgeWeights() ? 1 : 0;
+      EXPECT_EQ(globalMin(edgeWeighted), 1) << name;
+      EXPECT_EQ(globalMax(edgeWeighted), 1) << name;
+
+      repartition(puml, graph, mesh, name, type);
+    }
+  }
+}
+
+/// Weights that fall short of the local part of the graph are refused, rather
+/// than read past their end or, if there are none, taken for no weights.
+TEST(Partitioner, WeightsHaveToCoverTheGraph) {
+  const auto mesh = makeCubeMesh(2);
+
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  // Every rank holds cells, and each of them has neighbours.
+  PUML::TETPartitionGraph graph(puml);
+  const std::vector<int> oneEach(graph.localVertexCount(), 1);
+  const std::vector<int> tooFewEdges(graph.localEdgeCount() - 1, 1);
+  const int* none = nullptr;
+
+  EXPECT_THROW(graph.setVertexWeights(oneEach, 2), PUML::Error);
+  EXPECT_THROW(graph.setVertexWeights(oneEach, -1), PUML::Error);
+  EXPECT_THROW(graph.setVertexWeights(none, 1), PUML::Error);
+  EXPECT_THROW(graph.setEdgeWeights(tooFewEdges), PUML::Error);
+  EXPECT_THROW(graph.setEdgeWeights(none), PUML::Error);
+  EXPECT_EQ(graph.vertexWeightCount(), 0UL);
+  EXPECT_FALSE(graph.hasEdgeWeights());
+
+  graph.setVertexWeights(oneEach, 1);
+  EXPECT_EQ(graph.vertexWeightCount(), 1UL);
+  graph.setVertexWeights(none, 0);
+  EXPECT_EQ(graph.vertexWeightCount(), 0UL);
+  EXPECT_TRUE(graph.vertexWeights().empty());
 }
 
 } // namespace

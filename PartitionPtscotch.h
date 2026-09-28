@@ -52,10 +52,10 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
 
-    if (graph.vertexWeights().size() > graph.localVertexCount()) {
+    if (graph.vertexWeightCount() > 1) {
       logWarning() << "PTSCOTCH uses the sum of multiple vertex weights.";
     }
-    if (!graph.edgeWeights().empty()) {
+    if (graph.hasEdgeWeights()) {
       logWarning() << "The existence of edge weights may make PTSCOTCH very slow.";
     }
 
@@ -120,13 +120,13 @@ class PartitionPtscotch : public PartitionBase<Topo> {
                        static_cast<SCOTCH_Num>(graph.localVertexCount()),
                        adjDisp.data(),
                        nullptr,
-                       vertexWeights.empty() ? nullptr : vertexWeights.data(),
+                       internal::weightArray(vertexWeights, graph.vertexWeightCount() > 0),
                        nullptr,
                        static_cast<SCOTCH_Num>(graph.localEdgeCount()),
                        static_cast<SCOTCH_Num>(graph.localEdgeCount()),
                        adj.data(),
                        nullptr,
-                       edgeWeights.empty() ? nullptr : edgeWeights.data());
+                       internal::weightArray(edgeWeights, graph.hasEdgeWeights()));
     SCOTCH_stratDgraphMapBuild(&strategy, stratflag, processCount, partCount, target.imbalance());
     SCOTCH_archCmpltw(&arch, partCount, weights.data());
 
