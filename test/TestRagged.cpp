@@ -4,12 +4,15 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <numeric>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "DataHandle.h"
+#include "Error.h"
+#include "PUML.h"
 #include "PumlTest.h"
+#include "Types.h"
 
 namespace {
 

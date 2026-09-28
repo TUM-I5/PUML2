@@ -9,8 +9,11 @@
 
 #include <gtest/gtest.h>
 
+#include "DataHandle.h"
 #include "Downward.h"
+#include "PUML.h"
 #include "PumlTest.h"
+#include "Types.h"
 
 namespace {
 

@@ -2,13 +2,16 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "DataHandle.h"
 #include "Error.h"
+#include "PUML.h"
 #include "PumlTest.h"
 
 namespace {

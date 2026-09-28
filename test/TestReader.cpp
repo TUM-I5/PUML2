@@ -2,13 +2,21 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
 #include <gtest/gtest.h>
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif // USE_MPI
+
+#include "DataHandle.h"
 #include "Hdf5Reader.h"
+#include "PUML.h"
 #include "PumlTest.h"
+#include "Topology.h"
 
 namespace {
 

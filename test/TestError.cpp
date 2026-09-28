@@ -9,8 +9,15 @@
 
 #include <gtest/gtest.h>
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif // USE_MPI
+
+#include "DataHandle.h"
 #include "Error.h"
+#include "PUML.h"
 #include "PumlTest.h"
+#include "Types.h"
 
 namespace {
 

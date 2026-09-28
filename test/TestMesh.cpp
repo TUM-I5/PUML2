@@ -4,16 +4,22 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <set>
 #include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "CellType.h"
 #include "Downward.h"
 #include "Neighbor.h"
+#include "PUML.h"
 #include "PartitionGraph.h"
 #include "PumlTest.h"
+#include "Topology.h"
+#include "Types.h"
 #include "Upward.h"
 
 namespace {

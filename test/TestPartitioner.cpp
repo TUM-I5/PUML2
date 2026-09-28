@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "PumlTest.h"
 
+#include "DataHandle.h"
+#include "PUML.h"
 #include "Partition.h"
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
