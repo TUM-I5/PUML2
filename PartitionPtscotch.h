@@ -114,31 +114,55 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     SCOTCH_randomSeed(seed);
     SCOTCH_randomReset();
 
-    SCOTCH_dgraphInit(&dgraph, comm);
+    // PT-Scotch says on each rank whether a step failed there, as building the graph does where
+    // the ranks disagree on whether there are weights. Building and mapping the graph are steps
+    // the ranks take together, so they agree before each whether all of them may go on, and all
+    // return the same.
+    const auto failedAnywhere = [&comm](bool failed) {
+      int anyFailed = failed ? 1 : 0;
+      MPI_Allreduce(MPI_IN_PLACE, &anyFailed, 1, MPI_INT, MPI_MAX, comm);
+      return anyFailed != 0;
+    };
+
+    const bool graphInitialized = SCOTCH_dgraphInit(&dgraph, comm) == 0;
     SCOTCH_stratInit(&strategy);
     SCOTCH_archInit(&arch);
 
-    SCOTCH_dgraphBuild(&dgraph,
-                       0,
-                       static_cast<SCOTCH_Num>(graph.localVertexCount()),
-                       static_cast<SCOTCH_Num>(graph.localVertexCount()),
-                       adjDisp.data(),
-                       nullptr,
-                       internal::weightArray(vertexWeights, graph.vertexWeightCount() > 0),
-                       nullptr,
-                       static_cast<SCOTCH_Num>(graph.localEdgeCount()),
-                       static_cast<SCOTCH_Num>(graph.localEdgeCount()),
-                       adj.data(),
-                       nullptr,
-                       internal::weightArray(edgeWeights, graph.hasEdgeWeights()));
-    SCOTCH_stratDgraphMapBuild(&strategy, stratflag, processCount, partCount, target.imbalance());
-    SCOTCH_archCmpltw(&arch, partCount, weights.data());
-
-    SCOTCH_dgraphMap(&dgraph, &arch, &strategy, part.data());
+    bool failed = failedAnywhere(
+        !graphInitialized ||
+        SCOTCH_stratDgraphMapBuild(
+            &strategy, stratflag, processCount, partCount, target.imbalance()) != 0 ||
+        SCOTCH_archCmpltw(&arch, partCount, weights.data()) != 0);
+    if (!failed) {
+      failed = failedAnywhere(
+          SCOTCH_dgraphBuild(&dgraph,
+                             0,
+                             static_cast<SCOTCH_Num>(graph.localVertexCount()),
+                             static_cast<SCOTCH_Num>(graph.localVertexCount()),
+                             adjDisp.data(),
+                             nullptr,
+                             internal::weightArray(vertexWeights, graph.vertexWeightCount() > 0),
+                             nullptr,
+                             static_cast<SCOTCH_Num>(graph.localEdgeCount()),
+                             static_cast<SCOTCH_Num>(graph.localEdgeCount()),
+                             adj.data(),
+                             nullptr,
+                             internal::weightArray(edgeWeights, graph.hasEdgeWeights())) != 0);
+    }
+    if (!failed) {
+      failed = failedAnywhere(SCOTCH_dgraphMap(&dgraph, &arch, &strategy, part.data()) != 0);
+    }
 
     SCOTCH_archExit(&arch);
     SCOTCH_stratExit(&strategy);
-    SCOTCH_dgraphExit(&dgraph);
+    if (graphInitialized) {
+      SCOTCH_dgraphExit(&dgraph);
+    }
+
+    if (failed) {
+      logWarning(rank) << "PT-Scotch could not partition the graph.";
+      return PartitioningResult::ERROR;
+    }
 
     for (std::size_t i = 0; i < cellCount; i++) {
       partition[i] = static_cast<int>(part[i]);

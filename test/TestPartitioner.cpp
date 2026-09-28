@@ -264,6 +264,11 @@ void repartition(PUML::TETPUML& puml,
   }
 
   EXPECT_EQ(result, PUML::PartitioningResult::SUCCESS) << name;
+  // A partitioner that failed hands out no cells, so there is nothing to move;
+  // all ranks stop if one of them has to, as moving the cells takes them all.
+  if (globalMax(result == PUML::PartitioningResult::SUCCESS ? 0 : 1) != 0) {
+    return;
+  }
   for (const int owner : part) {
     EXPECT_GE(owner, 0) << name;
     EXPECT_LT(owner, procs) << name;
@@ -347,6 +352,46 @@ TEST(Partitioner, RanksWithoutCellsKeepTheWeights) {
     }
   }
 }
+
+#ifdef USE_PTSCOTCH
+/// PT-Scotch refuses a graph that has weights on some of the ranks only. Every
+/// rank has to hear of it, rather than go on with the partition it started from.
+TEST(Partitioner, PtScotchReportsARefusedGraph) {
+  const int rank = commRank();
+  const int procs = commSize();
+  if (procs == 1) {
+    GTEST_SKIP() << "a single rank cannot disagree with the others";
+  }
+
+  const auto mesh = makeCubeMesh(2);
+  PUML::TETPUML puml;
+  feed(puml, mesh, evenSplit(mesh.numCells, rank, procs), evenSplit(mesh.numVertices, rank, procs));
+  puml.generateMesh();
+
+  PUML::PartitionTarget target;
+  target.setPartitionCount(procs);
+
+  for (const bool vertexWeights : {true, false}) {
+    // Against the rules, only the last rank sets the weights.
+    PUML::TETPartitionGraph graph(puml);
+    if (rank == procs - 1) {
+      if (vertexWeights) {
+        graph.setVertexWeights(std::vector<int>(graph.localVertexCount(), 1), 1);
+      } else {
+        graph.setEdgeWeights(std::vector<int>(graph.localEdgeCount(), 1));
+      }
+    }
+
+    for (const auto type :
+         {PUML::PartitionerType::PtScotch, PUML::PartitionerType::PtScotchBalance}) {
+      std::vector<int> part(graph.localVertexCount(), -1);
+      EXPECT_EQ(PUML::TETPartition::getPartitioner(type)->partition(part, graph, target),
+                PUML::PartitioningResult::ERROR)
+          << (vertexWeights ? "vertex weights" : "edge weights");
+    }
+  }
+}
+#endif // USE_PTSCOTCH
 
 /// Weights that fall short of the local part of the graph are refused, rather
 /// than read past their end or, if there are none, taken for no weights.
