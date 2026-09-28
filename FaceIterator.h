@@ -639,6 +639,10 @@ class FaceIterator {
       std::enable_if_t<std::is_invocable_r_v<T, ExternalCellHandlerFunc, int, int>, bool> = true,
       std::enable_if_t<std::is_invocable_v<FaceHandlerFunc, int, int, const T&>, bool> = true,
       std::enable_if_t<std::is_invocable_v<BoundaryFaceHandlerFunc, int, int>, bool> = true>
+  // Every handler is called once per face, so none of them can be forwarded. The forwarding
+  // references take what the public overloads pass, temporaries included, without a copy, and
+  // also a handler whose call operator is not const.
+  // NOLINTBEGIN(cppcoreguidelines-missing-std-forward)
   void internalforEach(ExternalCellHandlerFunc&& externalCellHandler,
                        FaceHandlerFunc&& faceHandler,
                        BoundaryFaceHandlerFunc&& boundaryFaceHandler
@@ -647,6 +651,7 @@ class FaceIterator {
                        MPI_Datatype mpit
 #endif // USE_MPI
   ) {
+    // NOLINTEND(cppcoreguidelines-missing-std-forward)
     for (std::size_t i = 0; i < m_puml.faces().size(); ++i) {
       const auto& face = m_puml.faces()[i];
       const auto lid = Upward::cells(m_puml, face);
