@@ -90,7 +90,10 @@ class SmallVector {
     if (m_size > 0) {
       std::memcpy(fresh, data(), static_cast<Size>(m_size) * sizeof(T));
     }
-    release();
+    // Only the old storage goes; release() would drop the values as well.
+    if (onHeap()) {
+      delete[] m_heap;
+    }
     m_heap = fresh;
     m_capacity = static_cast<LocalId>(count);
   }

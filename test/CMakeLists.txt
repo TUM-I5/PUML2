@@ -27,7 +27,8 @@ add_executable(puml-tests
   TestRagged.cpp
   TestMixedReader.cpp
   TestHandle.cpp
-  TestLocalize.cpp)
+  TestLocalize.cpp
+  TestSmallVector.cpp)
 
 target_link_libraries(puml-tests PRIVATE PUML::Hdf5 GTest::gtest)
 target_compile_definitions(puml-tests
