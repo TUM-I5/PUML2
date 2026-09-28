@@ -41,22 +41,6 @@ auto available() -> std::vector<std::pair<std::string, PUML::PartitionerType>> {
   return partitioners;
 }
 
-/// The partitioners that take a graph in which a rank holds no vertices.
-/// ParMETIS refuses one ("Poor initial vertex distribution").
-auto takingRanksWithoutCells() -> std::vector<std::pair<std::string, PUML::PartitionerType>> {
-  auto partitioners = available();
-  if (commSize() > 1) {
-    partitioners.erase(std::remove_if(partitioners.begin(),
-                                      partitioners.end(),
-                                      [](const auto& partitioner) {
-                                        return partitioner.second ==
-                                               PUML::PartitionerType::Parmetis;
-                                      }),
-                       partitioners.end());
-  }
-  return partitioners;
-}
-
 /// Builds a cube mesh, partitions it and rebuilds it on the new distribution.
 void checkPartitioner(const std::string& name, PUML::PartitionerType type, bool weighted) {
   const int rank = commRank();
@@ -202,8 +186,9 @@ TEST(Partitioner, NoneKeepsEveryCellWhereItIs) {
   }
 }
 
-/// Partitions the graph of a cube mesh, hands the cells to the ranks they are
-/// meant for, and checks that the mesh is still whole.
+/// Partitions the graph of a cube mesh of which only the last rank holds cells,
+/// hands the cells to the ranks they are meant for, and checks that the mesh is
+/// still whole.
 void repartition(PUML::TETPUML& puml,
                  const PUML::TETPartitionGraph& graph,
                  const CubeMesh& mesh,
@@ -213,8 +198,17 @@ void repartition(PUML::TETPUML& puml,
 
   PUML::PartitionTarget target;
   target.setPartitionCount(procs);
-  const auto part = PUML::TETPartition::getPartitioner(type)->partition(graph, target);
-  EXPECT_EQ(part.size(), graph.localVertexCount()) << name;
+  std::vector<int> part(graph.localVertexCount(), -1);
+  const auto result = PUML::TETPartition::getPartitioner(type)->partition(part, graph, target);
+
+  // ParMETIS refuses a graph in which a rank holds no vertices ("Poor initial
+  // vertex distribution"), and has to say so on all ranks alike.
+  if (type == PUML::PartitionerType::Parmetis && procs > 1) {
+    EXPECT_EQ(result, PUML::PartitioningResult::ERROR) << name;
+    return;
+  }
+
+  EXPECT_EQ(result, PUML::PartitioningResult::SUCCESS) << name;
   for (const int owner : part) {
     EXPECT_GE(owner, 0) << name;
     EXPECT_LT(owner, procs) << name;
@@ -240,7 +234,7 @@ TEST(Partitioner, RanksWithoutCellsTakePart) {
   // Only the last rank starts out with cells.
   const Split cells = rank == procs - 1 ? Split{0, mesh.numCells} : Split{};
 
-  for (const auto& [name, type] : takingRanksWithoutCells()) {
+  for (const auto& [name, type] : available()) {
     PUML::TETPUML puml;
     feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
     puml.generateMesh();
@@ -264,7 +258,7 @@ TEST(Partitioner, RanksWithoutCellsKeepTheWeights) {
   const Split cells = rank == procs - 1 ? Split{0, mesh.numCells} : Split{};
   constexpr int WeightCount = 2;
 
-  for (const auto& [name, type] : takingRanksWithoutCells()) {
+  for (const auto& [name, type] : available()) {
     // Once as SeisSol passes them, from the data of vectors that are empty on
     // the ranks without cells, and once as the vectors themselves.
     for (const bool asPointers : {true, false}) {

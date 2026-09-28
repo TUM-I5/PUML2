@@ -51,6 +51,20 @@ class PartitionParmetis : public PartitionBase<Topo> {
                  const PartitionTarget& target,
                  int seed = 1) -> PartitioningResult override {
     auto comm = graph.comm();
+    int rank = 0;
+    MPI_Comm_rank(comm, &rank);
+
+    // ParMETIS refuses a graph with a rank that holds no vertices ("Poor initial vertex
+    // distribution"), and with weights, such a rank leaves it before the others do and lets them
+    // wait forever. Every rank knows the distribution, so they all give up here together.
+    for (std::size_t i = 0; i < graph.processCount(); ++i) {
+      if (graph.vertexDistribution()[i + 1] == graph.vertexDistribution()[i]) {
+        logWarning(rank) << "ParMETIS cannot partition a graph in which a rank holds no cells, as"
+                         << "rank" << i << "does.";
+        return PartitioningResult::ERROR;
+      }
+    }
+
     std::vector<idx_t> vtxdist(graph.vertexDistribution().begin(),
                                graph.vertexDistribution().end());
     std::vector<idx_t> xadj(graph.adjDisp().begin(), graph.adjDisp().end());
@@ -92,45 +106,50 @@ class PartitionParmetis : public PartitionBase<Topo> {
     idx_t edgecut = 0;
     std::vector<idx_t> part(cellCount);
 
+    int status = METIS_OK;
     if (mode == ParmetisPartitionMode::Default) {
-      ParMETIS_V3_PartKway(vtxdist.data(),
-                           xadj.data(),
-                           adjncy.data(),
-                           vwgtArray,
-                           adjwgtArray,
-                           &wgtflag,
-                           &numflag,
-                           &ncon,
-                           &nparts,
-                           tpwgts.data(),
-                           ubvec.data(),
-                           options.data(),
-                           &edgecut,
-                           part.data(),
-                           &comm);
+      status = ParMETIS_V3_PartKway(vtxdist.data(),
+                                    xadj.data(),
+                                    adjncy.data(),
+                                    vwgtArray,
+                                    adjwgtArray,
+                                    &wgtflag,
+                                    &numflag,
+                                    &ncon,
+                                    &nparts,
+                                    tpwgts.data(),
+                                    ubvec.data(),
+                                    options.data(),
+                                    &edgecut,
+                                    part.data(),
+                                    &comm);
     } else if (mode == ParmetisPartitionMode::Geometric) {
       idx_t ndims = 3;
       std::vector<real_t> xyz;
       graph.geometricCoordinates(xyz);
-      ParMETIS_V3_PartGeomKway(vtxdist.data(),
-                               xadj.data(),
-                               adjncy.data(),
-                               vwgtArray,
-                               adjwgtArray,
-                               &wgtflag,
-                               &numflag,
-                               &ndims,
-                               xyz.data(),
-                               &ncon,
-                               &nparts,
-                               tpwgts.data(),
-                               ubvec.data(),
-                               options.data(),
-                               &edgecut,
-                               part.data(),
-                               &comm);
+      status = ParMETIS_V3_PartGeomKway(vtxdist.data(),
+                                        xadj.data(),
+                                        adjncy.data(),
+                                        vwgtArray,
+                                        adjwgtArray,
+                                        &wgtflag,
+                                        &numflag,
+                                        &ndims,
+                                        xyz.data(),
+                                        &ncon,
+                                        &nparts,
+                                        tpwgts.data(),
+                                        ubvec.data(),
+                                        options.data(),
+                                        &edgecut,
+                                        part.data(),
+                                        &comm);
     } else {
       logError() << "Unknown partitioning mode for ParMETIS";
+      return PartitioningResult::ERROR;
+    }
+    // ParMETIS reduces the outcome of its checks over the ranks, so they all return alike.
+    if (status != METIS_OK) {
       return PartitioningResult::ERROR;
     }
 
