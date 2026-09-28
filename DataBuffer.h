@@ -133,7 +133,11 @@ class DataBuffer {
 
   /// Copies the values of one entity out of an array with the same layout.
   void copyEntity(std::size_t index, const DataBuffer& source, std::size_t sourceIndex) {
-    std::memcpy(entity(index), source.entity(sourceIndex), m_entitySize);
+    // an array of no values per entity holds no storage, and memcpy takes no
+    // null pointer, even for no bytes
+    if (m_entitySize > 0) {
+      std::memcpy(entity(index), source.entity(sourceIndex), m_entitySize);
+    }
   }
 
   /// The number of bytes per entity.

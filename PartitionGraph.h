@@ -61,12 +61,12 @@ class PartitionGraph {
           adjRaw[idx] = gid;
         });
 
+    // A rank without cells has no neighbour counts at all, only the leading 0.
     m_adjDisp.resize(vertexCount + 1);
     m_adjDisp[0] = 0;
     // Note: std::inclusive_scan can be used here but some compilers
     //  haven't provided support for it e.g., libc++@15.0.0
-    m_adjDisp[1] = adjRawCount[0];
-    for (std::size_t i = 1; i < adjRawCount.size(); ++i) {
+    for (std::size_t i = 0; i < adjRawCount.size(); ++i) {
       m_adjDisp[i + 1] = m_adjDisp[i] + adjRawCount[i];
     }
 

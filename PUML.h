@@ -786,9 +786,12 @@ class PUML {
                                         mpiType
 #endif // USE_MPI
     );
-    std::memcpy(data(handle).data(),
-                rawData,
-                sizeof(T) * m_originalSize[static_cast<int>(type)] * elemSize);
+    // A rank without entities has nothing to copy, and neither array needs to
+    // exist then; memcpy takes no null pointer, even for no bytes.
+    const auto bytes = sizeof(T) * m_originalSize[static_cast<int>(type)] * elemSize;
+    if (bytes > 0) {
+      std::memcpy(data(handle).data(), rawData, bytes);
+    }
     return handle;
   }
 

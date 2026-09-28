@@ -169,4 +169,39 @@ TEST(Partitioner, NoneKeepsEveryCellWhereItIs) {
   }
 }
 
+/// A rank that holds no cells has an empty part of the graph, and takes part in
+/// partitioning all the same.
+TEST(Partitioner, RanksWithoutCellsTakePart) {
+  const int rank = commRank();
+  const int procs = commSize();
+  const auto mesh = makeCubeMesh(3);
+
+  // Only the last rank starts out with cells.
+  const Split cells = rank == procs - 1 ? Split{0, mesh.numCells} : Split{};
+
+  PUML::TETPUML puml;
+  feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
+  puml.generateMesh();
+
+  const PUML::TETPartitionGraph graph(puml);
+  EXPECT_EQ(graph.localVertexCount(), cells.size);
+  EXPECT_EQ(graph.adjDisp().size(), cells.size + 1);
+  EXPECT_EQ(graph.globalVertexCount(), mesh.numCells);
+
+  PUML::PartitionTarget target;
+  target.setPartitionCount(procs);
+  const auto part =
+      PUML::TETPartition::getPartitioner(PUML::PartitionerType::None)->partition(graph, target);
+  EXPECT_EQ(part.size(), cells.size);
+
+  puml.partition(part.data());
+  puml.generateMesh();
+
+  const auto counts = measure(puml);
+  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+  EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
+  EXPECT_EQ(counts.euler(), 1);
+}
+
 } // namespace
