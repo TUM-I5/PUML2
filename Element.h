@@ -15,6 +15,7 @@
 #ifndef PUML_ELEMENT_H
 #define PUML_ELEMENT_H
 
+#include <array>
 #include <vector>
 
 #include "CellType.h"

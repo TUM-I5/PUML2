@@ -28,7 +28,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <ptscotch.h>
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <vector>
 
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
@@ -50,7 +53,7 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     MPI_Comm_rank(graph.comm(), &rank);
 
     if (graph.vertexWeights().size() > graph.localVertexCount()) {
-      logWarning() << "Multiple vertex weights are currently ignored by PTSCOTCH.";
+      logWarning() << "PTSCOTCH uses the sum of multiple vertex weights.";
     }
     if (!graph.edgeWeights().empty()) {
       logWarning() << "The existence of edge weights may make PTSCOTCH very slow.";
@@ -60,8 +63,16 @@ class PartitionPtscotch : public PartitionBase<Topo> {
 
     std::vector<SCOTCH_Num> adjDisp(graph.adjDisp().begin(), graph.adjDisp().end());
     std::vector<SCOTCH_Num> adj(graph.adj().begin(), graph.adj().end());
-    std::vector<SCOTCH_Num> vertexWeights(graph.vertexWeights().begin(),
-                                          graph.vertexWeights().end());
+    // with several weights per vertex (stored vertex by vertex), use their sum: a single weight
+    // per vertex is all this partitioner takes, and the first one alone may well be zero (as
+    // for the encoded balanced weights of SeisSol, which set one entry per vertex)
+    const auto weightCount = std::max(graph.vertexWeightCount(), 1UL);
+    std::vector<SCOTCH_Num> vertexWeights(graph.vertexWeights().size() / weightCount);
+    for (std::size_t i = 0; i < vertexWeights.size(); ++i) {
+      for (std::size_t j = 0; j < weightCount; ++j) {
+        vertexWeights[i] += graph.vertexWeights()[(i * weightCount) + j];
+      }
+    }
     std::vector<SCOTCH_Num> edgeWeights(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
 
