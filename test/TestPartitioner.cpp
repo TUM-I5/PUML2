@@ -40,6 +40,22 @@ auto available() -> std::vector<std::pair<std::string, PUML::PartitionerType>> {
   return partitioners;
 }
 
+/// The partitioners that take a graph in which a rank holds no vertices.
+/// ParMETIS refuses one ("Poor initial vertex distribution").
+auto takingRanksWithoutCells() -> std::vector<std::pair<std::string, PUML::PartitionerType>> {
+  auto partitioners = available();
+  if (commSize() > 1) {
+    partitioners.erase(std::remove_if(partitioners.begin(),
+                                      partitioners.end(),
+                                      [](const auto& partitioner) {
+                                        return partitioner.second ==
+                                               PUML::PartitionerType::Parmetis;
+                                      }),
+                       partitioners.end());
+  }
+  return partitioners;
+}
+
 /// Builds a cube mesh, partitions it and rebuilds it on the new distribution.
 void checkPartitioner(const std::string& name, PUML::PartitionerType type) {
   const int rank = commRank();
@@ -174,6 +190,34 @@ TEST(Partitioner, NoneKeepsEveryCellWhereItIs) {
   }
 }
 
+/// Partitions the graph of a cube mesh, hands the cells to the ranks they are
+/// meant for, and checks that the mesh is still whole.
+void repartition(PUML::TETPUML& puml,
+                 const PUML::TETPartitionGraph& graph,
+                 const CubeMesh& mesh,
+                 const std::string& name,
+                 PUML::PartitionerType type) {
+  const int procs = commSize();
+
+  PUML::PartitionTarget target;
+  target.setPartitionCount(procs);
+  const auto part = PUML::TETPartition::getPartitioner(type)->partition(graph, target);
+  EXPECT_EQ(part.size(), graph.localVertexCount()) << name;
+  for (const int owner : part) {
+    EXPECT_GE(owner, 0) << name;
+    EXPECT_LT(owner, procs) << name;
+  }
+
+  puml.partition(part.data());
+  puml.generateMesh();
+
+  const auto counts = measure(puml);
+  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells)) << name;
+  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices)) << name;
+  EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces()) << name;
+  EXPECT_EQ(counts.euler(), 1) << name;
+}
+
 /// A rank that holds no cells has an empty part of the graph, and takes part in
 /// partitioning all the same.
 TEST(Partitioner, RanksWithoutCellsTakePart) {
@@ -184,29 +228,18 @@ TEST(Partitioner, RanksWithoutCellsTakePart) {
   // Only the last rank starts out with cells.
   const Split cells = rank == procs - 1 ? Split{0, mesh.numCells} : Split{};
 
-  PUML::TETPUML puml;
-  feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
-  puml.generateMesh();
+  for (const auto& [name, type] : takingRanksWithoutCells()) {
+    PUML::TETPUML puml;
+    feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
+    puml.generateMesh();
 
-  const PUML::TETPartitionGraph graph(puml);
-  EXPECT_EQ(graph.localVertexCount(), cells.size);
-  EXPECT_EQ(graph.adjDisp().size(), cells.size + 1);
-  EXPECT_EQ(graph.globalVertexCount(), mesh.numCells);
+    const PUML::TETPartitionGraph graph(puml);
+    EXPECT_EQ(graph.localVertexCount(), cells.size) << name;
+    EXPECT_EQ(graph.adjDisp().size(), cells.size + 1) << name;
+    EXPECT_EQ(graph.globalVertexCount(), mesh.numCells) << name;
 
-  PUML::PartitionTarget target;
-  target.setPartitionCount(procs);
-  const auto part =
-      PUML::TETPartition::getPartitioner(PUML::PartitionerType::None)->partition(graph, target);
-  EXPECT_EQ(part.size(), cells.size);
-
-  puml.partition(part.data());
-  puml.generateMesh();
-
-  const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
-  EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
-  EXPECT_EQ(counts.euler(), 1);
+    repartition(puml, graph, mesh, name, type);
+  }
 }
 
 } // namespace

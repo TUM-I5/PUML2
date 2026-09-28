@@ -92,7 +92,11 @@ class PartitionPtscotch : public PartitionBase<Topo> {
       }
     }
 
-    std::vector<SCOTCH_Num> part(cellCount);
+    // PT-Scotch fills in the mapping only on the ranks that pass an array for it, in a step that
+    // all ranks have to take together. On a rank without cells, an empty vector need not have any
+    // storage, so that rank would skip the step and leave the others waiting for it forever; the
+    // array gets a dummy entry there.
+    std::vector<SCOTCH_Num> part(std::max<std::size_t>(cellCount, 1));
 
     SCOTCH_Dgraph dgraph;
     SCOTCH_Strat strategy;
