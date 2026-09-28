@@ -162,6 +162,43 @@ TEST(Partitioner, LocalEdgesMatchTheGraph) {
   }
 }
 
+/// A cell handler handed over as a temporary answers for the cells on both
+/// sides of every edge, so it has to stay whole for both.
+TEST(Partitioner, LocalEdgesKeepATemporaryCellHandler) {
+  const auto mesh = makeCubeMesh(4);
+
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+
+  PUML::TETPartitionGraph graph(puml);
+  const auto& cells = puml.cells();
+  const auto& adj = graph.adj();
+
+  std::vector<unsigned long> gids(cells.size());
+  for (std::size_t i = 0; i < cells.size(); ++i) {
+    gids[i] = cells[i].gid();
+  }
+
+  std::vector<int> visits(graph.localEdgeCount());
+  graph.forEachLocalEdges<unsigned long>(
+      // The handler owns its values. A copy that was moved from has none, and
+      // at() fails the test on it rather than reading out of bounds.
+      [gids](int /*fid*/, int cid) { return gids.at(cid); },
+      [&](int /*fid*/, int cid, const unsigned long& neighbor, const unsigned long& own, int eid) {
+        EXPECT_EQ(own, cells[cid].gid());
+        EXPECT_EQ(adj[eid], neighbor);
+        ++visits[eid];
+      });
+
+  for (const int count : visits) {
+    EXPECT_EQ(count, 1);
+  }
+}
+
 /// Without a partitioner, every cell stays on the rank that holds it.
 TEST(Partitioner, NoneKeepsEveryCellWhereItIs) {
   const auto mesh = makeCubeMesh(3);

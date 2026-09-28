@@ -183,13 +183,15 @@ class PartitionGraph {
                          MPI_Datatype mpit = MPITypeInfer<T>::type()
 #endif // USE_MPI
   ) {
+    // The cell handler gives the values of both cells of an edge: of the one on the far side
+    // through the face iterator, and of the one on the near side here. Neither may take it over
+    // from the other, so both refer to the handler that was passed, which outlives this call.
     auto realFaceHandler = [faceHandler = std::forward<FaceHandlerFunc>(faceHandler),
-                            cellHandler = std::forward<CellHandlerFunc>(cellHandler)](
-                               int fid, int lid, const T& a, int eid) {
+                            &cellHandler](int fid, int lid, const T& a, int eid) {
       auto b = std::invoke(cellHandler, fid, lid);
       std::invoke(faceHandler, fid, lid, a, b, eid);
     };
-    forEachLocalEdges<T>(std::forward<CellHandlerFunc>(cellHandler),
+    forEachLocalEdges<T>(cellHandler,
                          std::move(realFaceHandler)
 #ifdef USE_MPI
                              ,
