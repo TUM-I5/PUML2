@@ -63,15 +63,14 @@ TEST(Topology, EdgeTableReferencesCellVertices) {
 
 /// The two faces listed for an edge have to be the two faces that contain both
 /// of its vertices.
-template <PUML::TopoType TopoType_>
+template <PUML::TopoType Topo>
 void checkEdgeAdjacency() {
-  using Topo = Topology<TopoType_>;
-  const auto* edges = Numbering<TopoType_>::edgevertices();
-  const auto* edgeFaces = Numbering<TopoType_>::edgefaces();
-  const auto* faces = Numbering<TopoType_>::facevertices();
+  const auto* edges = Numbering<Topo>::edgevertices();
+  const auto* edgeFaces = Numbering<Topo>::edgefaces();
+  const auto* faces = Numbering<Topo>::facevertices();
 
   const auto faceContains = [&](unsigned int face, unsigned int vertex) {
-    for (unsigned int v = 0; v < Topo::facevertices(); ++v) {
+    for (unsigned int v = 0; v < Topology<Topo>::facevertices(); ++v) {
       if (faces[face][v] == vertex) {
         return true;
       }
@@ -79,9 +78,9 @@ void checkEdgeAdjacency() {
     return false;
   };
 
-  for (unsigned int edge = 0; edge < Topo::celledges(); ++edge) {
+  for (unsigned int edge = 0; edge < Topology<Topo>::celledges(); ++edge) {
     unsigned int found = 0;
-    for (unsigned int face = 0; face < Topo::cellfaces(); ++face) {
+    for (unsigned int face = 0; face < Topology<Topo>::cellfaces(); ++face) {
       if (faceContains(face, edges[edge][0]) && faceContains(face, edges[edge][1])) {
         ++found;
         EXPECT_TRUE(edgeFaces[edge][0] == face || edgeFaces[edge][1] == face)
