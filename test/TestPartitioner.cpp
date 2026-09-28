@@ -41,6 +41,21 @@ auto available() -> std::vector<std::pair<std::string, PUML::PartitionerType>> {
   return partitioners;
 }
 
+/// Every part gets some of the cells: none of the meshes here is so small that
+/// a partitioner would leave a part empty. One that fails without saying so and
+/// hands back the partition it started from, all zeros, does.
+void expectEveryPartUsed(const std::vector<int>& part, int procs, const std::string& name) {
+  std::vector<long> cellsPerPart(procs);
+  for (const int owner : part) {
+    if (owner >= 0 && owner < procs) {
+      ++cellsPerPart[owner];
+    }
+  }
+  for (int p = 0; p < procs; ++p) {
+    EXPECT_GT(globalSum(cellsPerPart[p]), 0) << name << ": part " << p << " is empty";
+  }
+}
+
 /// Builds a cube mesh, partitions it and rebuilds it on the new distribution.
 void checkPartitioner(const std::string& name, PUML::PartitionerType type, bool weighted) {
   const int rank = commRank();
@@ -77,6 +92,9 @@ void checkPartitioner(const std::string& name, PUML::PartitionerType type, bool 
     EXPECT_GE(target, 0) << name;
     EXPECT_LT(target, procs) << name;
   }
+  // Without a partitioner, every rank keeps the cells it was given, which are
+  // some for each of them as well.
+  expectEveryPartUsed(part, procs, name);
 
   puml.partition(part.data());
   puml.generateMesh();
@@ -249,6 +267,10 @@ void repartition(PUML::TETPUML& puml,
   for (const int owner : part) {
     EXPECT_GE(owner, 0) << name;
     EXPECT_LT(owner, procs) << name;
+  }
+  // Without a partitioner, the last rank keeps all the cells.
+  if (type != PUML::PartitionerType::None) {
+    expectEveryPartUsed(part, procs, name);
   }
 
   puml.partition(part.data());
