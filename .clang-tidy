@@ -20,7 +20,7 @@ Checks: |
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -cppcoreguidelines-narrowing-conversions,
   -cppcoreguidelines-pro-type-member-init,
-  -cppcoreguidelines-pro-type-const-cast
+  -cppcoreguidelines-pro-type-const-cast,
   llvm-*,
   -llvm-else-after-return,
   -llvm-header-guard,
@@ -46,7 +46,7 @@ Checks: |
   -readability-magic-numbers,
   -readability-math-missing-parentheses,
   -readability-function-cognitive-complexity,
-  -readability-function-size
+  -readability-function-size,
   -readability-suspicious-call-argument,
   -readability-convert-member-functions-to-static,
 WarningsAsErrors: '*'
@@ -309,6 +309,11 @@ CheckOptions:
 #    value:           CamelCase
   - key:             readability-identifier-naming.TypeAliasCase
     value:           CamelCase
+    # PUML names its element types lower case with a _t suffix, public and
+    # internal alike (cell_t, face_t, vertex_t, ocell_t, faceadj_t, g2l_t, ...);
+    # SeisSol uses the public ones by these names, so they keep them
+  - key:             readability-identifier-naming.TypeAliasIgnoredRegexp
+    value:           '^[a-z0-9]+_t$'
 #  - key:             readability-identifier-naming.TypeAliasPrefix
 #    value:           CamelCase
 #  - key:             readability-identifier-naming.TypeAliasSuffix
@@ -350,8 +355,9 @@ CheckOptions:
 #  - key:             readability-identifier-naming.VirtualMethodSuffix
 #    value:           CamelCase
 
-    # ignore internal GCC headers (bits/)
+    # ignore internal GCC headers (bits/), and HDF5: hdf5.h is the header to
+    # include, but it declares the API in its internal H5*public.h headers
   - key:             misc-include-cleaner.IgnoreHeaders
-    value:           'bits/.*'
+    value:           'bits/.*|H5.*|hdf5\.h'
   - key:             cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
     value:           True

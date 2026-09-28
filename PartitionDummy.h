@@ -33,21 +33,21 @@ class PartitionDummy : public PartitionBase<Topo> {
   public:
   using PartitionBase<Topo>::PartitionBase;
 
-#ifdef USE_MPI
-  virtual auto partition(int* partition,
-                         const PartitionGraph<Topo>& graph,
-                         const PartitionTarget& target,
-                         int seed = 1) -> PartitioningResult {
-    // all data stays where it is (i.e. where it was read)
-
+  auto partition(int* partition,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& /*target*/,
+                 int /*seed*/ = 1) -> PartitioningResult override {
+    // all data stays where it is (i.e. where it was read); without MPI, that is
+    // the only rank there is
     int rank = 0;
+#ifdef USE_MPI
     MPI_Comm_rank(graph.comm(), &rank);
+#endif // USE_MPI
     for (unsigned long i = 0; i < graph.localVertexCount(); ++i) {
       partition[i] = rank;
     }
     return PartitioningResult::SUCCESS;
   }
-#endif // USE_MPI
 };
 
 } // namespace PUML

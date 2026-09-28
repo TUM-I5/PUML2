@@ -45,17 +45,17 @@ class PartitionPtscotch : public PartitionBase<Topo> {
   public:
   PartitionPtscotch(int mode) : mode(mode) {}
 #ifdef USE_MPI
-  virtual auto partition(int* partition,
-                         const PartitionGraph<Topo>& graph,
-                         const PartitionTarget& target,
-                         int seed = 1) -> PartitioningResult {
+  auto partition(int* partition,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& target,
+                 int seed = 1) -> PartitioningResult override {
     int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
 
-    if (graph.vertexWeights().size() > graph.localVertexCount()) {
+    if (graph.vertexWeightCount() > 1) {
       logWarning() << "PTSCOTCH uses the sum of multiple vertex weights.";
     }
-    if (!graph.edgeWeights().empty()) {
+    if (graph.hasEdgeWeights()) {
       logWarning() << "The existence of edge weights may make PTSCOTCH very slow.";
     }
 
@@ -69,39 +69,46 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     const auto weightCount = std::max(graph.vertexWeightCount(), 1UL);
     std::vector<SCOTCH_Num> vertexWeights(graph.vertexWeights().size() / weightCount);
     for (std::size_t i = 0; i < vertexWeights.size(); ++i) {
+      unsigned long sum = 0;
       for (std::size_t j = 0; j < weightCount; ++j) {
-        vertexWeights[i] += graph.vertexWeights()[(i * weightCount) + j];
+        sum += graph.vertexWeights()[(i * weightCount) + j];
       }
+      // SCOTCH_Num is a 32-bit int in many builds of PT-Scotch (Debian's and Ubuntu's among
+      // them); the weights are narrowed to it like the adjacency above
+      vertexWeights[i] = static_cast<SCOTCH_Num>(sum);
     }
     std::vector<SCOTCH_Num> edgeWeights(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
 
-    auto nparts = target.vertexCount();
+    auto nparts = target.partitionCount();
 
     std::vector<SCOTCH_Num> weights(nparts, 1);
-    if (!target.vertexWeightsUniform()) {
+    if (!target.partitionWeightsUniform()) {
       // we need to convert from double node weights to integer node weights
       // (that is due to the interface still being oriented at ParMETIS right now)
 
       auto scale = (double)(1ULL << 24); // if this is not enough (or too much), adjust it
-      for (int i = 0; i < nparts; ++i) {
+      for (std::size_t i = 0; i < nparts; ++i) {
         // important: the weights should be non-negative
         weights[i] =
             std::max(static_cast<SCOTCH_Num>(1),
-                     static_cast<SCOTCH_Num>(std::round(target.vertexWeights()[i] * scale)));
+                     static_cast<SCOTCH_Num>(std::round(target.partitionWeights()[i] * scale)));
       }
     }
 
-    int edgecut = 0;
-    std::vector<SCOTCH_Num> part(cellCount);
+    // PT-Scotch fills in the mapping only on the ranks that pass an array for it, in a step that
+    // all ranks have to take together. On a rank without cells, an empty vector need not have any
+    // storage, so that rank would skip the step and leave the others waiting for it forever; the
+    // array gets a dummy entry there.
+    std::vector<SCOTCH_Num> part(std::max<std::size_t>(cellCount, 1));
 
     SCOTCH_Dgraph dgraph;
     SCOTCH_Strat strategy;
     SCOTCH_Arch arch;
 
-    SCOTCH_Num processCount = graph.processCount();
-    SCOTCH_Num partCount = nparts;
-    SCOTCH_Num stratflag = mode;
+    auto processCount = static_cast<SCOTCH_Num>(graph.processCount());
+    auto partCount = static_cast<SCOTCH_Num>(nparts);
+    auto stratflag = static_cast<SCOTCH_Num>(mode);
 
     SCOTCH_randomProc(rank);
     SCOTCH_randomSeed(seed);
@@ -113,17 +120,17 @@ class PartitionPtscotch : public PartitionBase<Topo> {
 
     SCOTCH_dgraphBuild(&dgraph,
                        0,
-                       graph.localVertexCount(),
-                       graph.localVertexCount(),
+                       static_cast<SCOTCH_Num>(graph.localVertexCount()),
+                       static_cast<SCOTCH_Num>(graph.localVertexCount()),
                        adjDisp.data(),
                        nullptr,
-                       vertexWeights.empty() ? nullptr : vertexWeights.data(),
+                       internal::weightArray(vertexWeights, graph.vertexWeightCount() > 0),
                        nullptr,
-                       graph.localEdgeCount(),
-                       graph.localEdgeCount(),
+                       static_cast<SCOTCH_Num>(graph.localEdgeCount()),
+                       static_cast<SCOTCH_Num>(graph.localEdgeCount()),
                        adj.data(),
                        nullptr,
-                       edgeWeights.empty() ? nullptr : edgeWeights.data());
+                       internal::weightArray(edgeWeights, graph.hasEdgeWeights()));
     SCOTCH_stratDgraphMapBuild(&strategy, stratflag, processCount, partCount, target.imbalance());
     SCOTCH_archCmpltw(&arch, partCount, weights.data());
 
@@ -133,8 +140,8 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     SCOTCH_stratExit(&strategy);
     SCOTCH_dgraphExit(&dgraph);
 
-    for (int i = 0; i < cellCount; i++) {
-      partition[i] = part[i];
+    for (std::size_t i = 0; i < cellCount; i++) {
+      partition[i] = static_cast<int>(part[i]);
     }
 
     return PartitioningResult::SUCCESS;

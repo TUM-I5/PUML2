@@ -18,7 +18,10 @@
 #include <array>
 #include <vector>
 
+#include "CellType.h"
+#include "SmallVector.h"
 #include "Topology.h"
+#include "Types.h"
 
 namespace PUML {
 
@@ -42,7 +45,7 @@ class Element {
 
   private:
   /** The global id */
-  unsigned long m_gid;
+  GlobalId m_gid{};
 
   /** The local/global ids of the upper elements */
   Utype m_upward;
@@ -51,7 +54,7 @@ class Element {
   /**
    * @return The global ID of the element
    */
-  [[nodiscard]] auto gid() const -> unsigned long { return m_gid; }
+  [[nodiscard]] auto gid() const -> GlobalId { return m_gid; }
 };
 
 /**
@@ -64,7 +67,7 @@ class BoundaryElement : public Element<Utype> {
 
   private:
   /** A listof ranks that contain the same vertex */
-  std::vector<int> m_sharedRanks;
+  internal::SmallVector<int, 4> m_sharedRanks;
 
   public:
   /**
@@ -75,30 +78,42 @@ class BoundaryElement : public Element<Utype> {
   /**
    * @return A vector of ranks that also has this element
    */
-  [[nodiscard]] auto shared() const -> const std::vector<int>& { return m_sharedRanks; }
+  [[nodiscard]] auto shared() const -> const internal::SmallVector<int, 4>& {
+    return m_sharedRanks;
+  }
 };
 
 template <TopoType Topo>
-class Vertex : public BoundaryElement<std::vector<int>> {
+class Vertex : public BoundaryElement<internal::SmallVector<LocalId, 16>> {
   friend class PUML<Topo>;
 
   private:
-  double m_coordinate[internal::Topology<Topo>::dimension()]{};
+  std::array<double, 3> m_coordinate{};
 
   public:
   /**
    * @return A pointer to an array with 3 components containing
    *  x, y and z
    */
-  [[nodiscard]] auto coordinate() const -> const double* { return m_coordinate; }
+  [[nodiscard]] auto coordinate() const -> const double* { return m_coordinate.data(); }
 };
 
-class Edge : public BoundaryElement<std::vector<int>> {
+class Edge : public BoundaryElement<internal::SmallVector<LocalId, 6>> {
   template <TopoType Topo>
   friend class PUML;
 };
 
-class Face : public BoundaryElement<int[2]> {
+class Face : public BoundaryElement<std::array<LocalId, 2>> {
+  public:
+  /**
+   * @return The number of vertices bounding this face
+   */
+  [[nodiscard]] auto vertexCount() const -> unsigned int { return m_vertexCount; }
+
+  private:
+  /** Three for a triangle, four for a quadrilateral */
+  std::uint8_t m_vertexCount{0};
+
   template <TopoType Topo>
   friend class PUML;
 };
@@ -108,8 +123,16 @@ class Cell : public Element<std::array<int, 0>> {
   friend class PUML<Topo>;
   friend class Downward;
 
+  public:
+  /**
+   * @return The kind of this cell: in a mixed mesh the kind it was given, otherwise the kind of
+   *  the mesh
+   */
+  [[nodiscard]] auto type() const -> CellType { return m_type; }
+
   private:
-  unsigned int m_vertices[internal::Topology<Topo>::cellvertices()]{};
+  std::array<LocalId, internal::Topology<Topo>::cellvertices()> m_vertices{};
+  CellType m_type{};
 };
 
 } // namespace PUML

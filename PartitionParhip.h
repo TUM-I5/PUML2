@@ -44,16 +44,16 @@ class PartitionParhip : public PartitionBase<Topo> {
   public:
   PartitionParhip(int mode) : mode(mode) {}
 #ifdef USE_MPI
-  virtual auto partition(int* partition,
-                         const PartitionGraph<Topo>& graph,
-                         const PartitionTarget& target,
-                         int seed = 1) -> PartitioningResult {
+  auto partition(int* partition,
+                 const PartitionGraph<Topo>& graph,
+                 const PartitionTarget& target,
+                 int seed = 1) -> PartitioningResult override {
     int rank = 0;
     MPI_Comm_rank(graph.comm(), &rank);
 
     // ParHIP does not come back for a single part; PartitionBase skips it as well, but not for
     // direct calls of this function
-    if (target.vertexCount() == 1) {
+    if (target.partitionCount() == 1) {
       std::fill_n(partition, graph.localVertexCount(), 0);
       return PartitioningResult::SUCCESS;
     }
@@ -75,23 +75,23 @@ class PartitionParhip : public PartitionBase<Topo> {
     std::vector<idxtype> adjwgt(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
 
-    if (!target.vertexWeightsUniform()) {
+    if (!target.partitionWeightsUniform()) {
       logWarning() << "Node weights (target vertex weights) are currently ignored by ParHIP.";
     }
-    if (graph.vertexWeights().size() > graph.localVertexCount()) {
+    if (graph.vertexWeightCount() > 1) {
       logWarning() << "ParHIP uses the sum of multiple vertex weights.";
     }
 
     int edgecut = 0;
-    int nparts = target.vertexCount();
+    auto nparts = static_cast<int>(target.partitionCount());
     std::vector<idxtype> part(cellCount);
     double imbalance = target.imbalance();
     MPI_Comm comm = graph.comm();
     ParHIPPartitionKWay(vtxdist.data(),
                         xadj.data(),
                         adjncy.data(),
-                        vwgt.empty() ? nullptr : vwgt.data(),
-                        adjwgt.empty() ? nullptr : adjwgt.data(),
+                        internal::weightArray(vwgt, graph.vertexWeightCount() > 0),
+                        internal::weightArray(adjwgt, graph.hasEdgeWeights()),
                         &nparts,
                         &imbalance,
                         true,
@@ -101,8 +101,8 @@ class PartitionParhip : public PartitionBase<Topo> {
                         part.data(),
                         &comm);
 
-    for (int i = 0; i < cellCount; i++) {
-      partition[i] = part[i];
+    for (std::size_t i = 0; i < cellCount; i++) {
+      partition[i] = static_cast<int>(part[i]);
     }
 
     return PartitioningResult::SUCCESS;

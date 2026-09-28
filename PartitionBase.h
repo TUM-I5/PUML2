@@ -18,10 +18,10 @@
 
 #ifdef USE_MPI
 #endif // USE_MPI
-#include "utils/logger.h"
-#include "Topology.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
+#include "Topology.h"
+#include "utils/logger.h"
 #include <algorithm>
 #include <vector>
 
@@ -29,13 +29,36 @@ namespace PUML {
 
 enum class PartitioningResult { SUCCESS = 0, ERROR };
 
+namespace internal {
+
+/**
+ * The weights to hand to a partitioner: nullptr if the graph has none, their array otherwise.
+ *
+ * The partitioners tell from the pointer whether there are weights, and the ranks have to agree
+ * on it: PT-Scotch refuses a graph on which they disagree, ParHIP reduces over all ranks only on
+ * the ranks that pass weights, and ParMETIS wants an array wherever its flags announce weights. A
+ * rank without cells (or without edges) has no weights to pass, and an empty vector need not have
+ * any storage, so the array gets a dummy entry there.
+ */
+template <typename T>
+auto weightArray(std::vector<T>& weights, bool present) -> T* {
+  if (!present) {
+    return nullptr;
+  }
+  if (weights.empty()) {
+    weights.resize(1);
+  }
+  return weights.data();
+}
+
+} // namespace internal
+
 template <TopoType Topo>
 class PartitionBase {
   public:
   PartitionBase() = default;
   virtual ~PartitionBase() = default;
 
-#ifdef USE_MPI
   auto partition(const PartitionGraph<Topo>& graph, const PartitionTarget& target, int seed = 1)
       -> std::vector<int> {
     std::vector<int> part(graph.localVertexCount());
@@ -51,7 +74,7 @@ class PartitionBase {
                  const PartitionTarget& target,
                  int seed = 1) -> PartitioningResult {
     // a single part needs no partitioner, and not all of them return for it (ParHIP does not)
-    if (target.vertexCount() == 1) {
+    if (target.partitionCount() == 1) {
       std::fill(part.begin(), part.end(), 0);
       return PartitioningResult::SUCCESS;
     }
@@ -62,7 +85,6 @@ class PartitionBase {
                          const PartitionGraph<Topo>& graph,
                          const PartitionTarget& target,
                          int seed = 1) -> PartitioningResult = 0;
-#endif // USE_MPI
 };
 
 using TETPartitionBase = PartitionBase<TETRAHEDRON>;
