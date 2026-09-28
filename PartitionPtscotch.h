@@ -69,9 +69,13 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     const auto weightCount = std::max(graph.vertexWeightCount(), 1UL);
     std::vector<SCOTCH_Num> vertexWeights(graph.vertexWeights().size() / weightCount);
     for (std::size_t i = 0; i < vertexWeights.size(); ++i) {
+      unsigned long sum = 0;
       for (std::size_t j = 0; j < weightCount; ++j) {
-        vertexWeights[i] += graph.vertexWeights()[(i * weightCount) + j];
+        sum += graph.vertexWeights()[(i * weightCount) + j];
       }
+      // SCOTCH_Num is a 32-bit int in many builds of PT-Scotch (Debian's and Ubuntu's among
+      // them); the weights are narrowed to it like the adjacency above
+      vertexWeights[i] = static_cast<SCOTCH_Num>(sum);
     }
     std::vector<SCOTCH_Num> edgeWeights(graph.edgeWeights().begin(), graph.edgeWeights().end());
     auto cellCount = graph.localVertexCount();
