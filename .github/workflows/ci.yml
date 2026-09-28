@@ -178,9 +178,6 @@ jobs:
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-24.04
-    # The checks in .clang-tidy are stricter than the current headers. The job
-    # reports its findings without gating the pipeline until they are cleared.
-    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
