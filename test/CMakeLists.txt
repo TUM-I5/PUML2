@@ -53,8 +53,11 @@ add_executable(puml-partition-benchmark PartitionBenchmark.cpp)
 target_link_libraries(puml-partition-benchmark PRIVATE PUML::Hdf5)
 target_include_directories(puml-partition-benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# An entity keeps the ranks it is shared with in a list that holds four of
+# them inline, so six ranks are needed for an entity with more than four other
+# ranks to share it and the list to grow.
 if(PUML_USE_MPI)
-  foreach(ranks IN ITEMS 1 2 3 4)
+  foreach(ranks IN ITEMS 1 2 3 4 6)
     add_test(NAME puml-tests-${ranks}
              COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
                      ${MPIEXEC_PREFLAGS} $<TARGET_FILE:puml-tests> ${MPIEXEC_POSTFLAGS})
