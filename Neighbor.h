@@ -49,8 +49,7 @@ class Neighbor {
         flid[i] = InvalidLocalId;
         continue;
       }
-      LocalId neighbors[2];
-      Upward::cells(puml, puml.faces()[faces[i]], neighbors);
+      const auto neighbors = Upward::cells(puml, puml.faces()[faces[i]]);
 
       if (neighbors[0] == clid) {
         flid[i] = neighbors[1];

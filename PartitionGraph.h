@@ -252,25 +252,33 @@ class PartitionGraph {
     // basic idea: compute the barycenter of the cell (i.e. tetrahedron/hexahedron); summed in
     // double over the vertices in the order of their global ids, so that it does not depend on
     // the order in which the mesh file lists the vertices of the cell
-    constexpr auto CellVertices = internal::Topology<Topo>::cellvertices();
     const auto& vertices = m_puml.vertices();
     coord.resize(3 * localVertexCount());
     for (unsigned long i = 0; i < m_puml.cells().size(); ++i) {
       const auto& cell = m_puml.cells()[i];
-      unsigned int lid[CellVertices];
-      Downward::vertices(m_puml, cell, lid);
+      auto lid = Downward::vertices(m_puml, cell);
       // a cell of a mixed mesh which has fewer vertices than the widest kind leaves the rest
-      // invalid; they are moved to the end and left out
-      auto* const validEnd = std::remove(lid, lid + CellVertices, InvalidLocalId);
-      std::sort(lid, validEnd, [&vertices](auto a, auto b) {
+      // invalid; they are sorted to the end and left out. Sorting all of the slots, rather than
+      // the valid ones only, keeps the length of the range known while compiling.
+      std::sort(lid.begin(), lid.end(), [&vertices](auto a, auto b) {
+        if (b == InvalidLocalId) {
+          return a != InvalidLocalId;
+        }
+        if (a == InvalidLocalId) {
+          return false;
+        }
         return vertices[a].gid() < vertices[b].gid();
       });
-      const auto count = static_cast<double>(validEnd - lid);
+      double count = 0.0;
       double sum[3] = {0.0, 0.0, 0.0};
-      for (const auto* vertex = lid; vertex != validEnd; ++vertex) {
-        for (int d = 0; d < 3; ++d) {
-          sum[d] += vertices[*vertex].coordinate()[d];
+      for (const auto vertex : lid) {
+        if (vertex == InvalidLocalId) {
+          break;
         }
+        for (int d = 0; d < 3; ++d) {
+          sum[d] += vertices[vertex].coordinate()[d];
+        }
+        count += 1.0;
       }
       for (int d = 0; d < 3; ++d) {
         coord[(i * 3) + d] = static_cast<OutputType>(sum[d] / count);

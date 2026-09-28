@@ -90,8 +90,7 @@ class Downward {
   static void gvertices([[maybe_unused]] const PUML<Topo>& puml,
                         const typename PUML<Topo>::cell_t& cell,
                         unsigned long* gid) {
-    unsigned int lid[internal::Topology<Topo>::cellvertices()];
-    vertices(puml, cell, lid);
+    const auto lid = vertices(puml, cell);
     if constexpr (Topo == MIXED) {
       // a cell which has fewer vertices than the widest kind leaves the rest invalid
       for (unsigned int i = 0; i < internal::Topology<Topo>::cellvertices(); i++) {
@@ -100,7 +99,7 @@ class Downward {
     } else {
       internal::Utils::l2g<Topo,
                            typename PUML<Topo>::vertex_t,
-                           internal::Topology<Topo>::cellvertices()>(puml, lid, gid);
+                           internal::Topology<Topo>::cellvertices()>(puml, lid.data(), gid);
     }
   }
 
