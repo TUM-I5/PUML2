@@ -18,14 +18,14 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
-#include <vector>
 #include <iterator>
+#include <vector>
 
 #include <array>
 
 #include "PUML.h"
-#include "Types.h"
 #include "Topology.h"
+#include "Types.h"
 
 namespace PUML {
 

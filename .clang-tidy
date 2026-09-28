@@ -2,9 +2,6 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-# llvm-include-order is off: .clang-format does not sort includes either
-# (SortIncludes: false), since the headers group them on purpose, and the ones
-# only needed with MPI sit behind #ifdef USE_MPI, outside any sorted block.
 Checks: |
   -*,
   clang-diagnostic-*,
@@ -27,7 +24,6 @@ Checks: |
   llvm-*,
   -llvm-else-after-return,
   -llvm-header-guard,
-  -llvm-include-order,
   -llvm-qualified-auto,
   misc-*,
   -misc-non-private-member-variables-in-classes,

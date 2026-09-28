@@ -26,9 +26,9 @@
 #include <utility>
 
 #include "PUML.h"
+#include "Topology.h"
 #include "Types.h"
 #include "Upward.h"
-#include "Topology.h"
 #include "Utils.h"
 
 namespace PUML {

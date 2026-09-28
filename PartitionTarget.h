@@ -19,8 +19,8 @@
 #ifdef USE_MPI
 #endif // USE_MPI
 
-#include <vector>
 #include <cassert>
+#include <vector>
 
 namespace PUML {
 

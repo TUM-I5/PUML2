@@ -15,8 +15,8 @@
 #ifndef PUML_FACE_ITERATOR_H
 #define PUML_FACE_ITERATOR_H
 
-#include "Topology.h"
 #include "PUML.h"
+#include "Topology.h"
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI

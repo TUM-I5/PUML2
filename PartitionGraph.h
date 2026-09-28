@@ -15,23 +15,23 @@
 #ifndef PUML_PARTITION_GRAPH_H
 #define PUML_PARTITION_GRAPH_H
 
-#include <cstddef>
 #include "TypeInference.h"
+#include <cstddef>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
 
+#include "Downward.h"
+#include "FaceIterator.h"
+#include "PUML.h"
+#include "Topology.h"
 #include <algorithm>
-#include <vector>
 #include <cassert>
 #include <functional>
 #include <numeric>
 #include <type_traits>
 #include <utility>
-#include "Topology.h"
-#include "PUML.h"
-#include "FaceIterator.h"
-#include "Downward.h"
+#include <vector>
 
 namespace PUML {
 

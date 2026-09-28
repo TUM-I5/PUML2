@@ -17,17 +17,17 @@
 
 #include "CellType.h"
 #include "DataBuffer.h"
-#include "Error.h"
 #include "DataHandle.h"
+#include "Error.h"
 #include "RaggedBuffer.h"
 #include "TypeInference.h"
-#include "UpwardBuilder.h"
 #include "Types.h"
+#include "UpwardBuilder.h"
 #include <cstddef>
 #include <cstring>
 #include <iterator>
-#include <numeric>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <type_traits>

@@ -21,8 +21,8 @@
 #include <array>
 
 #include "PUML.h"
-#include "Types.h"
 #include "Topology.h"
+#include "Types.h"
 #include "Upward.h"
 
 namespace PUML {

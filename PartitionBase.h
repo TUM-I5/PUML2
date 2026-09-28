@@ -18,10 +18,10 @@
 
 #ifdef USE_MPI
 #endif // USE_MPI
-#include "utils/logger.h"
-#include "Topology.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
+#include "Topology.h"
+#include "utils/logger.h"
 #include <algorithm>
 #include <vector>
 
