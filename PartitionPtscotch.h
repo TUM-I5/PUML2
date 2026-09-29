@@ -25,9 +25,12 @@
 #warning PTSCOTCH is not enabled.
 #endif
 
-#include <stdint.h>
+// ptscotch.h is not self-contained: it uses the types of these two
 #include <stddef.h>
+#include <stdint.h>
+
 #include <ptscotch.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>

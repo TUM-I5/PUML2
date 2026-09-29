@@ -17,9 +17,9 @@
 #define PUML_PARTITIONPARMETIS_H
 
 #include "PartitionTarget.h"
+#include "utils/logger.h"
 #include <array>
 #include <vector>
-#include "utils/logger.h"
 #ifdef USE_MPI
 #endif // USE_MPI
 
