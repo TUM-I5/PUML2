@@ -28,13 +28,31 @@
 #endif // USE_MPI
 
 #include "utils/logger.h"
-#include "utils/stringutils.h"
 
 #include "CellType.h"
 #include "PUML.h"
 #include "Topology.h"
 
 namespace PUML {
+
+namespace internal {
+
+/**
+ * Splits a name of the form "filename:/dataset" into the file and the dataset.
+ *
+ * The split happens at the last colon, since the file name may hold colons of
+ * its own, like the drive of an absolute path on Windows does. A name without
+ * any colon gives the name alone.
+ */
+inline auto splitDatasetName(const std::string& name) -> std::vector<std::string> {
+  const auto colon = name.rfind(':');
+  if (colon == std::string::npos) {
+    return {name};
+  }
+  return {name.substr(0, colon), name.substr(colon + 1)};
+}
+
+} // namespace internal
 
 template <typename T>
 class HDF5TypeInfer {
@@ -154,12 +172,12 @@ class Hdf5Reader {
    * addData() for each of the two.
    */
   void open(const std::string& cellName, const std::string& vertexName) {
-    const auto cellNames = utils::StringUtils::split(cellName, ':');
+    const auto cellNames = internal::splitDatasetName(cellName);
     if (cellNames.size() != 2) {
       logError() << "Cells name must have the form \"filename:/dataset\"";
     }
 
-    const auto vertexNames = utils::StringUtils::split(vertexName, ':');
+    const auto vertexNames = internal::splitDatasetName(vertexName);
     if (vertexNames.size() != 2) {
       logError() << "Vertices name must have the form \"filename:/dataset\"";
     }
@@ -623,7 +641,7 @@ class Hdf5Reader {
    * the ones that follow.
    */
   auto fileOf(const std::string& path) -> hid_t {
-    const auto names = utils::StringUtils::split(path, ':');
+    const auto names = internal::splitDatasetName(path);
     if (names.size() != 2) {
       logError() << "Invalid dataset name" << path << "; expected the form file:/dataset";
     }
@@ -649,7 +667,7 @@ class Hdf5Reader {
 
   /// The dataset part of a "file:/dataset" name.
   static auto datasetOf(const std::string& path) -> std::string {
-    return utils::StringUtils::split(path, ':')[1];
+    return internal::splitDatasetName(path)[1];
   }
 
   void closeFile() {

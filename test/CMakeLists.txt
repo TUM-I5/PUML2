@@ -35,6 +35,18 @@ target_link_libraries(puml-tests PRIVATE PUML::Hdf5 GTest::gtest)
 target_compile_definitions(puml-tests
   PRIVATE PUML_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
+# The sample mesh under a path with a colon in it. On Windows, the drive of the
+# absolute path brings one along (and a file name cannot hold another one).
+if(WIN32)
+  set(PUML_TEST_COLON_MESH "${CMAKE_CURRENT_SOURCE_DIR}/data/mesh.h5")
+else()
+  set(PUML_TEST_COLON_MESH "${CMAKE_CURRENT_BINARY_DIR}/data:linked/mesh.h5")
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/data:linked")
+  file(CREATE_LINK "${CMAKE_CURRENT_SOURCE_DIR}/data/mesh.h5" "${PUML_TEST_COLON_MESH}"
+       SYMBOLIC COPY_ON_ERROR)
+endif()
+target_compile_definitions(puml-tests PRIVATE PUML_TEST_COLON_MESH="${PUML_TEST_COLON_MESH}")
+
 # -Wconversion catches the narrowing between the id and size types. Its
 # sign-conversion half is left off: MPI counts ranks in int while the
 # containers index in size_t, so it fires on every rank loop without pointing
