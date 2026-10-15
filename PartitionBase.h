@@ -73,16 +73,19 @@ auto fitsIndexType(const PartitionGraph<Topo>& graph,
   constexpr auto Largest = std::numeric_limits<unsigned long>::max();
   constexpr auto Max = static_cast<unsigned long>(std::numeric_limits<Index>::max());
 
-  // the weight sums, one per constraint the partitioner keeps, and the one of the edges behind
-  // them; added up so that they stop at the largest value rather than wrap around
-  const auto weightCount = graph.vertexWeightCount();
+  // The weight sums, one per constraint the partitioner keeps, and the one of the edges behind
+  // them; added up so that they stop at the largest value rather than wrap around. The ranks may
+  // disagree on the number of weights, in a graph that the partitioner is to refuse itself; the
+  // sums are reduced over as many as any rank has, so that all ranks reduce the same.
+  unsigned long weightCount = graph.vertexWeightCount();
+  MPI_Allreduce(MPI_IN_PLACE, &weightCount, 1, MPI_UNSIGNED_LONG, MPI_MAX, graph.comm());
   const auto columns = addsUpVertexWeights ? std::min<unsigned long>(weightCount, 1) : weightCount;
   std::vector<unsigned long> sums(columns + 1);
   const auto add = [](unsigned long& sum, unsigned long value) {
     sum = (sum > Largest - value) ? Largest : sum + value;
   };
   for (std::size_t i = 0; i < graph.vertexWeights().size(); ++i) {
-    add(sums[addsUpVertexWeights ? 0 : i % weightCount], graph.vertexWeights()[i]);
+    add(sums[addsUpVertexWeights ? 0 : i % graph.vertexWeightCount()], graph.vertexWeights()[i]);
   }
   for (const auto weight : graph.edgeWeights()) {
     add(sums.back(), weight);

@@ -153,6 +153,23 @@ TEST(Partitioner, ChecksTheGraphAgainstTheIntegersOfThePartitioner) {
   graph.setEdgeWeights(std::vector<int>(graph.localEdgeCount(), 300));
   EXPECT_FALSE(PUML::internal::fitsIndexType<std::int16_t>(graph, false, "test", "none"));
   EXPECT_TRUE(PUML::internal::fitsIndexType<std::int32_t>(graph, true, "test", "none"));
+
+  // Against the rules, only the last rank sets weights, as in a graph that the partitioner is to
+  // refuse itself; the check has to come to an answer on all ranks all the same.
+  for (const bool vertexWeights : {true, false}) {
+    PUML::TETPartitionGraph partial(puml);
+    if (commRank() == commSize() - 1) {
+      if (vertexWeights) {
+        partial.setVertexWeights(std::vector<int>(partial.localVertexCount() * 2, 1), 2);
+      } else {
+        partial.setEdgeWeights(std::vector<int>(partial.localEdgeCount(), 1));
+      }
+    }
+    for (const bool addsUp : {true, false}) {
+      EXPECT_TRUE(PUML::internal::fitsIndexType<std::int32_t>(partial, addsUp, "test", "none"))
+          << (vertexWeights ? "vertex weights" : "edge weights") << ", added up: " << addsUp;
+    }
+  }
 }
 #endif // USE_MPI
 
