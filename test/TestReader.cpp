@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -46,6 +47,31 @@ TEST(Reader, ReadsTheSampleMesh) {
   EXPECT_TRUE(isContiguousFromZero(allGids(puml.faces())));
   EXPECT_TRUE(isContiguousFromZero(allGids(puml.edges())));
   EXPECT_TRUE(isContiguousFromZero(allGids(puml.vertices())));
+}
+
+/// The file name may hold colons of its own, like the drive of an absolute path
+/// on Windows does; the dataset is named behind the last one.
+TEST(Reader, ReadsAFileWhosePathHoldsAColon) {
+  const std::string file = PUML_TEST_COLON_MESH;
+
+  PUML::TETPUML puml;
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+  PUML::Hdf5Reader<PUML::TETRAHEDRON> reader(puml);
+  reader.open(file + ":/connect", file + ":/geometry");
+  puml.generateMesh();
+
+  EXPECT_EQ(measure(puml).cells, 19183);
+  EXPECT_TRUE(reader.exists(file + ":/boundary"));
+  EXPECT_FALSE(reader.exists(file + ":/not-there"));
+}
+
+TEST(Reader, SplitsADatasetNameAtTheLastColon) {
+  const auto names = PUML::internal::splitDatasetName("C:\\meshes\\mesh.h5:/connect");
+  EXPECT_EQ(names, (std::vector<std::string>{"C:\\meshes\\mesh.h5", "/connect"}));
+
+  EXPECT_EQ(PUML::internal::splitDatasetName("mesh.h5").size(), 1U);
 }
 
 /// Cell data read from the file keeps its cell.
