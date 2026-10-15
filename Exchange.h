@@ -30,7 +30,9 @@
 
 // MPI 4 counts in MPI_Count where MPI 3 counts in int. Some libraries that
 // report an older version have the calls of MPI 4 all the same (Intel MPI 2021,
-// for one); defining PUML_MPI_LARGE_COUNT makes PUML use them there as well.
+// for one); defining PUML_MPI_LARGE_COUNT makes PUML use them there as well,
+// which the CMake build of PUML does where cmake/PumlMpiLargeCount.cmake finds
+// them.
 #if defined(USE_MPI) && !defined(PUML_MPI_LARGE_COUNT) && MPI_VERSION >= 4
 #define PUML_MPI_LARGE_COUNT
 #endif
