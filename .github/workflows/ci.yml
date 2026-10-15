@@ -200,5 +200,5 @@ jobs:
 
       - name: Run clang-tidy
         run: |
-          run-clang-tidy -p build -header-filter='.*/(PUML|Downward|Upward|Neighbor|Element|Topology|Numbering|VertexElementMap|TypeInference|Utils|Partition.*|FaceIterator|DownElement)\.h' \
+          run-clang-tidy -p build -header-filter='.*/(PUML|Downward|Upward|Neighbor|Element|Topology|Numbering|VertexElementMap|TypeInference|Utils|Partition.*|FaceIterator|DownElement|Exchange)\.h' \
             $(git ls-files 'test/Test*.cpp')

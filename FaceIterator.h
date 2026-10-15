@@ -15,6 +15,7 @@
 #ifndef PUML_FACE_ITERATOR_H
 #define PUML_FACE_ITERATOR_H
 
+#include "Exchange.h"
 #include "PUML.h"
 #include "Topology.h"
 #ifdef USE_MPI
@@ -65,21 +66,21 @@ class FaceIterator {
       }
     }
 
-    m_transferSize = std::vector<int>(commSize);
-    m_transferDisp = std::vector<int>(commSize + 1);
-    m_transferDisp[0] = 0;
+    // a face shared with a rank is shared by that rank as well, so the exchange
+    // sends as many values to every rank as it receives from it
+    std::vector<Size> transferCounts(commSize);
     for (int i = 0; i < commSize; ++i) {
-      m_transferSize[i] = static_cast<int>(transfer[i].size());
-      m_transferDisp[i + 1] = m_transferDisp[i] + m_transferSize[i];
+      transferCounts[i] = transfer[i].size();
       std::sort(transfer[i].begin(), transfer[i].end(), [&faces](int a, int b) -> bool {
         return faces[a].gid() < faces[b].gid();
       });
     }
+    m_transfer = internal::Exchange(transferCounts, transferCounts);
 
-    m_transferCell = std::vector<int>(m_transferDisp[commSize]);
-    m_transferFace = std::vector<int>(m_transferDisp[commSize]);
-    for (int i = 0, j = 0; i < commSize; ++i) {
-      for (int k = 0; k < m_transferSize[i]; ++j, ++k) {
+    m_transferCell = std::vector<int>(m_transfer.sendTotal());
+    m_transferFace = std::vector<int>(m_transfer.sendTotal());
+    for (std::size_t i = 0, j = 0; i < transfer.size(); ++i) {
+      for (std::size_t k = 0; k < transfer[i].size(); ++j, ++k) {
         const auto& face = faces[transfer[i][k]];
         const auto lid = Upward::cells(puml, face);
         m_transferCell[j] = lid[0];
@@ -669,56 +670,16 @@ class FaceIterator {
     }
 
 #ifdef USE_MPI
-    int rank = 0;
-    int commSize = 1;
-    MPI_Comm_rank(m_puml.comm(), &rank);
-    MPI_Comm_size(m_puml.comm(), &commSize);
-
-    std::vector<T> transferSend(m_transferDisp[commSize]);
-    std::vector<T> transferReceive(m_transferDisp[commSize]);
+    std::vector<T> transferSend(m_transfer.sendTotal());
+    std::vector<T> transferReceive(m_transfer.recvTotal());
     for (std::size_t i = 0; i < transferSend.size(); ++i) {
       transferSend[i] = std::invoke(externalCellHandler, m_transferFace[i], m_transferCell[i]);
     }
 
     if (m_sparseComm) {
-      int transferRanks = 0;
-      for (int i = 0; i < commSize; ++i) {
-        if (m_transferDisp[i + 1] > m_transferDisp[i]) {
-          ++transferRanks;
-        }
-      }
-      int j = 0;
-      std::vector<MPI_Request> requests(transferRanks * 2);
-      for (int i = 0; i < commSize; ++i) {
-        if (m_transferDisp[i + 1] > m_transferDisp[i]) {
-          MPI_Isend(static_cast<T*>(transferSend.data()) + m_transferDisp[i],
-                    m_transferSize[i],
-                    mpit,
-                    i,
-                    0,
-                    m_puml.comm(),
-                    &requests[2 * j]);
-          MPI_Irecv(static_cast<T*>(transferReceive.data()) + m_transferDisp[i],
-                    m_transferSize[i],
-                    mpit,
-                    i,
-                    0,
-                    m_puml.comm(),
-                    &requests[(2 * j) + 1]);
-          ++j;
-        }
-      }
-      MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUS_IGNORE);
+      m_transfer.pointToPoint(transferSend.data(), transferReceive.data(), mpit, m_puml.comm());
     } else {
-      MPI_Alltoallv(transferSend.data(),
-                    m_transferSize.data(),
-                    m_transferDisp.data(),
-                    mpit,
-                    transferReceive.data(),
-                    m_transferSize.data(),
-                    m_transferDisp.data(),
-                    mpit,
-                    m_puml.comm());
+      m_transfer.alltoallv(transferSend.data(), transferReceive.data(), mpit, m_puml.comm());
     }
 
     for (std::size_t i = 0; i < m_transferFace.size(); ++i) {
@@ -730,8 +691,7 @@ class FaceIterator {
 
   const PUML<Topo>& m_puml;
 #ifdef USE_MPI
-  std::vector<int> m_transferSize;
-  std::vector<int> m_transferDisp;
+  internal::Exchange m_transfer;
   std::vector<int> m_transferCell;
   std::vector<int> m_transferFace;
   bool m_sparseComm;

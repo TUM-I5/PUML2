@@ -19,6 +19,7 @@
 #include "DataBuffer.h"
 #include "DataHandle.h"
 #include "Error.h"
+#include "Exchange.h"
 #include "RaggedBuffer.h"
 #include "TypeInference.h"
 #include "Types.h"
@@ -294,18 +295,6 @@ class PUML {
 
   // data names; supersede number indexing
   std::unordered_map<std::string, std::size_t> m_vertexDataIndex;
-
-  /**
-   * Narrows a count to the int the MPI collectives take, which is the limit
-   * that arrives first when a rank holds a lot of entities.
-   */
-  static auto toMpiCount(Size count) -> int {
-    if (count > static_cast<Size>(std::numeric_limits<int>::max())) {
-      throwError(
-          "an exchange of", count, "elements exceeds what an MPI collective can count in an int");
-    }
-    return static_cast<int>(count);
-  }
 
   /**
    * Describes the split of the given number of local entities over all ranks.
@@ -841,46 +830,27 @@ class PUML {
     }
 
     // Compute exchange info
-    std::vector<int> sendCount(procs);
-    std::vector<int> recvCount(procs);
-
+    std::vector<Size> sendCounts(procs);
     for (std::size_t i = 0; i < m_originalSize[0]; i++) {
       assert(partition[i] < procs);
-      ++sendCount[partition[i]];
+      ++sendCounts[partition[i]];
     }
 
 #ifdef USE_MPI
-    MPI_Alltoall(sendCount.data(), 1, MPI_INT, recvCount.data(), 1, MPI_INT, m_comm);
+    const auto cells = internal::Exchange::ofSendCounts(std::move(sendCounts), m_comm);
 #else  // USE_MPI
-    recvCount[0] = sendCount[0];
+    const internal::Exchange cells(sendCounts, sendCounts);
 #endif // USE_MPI
 
-    std::vector<int> sDispls(procs);
-    std::vector<int> rDispls(procs);
-    sDispls[0] = 0;
-    rDispls[0] = 0;
-    for (int i = 1; i < procs; i++) {
-      sDispls[i] = sDispls[i - 1] + sendCount[i - 1];
-      rDispls[i] = rDispls[i - 1] + recvCount[i - 1];
-    }
-
     [[maybe_unused]] const auto sentCells = m_originalSize[0];
-    m_originalSize[0] = rDispls[procs - 1] + recvCount[procs - 1];
+    m_originalSize[0] = cells.recvTotal();
     m_distributor[0] = makeDistributor(m_originalSize[0]);
 
 #ifdef USE_MPI
     // Exchange cell data
     for (auto& array : m_cellData) {
       auto received = array.sameLayout(m_originalSize[0]);
-      MPI_Alltoallv(array.data(),
-                    sendCount.data(),
-                    sDispls.data(),
-                    array.mpiType(),
-                    received.data(),
-                    recvCount.data(),
-                    rDispls.data(),
-                    array.mpiType(),
-                    m_comm);
+      cells.alltoallv(array.data(), received.data(), array.mpiType(), m_comm);
       array = std::move(received);
     }
 
@@ -888,53 +858,28 @@ class PUML {
     // then the values themselves, whose counts per rank follow from the first
     // step rather than from the number of cells.
     for (auto& array : m_cellRagged) {
-      std::vector<int> sendCounts(sentCells);
+      std::vector<Size> sentCounts(sentCells);
       for (std::size_t i = 0; i < sentCells; ++i) {
-        sendCounts[i] = toMpiCount(array.count(i));
+        sentCounts[i] = array.count(i);
       }
+      std::vector<Size> counts(m_originalSize[0]);
+      cells.alltoallv(sentCounts.data(), counts.data(), MPITypeInfer<Size>::type(), m_comm);
 
-      std::vector<int> recvCounts(m_originalSize[0]);
-      MPI_Alltoallv(sendCounts.data(),
-                    sendCount.data(),
-                    sDispls.data(),
-                    MPI_INT,
-                    recvCounts.data(),
-                    recvCount.data(),
-                    rDispls.data(),
-                    MPI_INT,
-                    m_comm);
-
-      std::vector<int> sendValues(procs);
-      std::vector<int> recvValues(procs);
-      std::vector<int> sendValueDispls(procs);
-      std::vector<int> recvValueDispls(procs);
+      std::vector<Size> sendValues(procs);
+      std::vector<Size> recvValues(procs);
       for (int p = 0; p < procs; ++p) {
-        Size out = 0;
-        for (int i = 0; i < sendCount[p]; ++i) {
-          out += static_cast<Size>(sendCounts[sDispls[p] + i]);
+        for (Size i = 0; i < cells.sendCount(p); ++i) {
+          sendValues[p] += sentCounts[cells.sendOffset(p) + i];
         }
-        Size in = 0;
-        for (int i = 0; i < recvCount[p]; ++i) {
-          in += static_cast<Size>(recvCounts[rDispls[p] + i]);
+        for (Size i = 0; i < cells.recvCount(p); ++i) {
+          recvValues[p] += counts[cells.recvOffset(p) + i];
         }
-        sendValues[p] = toMpiCount(out);
-        recvValues[p] = toMpiCount(in);
-        sendValueDispls[p] = (p == 0) ? 0 : sendValueDispls[p - 1] + sendValues[p - 1];
-        recvValueDispls[p] = (p == 0) ? 0 : recvValueDispls[p - 1] + recvValues[p - 1];
       }
+      const internal::Exchange values(std::move(sendValues), std::move(recvValues));
 
-      const std::vector<Size> counts(recvCounts.begin(), recvCounts.end());
       auto offsets = internal::RaggedBuffer::offsetsOf(counts);
       auto received = array.values().sameLayout(offsets.back());
-      MPI_Alltoallv(array.values().data(),
-                    sendValues.data(),
-                    sendValueDispls.data(),
-                    array.values().mpiType(),
-                    received.data(),
-                    recvValues.data(),
-                    recvValueDispls.data(),
-                    array.values().mpiType(),
-                    m_comm);
+      values.alltoallv(array.values().data(), received.data(), array.values().mpiType(), m_comm);
       array.reset(std::move(offsets), std::move(received));
     }
 #endif // USE_MPI
@@ -986,15 +931,13 @@ class PUML {
       totalVertices += requiredVertexSets[i].size();
     }
 
-    std::vector<int> sendCount(procs);
-    std::vector<int> recvCount(procs);
-
+    std::vector<Size> sendCounts(procs);
     std::vector<GlobalId> requiredVertices(totalVertices);
 
     {
       std::size_t k = 0;
       for (int i = 0; i < procs; i++) {
-        sendCount[i] = toMpiCount(requiredVertexSets[i].size());
+        sendCounts[i] = requiredVertexSets[i].size();
 
         for (const auto& it : requiredVertexSets[i]) {
           assert(k < totalVertices);
@@ -1004,35 +947,20 @@ class PUML {
       }
     }
 
-    // Exchange required vertex information
+    // Exchange required vertex information; the answers go back the same way
 #ifdef USE_MPI
-    MPI_Alltoall(sendCount.data(), 1, MPI_INT, recvCount.data(), 1, MPI_INT, m_comm);
+    const auto requests = internal::Exchange::ofSendCounts(std::move(sendCounts), m_comm);
 #else  // USE_MPI
-    recvCount[0] = sendCount[0];
+    const internal::Exchange requests(sendCounts, sendCounts);
 #endif // USE_MPI
+    [[maybe_unused]] const auto replies = requests.reversed();
 
-    std::vector<int> sDispls(procs);
-    std::vector<int> rDispls(procs);
-    sDispls[0] = 0;
-    rDispls[0] = 0;
-    for (int i = 1; i < procs; i++) {
-      sDispls[i] = sDispls[i - 1] + sendCount[i - 1];
-      rDispls[i] = rDispls[i - 1] + recvCount[i - 1];
-    }
-
-    const Size totalRecv = static_cast<Size>(rDispls[procs - 1]) + recvCount[procs - 1];
+    const Size totalRecv = requests.recvTotal();
 
     std::vector<GlobalId> distribVertexIds(totalRecv);
 #ifdef USE_MPI
-    MPI_Alltoallv(requiredVertices.data(),
-                  sendCount.data(),
-                  sDispls.data(),
-                  MPITypeInfer<GlobalId>::type(),
-                  distribVertexIds.data(),
-                  recvCount.data(),
-                  rDispls.data(),
-                  MPITypeInfer<GlobalId>::type(),
-                  m_comm);
+    requests.alltoallv(
+        requiredVertices.data(), distribVertexIds.data(), MPITypeInfer<GlobalId>::type(), m_comm);
 #else  // USE_MPI
     exchangeLocally(requiredVertices.data(), distribVertexIds.data(), totalRecv * sizeof(GlobalId));
 #endif // USE_MPI
@@ -1047,7 +975,7 @@ class PUML {
     {
       std::size_t k = 0;
       for (int i = 0; i < procs; i++) {
-        for (int j = 0; j < recvCount[i]; j++) {
+        for (Size j = 0; j < requests.recvCount(i); j++) {
           assert(k < totalRecv);
           distribVertexIds[k] = vertexDistributor.globalToLocalId(rank, distribVertexIds[k]);
 
@@ -1071,15 +999,10 @@ class PUML {
     }
 #ifdef USE_MPI
     for (std::size_t i = 0; i < m_vertexData.size(); i++) {
-      MPI_Alltoallv(distribData[i].data(),
-                    recvCount.data(),
-                    rDispls.data(),
-                    distribData[i].mpiType(),
-                    m_vertexData[i].distributed.data(),
-                    sendCount.data(),
-                    sDispls.data(),
-                    distribData[i].mpiType(),
-                    m_comm);
+      replies.alltoallv(distribData[i].data(),
+                        m_vertexData[i].distributed.data(),
+                        distribData[i].mpiType(),
+                        m_comm);
     }
 #else  // USE_MPI
     for (std::size_t i = 0; i < m_vertexData.size(); i++) {
@@ -1094,7 +1017,7 @@ class PUML {
     // Send back the number of shared ranks for each vertex
     std::vector<unsigned int> distNsharedRanks(totalRecv);
     std::size_t distTotalSharedRanks = 0;
-    for (unsigned int i = 0; i < totalRecv; i++) {
+    for (std::size_t i = 0; i < totalRecv; i++) {
       assert(distribVertexIds[i] < m_originalSize[1]);
       distNsharedRanks[i] = static_cast<unsigned int>(sharedRanks[distribVertexIds[i]].size());
       distTotalSharedRanks += distNsharedRanks[i];
@@ -1102,30 +1025,22 @@ class PUML {
 
     std::vector<unsigned int> recvNsharedRanks(totalVertices);
 #ifdef USE_MPI
-    MPI_Alltoallv(distNsharedRanks.data(),
-                  recvCount.data(),
-                  rDispls.data(),
-                  MPI_UNSIGNED,
-                  recvNsharedRanks.data(),
-                  sendCount.data(),
-                  sDispls.data(),
-                  MPI_UNSIGNED,
-                  m_comm);
+    replies.alltoallv(distNsharedRanks.data(), recvNsharedRanks.data(), MPI_UNSIGNED, m_comm);
 #else  // USE_MPI
     exchangeLocally(
         distNsharedRanks.data(), recvNsharedRanks.data(), totalVertices * sizeof(unsigned int));
 #endif // USE_MPI
 
     // Setup buffers for exchanging shared ranks
-    std::vector<int> sharedSendCount(procs);
-    std::vector<int> sharedRecvCount(procs);
+    std::vector<Size> sharedSendCounts(procs);
+    std::vector<Size> sharedRecvCounts(procs);
 
     std::vector<int> distSharedRanks(distTotalSharedRanks);
     {
       std::size_t k = 0;
       std::size_t l = 0;
       for (int i = 0; i < procs; i++) {
-        for (int j = 0; j < recvCount[i]; j++) {
+        for (Size j = 0; j < requests.recvCount(i); j++) {
           assert(k < totalRecv);
           assert(l + sharedRanks[distribVertexIds[k]].size() <= distTotalSharedRanks);
           memcpy(&distSharedRanks[l],
@@ -1133,7 +1048,7 @@ class PUML {
                  sharedRanks[distribVertexIds[k]].size() * sizeof(int));
           l += sharedRanks[distribVertexIds[k]].size();
 
-          sharedSendCount[i] += toMpiCount(sharedRanks[distribVertexIds[k]].size());
+          sharedSendCounts[i] += sharedRanks[distribVertexIds[k]].size();
 
           ++k;
         }
@@ -1144,10 +1059,10 @@ class PUML {
     {
       std::size_t k = 0;
       for (int i = 0; i < procs; i++) {
-        for (int j = 0; j < sendCount[i]; j++) {
+        for (Size j = 0; j < requests.sendCount(i); j++) {
           assert(k < totalVertices);
           recvTotalSharedRanks += recvNsharedRanks[k];
-          sharedRecvCount[i] += recvNsharedRanks[k];
+          sharedRecvCounts[i] += recvNsharedRanks[k];
 
           ++k;
         }
@@ -1156,23 +1071,10 @@ class PUML {
 
     std::vector<int> recvSharedRanks(recvTotalSharedRanks);
 
-    sDispls[0] = 0;
-    rDispls[0] = 0;
-    for (int i = 1; i < procs; i++) {
-      sDispls[i] = sDispls[i - 1] + sharedSendCount[i - 1];
-      rDispls[i] = rDispls[i - 1] + sharedRecvCount[i - 1];
-    }
-
 #ifdef USE_MPI
-    MPI_Alltoallv(distSharedRanks.data(),
-                  sharedSendCount.data(),
-                  sDispls.data(),
-                  MPI_INT,
-                  recvSharedRanks.data(),
-                  sharedRecvCount.data(),
-                  rDispls.data(),
-                  MPI_INT,
-                  m_comm);
+    const internal::Exchange sharedRankReplies(std::move(sharedSendCounts),
+                                               std::move(sharedRecvCounts));
+    sharedRankReplies.alltoallv(distSharedRanks.data(), recvSharedRanks.data(), MPI_INT, m_comm);
 #else  // USE_MPI
     exchangeLocally(
         distSharedRanks.data(), recvSharedRanks.data(), recvTotalSharedRanks * sizeof(int));
@@ -1574,65 +1476,45 @@ class PUML {
     MPI_Comm_rank(m_comm, &rank);
     MPI_Comm_size(m_comm, &procs);
 
-    std::vector<int> nShared(procs);
+    std::vector<Size> nShared(procs);
     for (const auto& element : elements) {
       for (const auto& rank : element.m_sharedRanks) {
         ++nShared[rank];
       }
     }
 
-    std::vector<int> nRecvShared(procs);
-    MPI_Alltoall(nShared.data(), 1, MPI_INT, nRecvShared.data(), 1, MPI_INT, m_comm);
-
-    std::vector<int> sDispls(procs);
-    std::vector<int> rDispls(procs);
-    sDispls[0] = 0;
-    rDispls[0] = 0;
-    for (int i = 1; i < procs; i++) {
-      sDispls[i] = sDispls[i - 1] + nShared[i - 1];
-      rDispls[i] = rDispls[i - 1] + nRecvShared[i - 1];
-    }
-
-    const std::size_t totalShared = sDispls[procs - 1] + nShared[procs - 1];
-    const std::size_t totalRecvShared = rDispls[procs - 1] + nRecvShared[procs - 1];
+    const auto shared = internal::Exchange::ofSendCounts(std::move(nShared), m_comm);
+    const std::size_t totalRecvShared = shared.recvTotal();
 
     {
       std::vector<std::array<GlobalId, N>> recvShared(totalRecvShared);
 
       {
-        std::vector<std::array<GlobalId, N>> sendShared(totalShared);
+        std::vector<std::array<GlobalId, N>> sendShared(shared.sendTotal());
 
         {
           std::vector<std::size_t> sharedPos(procs);
 
           for (std::size_t i = 0; i < elements.size(); ++i) {
             for (const int rank : elements[i].m_sharedRanks) {
-              assert(sharedPos[rank] < static_cast<std::size_t>(nShared[rank]));
-              sendShared[sDispls[rank] + sharedPos[rank]] = downward[i];
+              assert(sharedPos[rank] < shared.sendCount(rank));
+              sendShared[shared.sendOffset(rank) + sharedPos[rank]] = downward[i];
               ++sharedPos[rank];
             }
           }
         }
 
-        MPI_Alltoallv(sendShared.data(),
-                      nShared.data(),
-                      sDispls.data(),
-                      type,
-                      recvShared.data(),
-                      nRecvShared.data(),
-                      rDispls.data(),
-                      type,
-                      m_comm);
+        shared.alltoallv(sendShared.data(), recvShared.data(), type, m_comm);
       }
 
       {
         std::vector<std::unordered_set<internal::DownElement<N>, internal::DownElementHash<N>>>
             hashedElements(procs);
 
-        unsigned int k = 0;
+        std::size_t k = 0;
         for (int i = 0; i < procs; i++) {
-          assert(i != rank || nRecvShared[i] == 0);
-          for (int j = 0; j < nRecvShared[i]; j++) {
+          assert(i != rank || shared.recvCount(i) == 0);
+          for (Size j = 0; j < shared.recvCount(i); j++) {
             assert(k < totalRecvShared);
             assert(hashedElements[i].find(recvShared[k]) == hashedElements[i].end());
             hashedElements[i].emplace(recvShared[k]);
@@ -1667,8 +1549,8 @@ class PUML {
     gidOffset -= owned;
 
     // Set global ids for owned elements and count the number of elements we need to forward
-    std::vector<int> nSendGid(procs);
-    std::vector<int> nRecvGid(procs);
+    std::vector<Size> nSendGid(procs);
+    std::vector<Size> nRecvGid(procs);
     for (auto& element : elements) {
       if (element.m_sharedRanks.empty() || element.m_sharedRanks[0] > rank) {
         element.m_gid = gidOffset++;
@@ -1685,16 +1567,10 @@ class PUML {
       }
     }
 
-    // Compute exchange offsets
-    sDispls[0] = 0;
-    rDispls[0] = 0;
-    for (int i = 1; i < procs; i++) {
-      sDispls[i] = sDispls[i - 1] + nSendGid[i - 1];
-      rDispls[i] = rDispls[i - 1] + nRecvGid[i - 1];
-    }
-
-    const std::size_t totalSendGid = sDispls[procs - 1] + nSendGid[procs - 1];
-    const std::size_t totalRecvGid = rDispls[procs - 1] + nRecvGid[procs - 1];
+    // Every rank knows which elements it gets the global id of from which rank
+    const internal::Exchange gids(std::move(nSendGid), std::move(nRecvGid));
+    const std::size_t totalSendGid = gids.sendTotal();
+    const std::size_t totalRecvGid = gids.recvTotal();
     std::unordered_map<internal::DownElement<N>, GlobalId, internal::DownElementHash<N>> dg2g;
 
     {
@@ -1711,35 +1587,18 @@ class PUML {
           for (std::size_t i = 0; i < elements.size(); i++) {
             if (elements[i].m_sharedRanks.empty() || elements[i].m_sharedRanks[0] > rank) {
               for (const int rank : elements[i].m_sharedRanks) {
-                assert(sendPos[rank] < static_cast<std::size_t>(nSendGid[rank]));
+                assert(sendPos[rank] < gids.sendCount(rank));
 
-                sendGid[sDispls[rank] + sendPos[rank]] = elements[i].m_gid;
-                sendDGid[sDispls[rank] + sendPos[rank]] = downward[i];
+                sendGid[gids.sendOffset(rank) + sendPos[rank]] = elements[i].m_gid;
+                sendDGid[gids.sendOffset(rank) + sendPos[rank]] = downward[i];
                 ++sendPos[rank];
               }
             }
           }
         }
 
-        MPI_Alltoallv(sendGid.data(),
-                      nSendGid.data(),
-                      sDispls.data(),
-                      MPITypeInfer<GlobalId>::type(),
-                      recvGid.data(),
-                      nRecvGid.data(),
-                      rDispls.data(),
-                      MPITypeInfer<GlobalId>::type(),
-                      m_comm);
-
-        MPI_Alltoallv(sendDGid.data(),
-                      nSendGid.data(),
-                      sDispls.data(),
-                      type,
-                      recvDGid.data(),
-                      nRecvGid.data(),
-                      rDispls.data(),
-                      type,
-                      m_comm);
+        gids.alltoallv(sendGid.data(), recvGid.data(), MPITypeInfer<GlobalId>::type(), m_comm);
+        gids.alltoallv(sendDGid.data(), recvDGid.data(), type, m_comm);
       }
 
       // Create a hash map from the received elements
