@@ -13,6 +13,7 @@
 #include "Error.h"
 #include "PUML.h"
 #include "PumlTest.h"
+#include "Types.h"
 
 namespace {
 
