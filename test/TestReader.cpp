@@ -89,15 +89,15 @@ TEST(Reader, CellDataFollowsTheCells) {
   const auto group = puml.data(puml.find<int>("group", PUML::CELL));
   const auto boundary = puml.data(puml.find<int>("boundary", PUML::CELL));
 
-  long inGroupOne = 0;
-  long interior = 0;
-  long freeSurface = 0;
-  long absorbing = 0;
+  std::int64_t inGroupOne = 0;
+  std::int64_t interior = 0;
+  std::int64_t freeSurface = 0;
+  std::int64_t absorbing = 0;
   for (std::size_t i = 0; i < group.size(); ++i) {
-    inGroupOne += static_cast<long>(group[i] == 1);
-    interior += static_cast<long>(boundary[i] == 0);
-    freeSurface += static_cast<long>(boundary[i] == 1);
-    absorbing += static_cast<long>(boundary[i] == 3);
+    inGroupOne += static_cast<std::int64_t>(group[i] == 1);
+    interior += static_cast<std::int64_t>(boundary[i] == 0);
+    freeSurface += static_cast<std::int64_t>(boundary[i] == 1);
+    absorbing += static_cast<std::int64_t>(boundary[i] == 3);
   }
 
   // The sample mesh is one group, and its boundary conditions are distributed

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
@@ -24,22 +25,22 @@ namespace {
 
 using namespace puml::test;
 
-using Neighbors = std::vector<std::pair<unsigned long, unsigned long>>;
+using Neighbors = std::vector<std::pair<PUML::GlobalId, PUML::GlobalId>>;
 
 /// What a walk over the faces of a cube mesh has to find: every cell together
 /// with each of its neighbours, and the cell of every boundary face.
 struct Expected {
   Neighbors neighbors;
-  std::vector<unsigned long> boundary;
+  std::vector<PUML::GlobalId> boundary;
 };
 
 auto expectedOf(const CubeMesh& mesh) -> Expected {
-  std::map<std::array<unsigned long, 3>, std::vector<unsigned long>> cellsOfFace;
+  std::map<std::array<PUML::GlobalId, 3>, std::vector<PUML::GlobalId>> cellsOfFace;
   for (std::size_t cell = 0; cell < mesh.numCells; ++cell) {
     const auto* vertices = mesh.connect.data() + (4 * cell);
     // Each face of a tetrahedron leaves out one of its vertices.
     for (std::size_t left = 0; left < 4; ++left) {
-      std::array<unsigned long, 3> face{};
+      std::array<PUML::GlobalId, 3> face{};
       std::size_t next = 0;
       for (std::size_t vertex = 0; vertex < 4; ++vertex) {
         if (vertex != left) {
@@ -74,13 +75,13 @@ class Walk {
   /// A face handler that gets the value of the cell on the far side.
   auto farSide() {
     return
-        [this](int fid, int cid, const unsigned long& farValue) { neighbor(fid, cid, farValue); };
+        [this](int fid, int cid, const PUML::GlobalId& farValue) { neighbor(fid, cid, farValue); };
   }
 
   /// A face handler that gets the value of the cell on the near side as well.
   template <typename S>
   auto bothSides() {
-    return [this](int fid, int cid, const unsigned long& farValue, const S& nearValue) {
+    return [this](int fid, int cid, const PUML::GlobalId& farValue, const S& nearValue) {
       EXPECT_EQ(nearValue, static_cast<S>(gid(cid)));
       neighbor(fid, cid, farValue);
     };
@@ -118,7 +119,7 @@ class Walk {
   }
 
   private:
-  void neighbor(int fid, int cid, unsigned long farValue) {
+  void neighbor(int fid, int cid, PUML::GlobalId farValue) {
     const auto cells = PUML::Upward::cells(m_puml, m_puml.faces()[fid]);
     EXPECT_TRUE(cells[0] == static_cast<PUML::LocalId>(cid) ||
                 cells[1] == static_cast<PUML::LocalId>(cid));
@@ -126,12 +127,12 @@ class Walk {
     m_far.push_back(farValue);
   }
 
-  [[nodiscard]] auto gid(int cid) const -> unsigned long { return m_puml.cells()[cid].gid(); }
+  [[nodiscard]] auto gid(int cid) const -> PUML::GlobalId { return m_puml.cells()[cid].gid(); }
 
   const PUML::TETPUML& m_puml;
-  std::vector<unsigned long> m_near;
-  std::vector<unsigned long> m_far;
-  std::vector<unsigned long> m_boundary;
+  std::vector<PUML::GlobalId> m_near;
+  std::vector<PUML::GlobalId> m_far;
+  std::vector<PUML::GlobalId> m_boundary;
 };
 
 /// Every overload of forEach hands each interior face to the face handler once
@@ -148,13 +149,13 @@ TEST(FaceIterator, EveryOverloadVisitsEveryFace) {
        evenSplit(mesh.numVertices, commRank(), commSize()));
   puml.generateMesh();
 
-  // The value of a cell is its global id, as unsigned long for the far side
-  // and as long where the near side has a type of its own.
-  std::vector<unsigned long> gids(puml.cells().size());
-  std::vector<long> nearGids(puml.cells().size());
+  // The value of a cell is its global id, as a GlobalId for the far side, and
+  // as a signed integer where the near side has a type of its own.
+  std::vector<PUML::GlobalId> gids(puml.cells().size());
+  std::vector<std::int64_t> nearGids(puml.cells().size());
   for (std::size_t i = 0; i < gids.size(); ++i) {
     gids[i] = puml.cells()[i].gid();
-    nearGids[i] = static_cast<long>(gids[i]);
+    nearGids[i] = static_cast<std::int64_t>(gids[i]);
   }
   const auto gidOf = [&gids](int /*fid*/, int cid) { return gids[cid]; };
   const auto nearGidOf = [&nearGids](int /*fid*/, int cid) { return nearGids[cid]; };
@@ -166,22 +167,22 @@ TEST(FaceIterator, EveryOverloadVisitsEveryFace) {
 
     {
       Walk walk(puml);
-      iterator.forEach(gids, walk.bothSides<unsigned long>());
+      iterator.forEach(gids, walk.bothSides<PUML::GlobalId>());
       walk.check(expected, false, "vector" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach(gids, walk.bothSides<unsigned long>(), walk.boundary());
+      iterator.forEach(gids, walk.bothSides<PUML::GlobalId>(), walk.boundary());
       walk.check(expected, true, "vector, boundary" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach(gids, nearGids, walk.bothSides<long>());
+      iterator.forEach(gids, nearGids, walk.bothSides<std::int64_t>());
       walk.check(expected, false, "two vectors" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach(gids, nearGids, walk.bothSides<long>(), walk.boundary());
+      iterator.forEach(gids, nearGids, walk.bothSides<std::int64_t>(), walk.boundary());
       walk.check(expected, true, "two vectors, boundary" + mode);
     }
     {
@@ -196,22 +197,23 @@ TEST(FaceIterator, EveryOverloadVisitsEveryFace) {
     }
     {
       Walk walk(puml);
-      iterator.forEach(gids.data(), walk.bothSides<unsigned long>());
+      iterator.forEach(gids.data(), walk.bothSides<PUML::GlobalId>());
       walk.check(expected, false, "pointer" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach(gids.data(), walk.bothSides<unsigned long>(), walk.boundary());
+      iterator.forEach(gids.data(), walk.bothSides<PUML::GlobalId>(), walk.boundary());
       walk.check(expected, true, "pointer, boundary" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach(gids.data(), nearGids.data(), walk.bothSides<long>());
+      iterator.forEach(gids.data(), nearGids.data(), walk.bothSides<std::int64_t>());
       walk.check(expected, false, "two pointers" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach(gids.data(), nearGids.data(), walk.bothSides<long>(), walk.boundary());
+      iterator.forEach(
+          gids.data(), nearGids.data(), walk.bothSides<std::int64_t>(), walk.boundary());
       walk.check(expected, true, "two pointers, boundary" + mode);
     }
     {
@@ -226,28 +228,29 @@ TEST(FaceIterator, EveryOverloadVisitsEveryFace) {
     }
     {
       Walk walk(puml);
-      iterator.forEach<unsigned long>(gidOf, walk.bothSides<unsigned long>());
+      iterator.forEach<PUML::GlobalId>(gidOf, walk.bothSides<PUML::GlobalId>());
       walk.check(expected, false, "handler" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach<unsigned long>(gidOf, walk.bothSides<unsigned long>(), walk.boundary());
+      iterator.forEach<PUML::GlobalId>(gidOf, walk.bothSides<PUML::GlobalId>(), walk.boundary());
       walk.check(expected, true, "handler, boundary" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach<unsigned long, long>(gidOf, nearGidOf, walk.bothSides<long>());
+      iterator.forEach<PUML::GlobalId, std::int64_t>(
+          gidOf, nearGidOf, walk.bothSides<std::int64_t>());
       walk.check(expected, false, "two handlers" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach<unsigned long, long>(
-          gidOf, nearGidOf, walk.bothSides<long>(), walk.boundary());
+      iterator.forEach<PUML::GlobalId, std::int64_t>(
+          gidOf, nearGidOf, walk.bothSides<std::int64_t>(), walk.boundary());
       walk.check(expected, true, "two handlers, boundary" + mode);
     }
     {
       Walk walk(puml);
-      iterator.forEach<unsigned long>(gidOf, walk.farSide());
+      iterator.forEach<PUML::GlobalId>(gidOf, walk.farSide());
       walk.check(expected, false, "handler, far side" + mode);
     }
     {
@@ -255,7 +258,7 @@ TEST(FaceIterator, EveryOverloadVisitsEveryFace) {
       Walk walk(puml);
       auto farSide = walk.farSide();
       auto boundary = walk.boundary();
-      iterator.forEach<unsigned long>(gidOf, farSide, boundary);
+      iterator.forEach<PUML::GlobalId>(gidOf, farSide, boundary);
       walk.check(expected, true, "handler, far side, boundary" + mode);
     }
   }

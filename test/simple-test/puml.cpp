@@ -15,6 +15,7 @@
 
 #include <mpi.h>
 
+#include <cstdint>
 #include <sstream>
 #include <vector>
 #include <type_traits>
@@ -63,11 +64,16 @@ static void printArray(const T* data, std::size_t size) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &rsize);
 
-  unsigned long long countSoFar = 0;
+  std::uint64_t countSoFar = 0;
 
   if (rank > 0) {
-    MPI_Recv(
-        &countSoFar, 1, MPI_UNSIGNED_LONG_LONG, rank - 1, 15, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&countSoFar,
+             1,
+             PUML::MPITypeInfer<std::uint64_t>::type(),
+             rank - 1,
+             15,
+             MPI_COMM_WORLD,
+             MPI_STATUS_IGNORE);
   }
 
   logInfo(0) << "Rank" << rank;
@@ -82,7 +88,8 @@ static void printArray(const T* data, std::size_t size) {
   }
 
   if (rank < rsize - 1) {
-    MPI_Send(&countSoFar, 1, MPI_UNSIGNED_LONG_LONG, rank + 1, 15, MPI_COMM_WORLD);
+    MPI_Send(
+        &countSoFar, 1, PUML::MPITypeInfer<std::uint64_t>::type(), rank + 1, 15, MPI_COMM_WORLD);
   }
 
   MPI_Barrier(MPI_COMM_WORLD);
@@ -126,8 +133,8 @@ int main(int argc, char* argv[]) {
   reader.addData<int>("group", infile + ":/group", PUML::CELL, {});
   reader.addData<int>("boundary", infile + ":/boundary", PUML::CELL, {});
 
-  std::vector<unsigned long long> test(puml.numOriginalCells(), 0x5555555555555555ULL);
-  puml.addDataArray<unsigned long long>("test", test.data(), PUML::CELL, {});
+  std::vector<std::uint64_t> test(puml.numOriginalCells(), UINT64_C(0x5555555555555555));
+  puml.addDataArray<std::uint64_t>("test", test.data(), PUML::CELL, {});
 
   // Generate the mesh information
   logInfo(rank) << "Generating mesh information";
@@ -142,7 +149,7 @@ int main(int argc, char* argv[]) {
 
   const auto groups = puml.data(puml.find<int>("group", PUML::CELL));
   printArray(groups.data(), cells.size());
-  const auto testt = puml.data(puml.find<unsigned long long>("test", PUML::CELL));
+  const auto testt = puml.data(puml.find<std::uint64_t>("test", PUML::CELL));
   printArray(testt.data(), cells.size());
 
   logInfo(rank) << "Done";

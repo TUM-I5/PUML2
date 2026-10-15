@@ -34,11 +34,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
 #include "Topology.h"
+#include "Types.h"
 
 namespace PUML {
 
@@ -77,10 +79,10 @@ class PartitionPtscotch : public PartitionBase<Topo> {
     // with several weights per vertex (stored vertex by vertex), use their sum: a single weight
     // per vertex is all this partitioner takes, and the first one alone may well be zero (as
     // for the encoded balanced weights of SeisSol, which set one entry per vertex)
-    const auto weightCount = std::max(graph.vertexWeightCount(), 1UL);
+    const auto weightCount = std::max<Size>(graph.vertexWeightCount(), 1);
     std::vector<SCOTCH_Num> vertexWeights(graph.vertexWeights().size() / weightCount);
     for (std::size_t i = 0; i < vertexWeights.size(); ++i) {
-      unsigned long sum = 0;
+      std::uint64_t sum = 0;
       for (std::size_t j = 0; j < weightCount; ++j) {
         sum += graph.vertexWeights()[(i * weightCount) + j];
       }

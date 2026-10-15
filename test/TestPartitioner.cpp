@@ -21,6 +21,7 @@
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
+#include "Types.h"
 
 namespace {
 
@@ -47,7 +48,7 @@ auto available() -> std::vector<std::pair<std::string, PUML::PartitionerType>> {
 /// a partitioner would leave a part empty. One that fails without saying so and
 /// hands back the partition it started from, all zeros, does.
 void expectEveryPartUsed(const std::vector<int>& part, int procs, const std::string& name) {
-  std::vector<long> cellsPerPart(procs);
+  std::vector<std::int64_t> cellsPerPart(procs);
   for (const int owner : part) {
     if (owner >= 0 && owner < procs) {
       ++cellsPerPart[owner];
@@ -68,11 +69,11 @@ void checkPartitioner(const std::string& name, PUML::PartitionerType type, bool 
   PUML::TETPUML puml;
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
 
-  std::vector<unsigned long> identity(cells.size);
+  std::vector<PUML::GlobalId> identity(cells.size);
   for (std::size_t i = 0; i < cells.size; ++i) {
     identity[i] = cells.offset + i;
   }
-  puml.addDataArray<unsigned long>("identity", identity.data(), PUML::CELL, {});
+  puml.addDataArray<PUML::GlobalId>("identity", identity.data(), PUML::CELL, {});
 
   puml.generateMesh();
 
@@ -102,14 +103,14 @@ void checkPartitioner(const std::string& name, PUML::PartitionerType type, bool 
   puml.generateMesh();
 
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells)) << name;
-  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices)) << name;
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells)) << name;
+  EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices)) << name;
   EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces()) << name;
   EXPECT_EQ(counts.euler(), 1) << name;
 
   // Every cell is still there exactly once, wherever it ended up.
-  const auto moved = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
-  auto all = gather(std::vector<unsigned long>(moved.begin(), moved.end()));
+  const auto moved = puml.data(puml.find<PUML::GlobalId>("identity", PUML::CELL));
+  auto all = gather(std::vector<PUML::GlobalId>(moved.begin(), moved.end()));
   std::sort(all.begin(), all.end());
   EXPECT_EQ(all.size(), mesh.numCells) << name;
   EXPECT_TRUE(isContiguousFromZero(all)) << name;
@@ -186,14 +187,14 @@ TEST(Partitioner, GraphMatchesTheMesh) {
   const PUML::TETPartitionGraph graph(puml);
 
   EXPECT_EQ(graph.localVertexCount(), cells.size);
-  EXPECT_EQ(globalSum(static_cast<long>(graph.localVertexCount())),
-            static_cast<long>(mesh.numCells));
+  EXPECT_EQ(globalSum(static_cast<std::int64_t>(graph.localVertexCount())),
+            static_cast<std::int64_t>(mesh.numCells));
 
   // Interior faces are the ones with two cells, and each contributes one graph
   // edge on either side.
   const auto counts = measure(puml);
-  const long interior = counts.faces - counts.boundaryFaces;
-  EXPECT_EQ(globalSum(static_cast<long>(graph.localEdgeCount())), 2 * interior);
+  const std::int64_t interior = counts.faces - counts.boundaryFaces;
+  EXPECT_EQ(globalSum(static_cast<std::int64_t>(graph.localEdgeCount())), 2 * interior);
 }
 
 /// Walking the edges of the graph hands every edge over once, together with the
@@ -214,11 +215,11 @@ TEST(Partitioner, LocalEdgesMatchTheGraph) {
   const auto& adjDisp = graph.adjDisp();
 
   std::vector<int> visits(graph.localEdgeCount());
-  graph.forEachLocalEdges<unsigned long>(
+  graph.forEachLocalEdges<PUML::GlobalId>(
       [&cells](int /*fid*/, int cid) { return cells[cid].gid(); },
-      [&](int /*fid*/, int cid, const unsigned long& neighbor, int eid) {
-        ASSERT_GE(static_cast<unsigned long>(eid), adjDisp[cid]);
-        ASSERT_LT(static_cast<unsigned long>(eid), adjDisp[cid + 1]);
+      [&](int /*fid*/, int cid, const PUML::GlobalId& neighbor, int eid) {
+        ASSERT_GE(static_cast<PUML::Size>(eid), adjDisp[cid]);
+        ASSERT_LT(static_cast<PUML::Size>(eid), adjDisp[cid + 1]);
         EXPECT_EQ(adj[eid], neighbor);
         ++visits[eid];
       });
@@ -244,17 +245,21 @@ TEST(Partitioner, LocalEdgesKeepATemporaryCellHandler) {
   const auto& cells = puml.cells();
   const auto& adj = graph.adj();
 
-  std::vector<unsigned long> gids(cells.size());
+  std::vector<PUML::GlobalId> gids(cells.size());
   for (std::size_t i = 0; i < cells.size(); ++i) {
     gids[i] = cells[i].gid();
   }
 
   std::vector<int> visits(graph.localEdgeCount());
-  graph.forEachLocalEdges<unsigned long>(
+  graph.forEachLocalEdges<PUML::GlobalId>(
       // The handler owns its values. A copy that was moved from has none, and
       // at() fails the test on it rather than reading out of bounds.
       [gids](int /*fid*/, int cid) { return gids.at(cid); },
-      [&](int /*fid*/, int cid, const unsigned long& neighbor, const unsigned long& own, int eid) {
+      [&](int /*fid*/,
+          int cid,
+          const PUML::GlobalId& neighbor,
+          const PUML::GlobalId& own,
+          int eid) {
         EXPECT_EQ(own, cells[cid].gid());
         EXPECT_EQ(adj[eid], neighbor);
         ++visits[eid];
@@ -291,16 +296,16 @@ TEST(Partitioner, NoneKeepsEveryCellWhereItIs) {
 
 /// What a mesh adds up to over all ranks, wherever its cells are.
 struct Whole {
-  long cells{0};
-  long vertices{0};
-  long boundaryFaces{0};
+  std::int64_t cells{0};
+  std::int64_t vertices{0};
+  std::int64_t boundaryFaces{0};
   /// The Euler characteristic, one for each piece of the mesh.
-  long euler{0};
+  std::int64_t euler{0};
 };
 
 auto wholeOf(const CubeMesh& mesh) -> Whole {
-  return {static_cast<long>(mesh.numCells),
-          static_cast<long>(mesh.numVertices),
+  return {static_cast<std::int64_t>(mesh.numCells),
+          static_cast<std::int64_t>(mesh.numVertices),
           mesh.numBoundaryFaces(),
           1};
 }
@@ -407,10 +412,10 @@ TEST(Partitioner, RanksWithoutCellsKeepTheWeights) {
         graph.setEdgeWeights(edgeWeights);
       }
 
-      const auto weightCount = static_cast<long>(graph.vertexWeightCount());
+      const auto weightCount = static_cast<std::int64_t>(graph.vertexWeightCount());
       EXPECT_EQ(globalMin(weightCount), WeightCount) << name;
       EXPECT_EQ(globalMax(weightCount), WeightCount) << name;
-      const long edgeWeighted = graph.hasEdgeWeights() ? 1 : 0;
+      const std::int64_t edgeWeighted = graph.hasEdgeWeights() ? 1 : 0;
       EXPECT_EQ(globalMin(edgeWeighted), 1) << name;
       EXPECT_EQ(globalMax(edgeWeighted), 1) << name;
 
@@ -430,17 +435,17 @@ TEST(Partitioner, RanksWithoutEdgesTakePart) {
   // on the boundary.
   const auto cube = makeCubeMesh(2);
   auto mesh = cube;
-  const auto firstVertex = static_cast<unsigned long>(mesh.numVertices);
+  const auto firstVertex = static_cast<PUML::GlobalId>(mesh.numVertices);
   const double x = cube.n + 1.0;
   const std::array<double, 12> corners{x, 0, 0, x + 1, 0, 0, x, 1, 0, x, 0, 1};
   mesh.geometry.insert(mesh.geometry.end(), corners.begin(), corners.end());
-  for (unsigned long v = 0; v < 4; ++v) {
+  for (PUML::GlobalId v = 0; v < 4; ++v) {
     mesh.connect.push_back(firstVertex + v);
   }
   mesh.numVertices += 4;
   mesh.numCells += 1;
-  const Whole whole{static_cast<long>(mesh.numCells),
-                    static_cast<long>(mesh.numVertices),
+  const Whole whole{static_cast<std::int64_t>(mesh.numCells),
+                    static_cast<std::int64_t>(mesh.numVertices),
                     cube.numBoundaryFaces() + 4,
                     2};
 
@@ -459,8 +464,8 @@ TEST(Partitioner, RanksWithoutEdgesTakePart) {
 
       PUML::TETPartitionGraph graph(puml);
       if (procs > 1 && rank == procs - 1) {
-        EXPECT_EQ(graph.localVertexCount(), 1UL) << name;
-        EXPECT_EQ(graph.localEdgeCount(), 0UL) << name;
+        EXPECT_EQ(graph.localVertexCount(), 1U) << name;
+        EXPECT_EQ(graph.localEdgeCount(), 0U) << name;
       }
       if (weighted) {
         graph.setVertexWeights(std::vector<int>(graph.localVertexCount() * 2, 1), 2);
@@ -535,13 +540,13 @@ TEST(Partitioner, WeightsHaveToCoverTheGraph) {
   EXPECT_THROW(graph.setVertexWeights(none, 1), PUML::Error);
   EXPECT_THROW(graph.setEdgeWeights(tooFewEdges), PUML::Error);
   EXPECT_THROW(graph.setEdgeWeights(none), PUML::Error);
-  EXPECT_EQ(graph.vertexWeightCount(), 0UL);
+  EXPECT_EQ(graph.vertexWeightCount(), 0U);
   EXPECT_FALSE(graph.hasEdgeWeights());
 
   graph.setVertexWeights(oneEach, 1);
-  EXPECT_EQ(graph.vertexWeightCount(), 1UL);
+  EXPECT_EQ(graph.vertexWeightCount(), 1U);
   graph.setVertexWeights(none, 0);
-  EXPECT_EQ(graph.vertexWeightCount(), 0UL);
+  EXPECT_EQ(graph.vertexWeightCount(), 0U);
   EXPECT_TRUE(graph.vertexWeights().empty());
 }
 

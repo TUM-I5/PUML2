@@ -87,7 +87,7 @@ class Downward {
   template <TopoType Topo>
   static void gvertices([[maybe_unused]] const PUML<Topo>& puml,
                         const typename PUML<Topo>::cell_t& cell,
-                        unsigned long* gid) {
+                        GlobalId* gid) {
     const auto lid = vertices(puml, cell);
     if constexpr (Topo == MIXED) {
       // a cell which has fewer vertices than the widest kind leaves the rest invalid

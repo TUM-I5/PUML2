@@ -22,9 +22,12 @@
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 #include "Topology.h"
+#include "TypeInference.h"
+#include "Types.h"
 #include "utils/logger.h"
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <vector>
 
@@ -70,18 +73,18 @@ auto fitsIndexType(const PartitionGraph<Topo>& graph,
                    bool addsUpVertexWeights,
                    const char* partitioner,
                    const char* remedy) -> bool {
-  constexpr auto Largest = std::numeric_limits<unsigned long>::max();
-  constexpr auto Max = static_cast<unsigned long>(std::numeric_limits<Index>::max());
+  constexpr auto Largest = std::numeric_limits<std::uint64_t>::max();
+  constexpr auto Max = static_cast<std::uint64_t>(std::numeric_limits<Index>::max());
 
   // The weight sums, one per constraint the partitioner keeps, and the one of the edges behind
   // them; added up so that they stop at the largest value rather than wrap around. The ranks may
   // disagree on the number of weights, in a graph that the partitioner is to refuse itself; the
   // sums are reduced over as many as any rank has, so that all ranks reduce the same.
-  unsigned long weightCount = graph.vertexWeightCount();
-  MPI_Allreduce(MPI_IN_PLACE, &weightCount, 1, MPI_UNSIGNED_LONG, MPI_MAX, graph.comm());
-  const auto columns = addsUpVertexWeights ? std::min<unsigned long>(weightCount, 1) : weightCount;
-  std::vector<unsigned long> sums(columns + 1);
-  const auto add = [](unsigned long& sum, unsigned long value) {
+  Size weightCount = graph.vertexWeightCount();
+  MPI_Allreduce(MPI_IN_PLACE, &weightCount, 1, MPITypeInfer<Size>::type(), MPI_MAX, graph.comm());
+  const auto columns = addsUpVertexWeights ? std::min<Size>(weightCount, 1) : weightCount;
+  std::vector<std::uint64_t> sums(columns + 1);
+  const auto add = [](std::uint64_t& sum, std::uint64_t value) {
     sum = (sum > Largest - value) ? Largest : sum + value;
   };
   for (std::size_t i = 0; i < graph.vertexWeights().size(); ++i) {
@@ -90,18 +93,18 @@ auto fitsIndexType(const PartitionGraph<Topo>& graph,
   for (const auto weight : graph.edgeWeights()) {
     add(sums.back(), weight);
   }
-  // past what an unsigned long holds, a sum may wrap around here after all; a graph of that weight
-  // is out of reach anyway
+  // past what 64 bits hold, a sum may wrap around here after all; a graph of that weight is out of
+  // reach anyway
   MPI_Allreduce(MPI_IN_PLACE,
                 sums.data(),
                 static_cast<int>(sums.size()),
-                MPI_UNSIGNED_LONG,
+                MPITypeInfer<std::uint64_t>::type(),
                 MPI_SUM,
                 graph.comm());
 
   int rank = 0;
   MPI_Comm_rank(graph.comm(), &rank);
-  const auto fits = [&](unsigned long value, const char* what) {
+  const auto fits = [&](std::uint64_t value, const char* what) {
     if (value > Max) {
       logWarning(rank) << partitioner << "counts in integers of" << 8 * sizeof(Index)
                        << "bits, which cannot hold the" << what << "of the graph:" << value

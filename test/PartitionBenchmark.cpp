@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -25,6 +26,7 @@
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 #include "PumlTest.h"
+#include "TypeInference.h"
 
 namespace {
 
@@ -125,15 +127,20 @@ auto main(int argc, char** argv) -> int {
 
     // What the partitioning is meant to keep small: the faces that end up on a
     // rank boundary, and how unevenly the cells are spread.
-    long shared = 0;
+    std::int64_t shared = 0;
     for (const auto& face : puml.faces()) {
-      shared += static_cast<long>(!face.shared().empty());
+      shared += static_cast<std::int64_t>(!face.shared().empty());
     }
-    const auto local = static_cast<long>(puml.numOriginalCells());
-    const long total = globalSum(local);
-    long largest = local;
+    const auto local = static_cast<std::int64_t>(puml.numOriginalCells());
+    const std::int64_t total = globalSum(local);
+    std::int64_t largest = local;
 #ifdef USE_MPI
-    MPI_Allreduce(MPI_IN_PLACE, &largest, 1, MPI_LONG, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE,
+                  &largest,
+                  1,
+                  PUML::MPITypeInfer<std::int64_t>::type(),
+                  MPI_MAX,
+                  MPI_COMM_WORLD);
 #endif // USE_MPI
 
     const double milliseconds = std::chrono::duration<double, std::milli>(after - before).count();

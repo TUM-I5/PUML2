@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -71,7 +72,7 @@ TEST(Localize, HandlesASecondIndexArray) {
   }
 
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
   EXPECT_EQ(counts.euler(), 1);
 }
 

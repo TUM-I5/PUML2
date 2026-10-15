@@ -28,6 +28,7 @@
 
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
+#include "Types.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -70,7 +71,7 @@ class PartitionParhip : public PartitionBase<Topo> {
     // with several weights per vertex (stored vertex by vertex), use their sum: a single weight
     // per vertex is all this partitioner takes, and the first one alone may well be zero (as
     // for the encoded balanced weights of SeisSol, which set one entry per vertex)
-    const auto weightCount = std::max(graph.vertexWeightCount(), 1UL);
+    const auto weightCount = std::max<Size>(graph.vertexWeightCount(), 1);
     std::vector<idxtype> vwgt(graph.vertexWeights().size() / weightCount);
     for (std::size_t i = 0; i < vwgt.size(); ++i) {
       for (std::size_t j = 0; j < weightCount; ++j) {

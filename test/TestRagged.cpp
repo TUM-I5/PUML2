@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -28,7 +29,7 @@ void fill(PUML::TETPUML& puml, Split cells) {
     counts[i] = countOf(cells.offset + i);
   }
 
-  const auto handle = puml.allocateRaggedData<unsigned long>("nodes", counts);
+  const auto handle = puml.allocateRaggedData<PUML::GlobalId>("nodes", counts);
   auto values = puml.raggedData(handle);
   for (std::size_t i = 0; i < cells.size; ++i) {
     auto* first = values.begin(i);
@@ -37,17 +38,17 @@ void fill(PUML::TETPUML& puml, Split cells) {
     }
   }
 
-  std::vector<unsigned long> identity(cells.size);
+  std::vector<PUML::GlobalId> identity(cells.size);
   for (std::size_t i = 0; i < cells.size; ++i) {
     identity[i] = cells.offset + i;
   }
-  puml.addDataArray<unsigned long>("identity", identity.data(), PUML::CELL, {});
+  puml.addDataArray<PUML::GlobalId>("identity", identity.data(), PUML::CELL, {});
 }
 
 /// Checks that every cell still holds the values that belong to it.
 void checkValues(const PUML::TETPUML& puml) {
-  const auto identity = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
-  const auto values = puml.raggedData(puml.findRagged<unsigned long>("nodes"));
+  const auto identity = puml.data(puml.find<PUML::GlobalId>("identity", PUML::CELL));
+  const auto values = puml.raggedData(puml.findRagged<PUML::GlobalId>("nodes"));
 
   EXPECT_EQ(values.entities(), identity.size());
   for (std::size_t i = 0; i < identity.size(); ++i) {
@@ -68,7 +69,7 @@ TEST(Ragged, HoldsADifferentCountPerCell) {
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
   fill(puml, cells);
 
-  const auto values = puml.raggedData(puml.findRagged<unsigned long>("nodes"));
+  const auto values = puml.raggedData(puml.findRagged<PUML::GlobalId>("nodes"));
   PUML::Size total = 0;
   for (std::size_t i = 0; i < cells.size; ++i) {
     total += countOf(cells.offset + i);
@@ -96,15 +97,15 @@ TEST(Ragged, SurvivesPartitioning) {
   checkValues(puml);
 
   // Nothing was lost on the way.
-  const auto identity = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
-  auto all = gather(std::vector<unsigned long>(identity.begin(), identity.end()));
+  const auto identity = puml.data(puml.find<PUML::GlobalId>("identity", PUML::CELL));
+  auto all = gather(std::vector<PUML::GlobalId>(identity.begin(), identity.end()));
   std::sort(all.begin(), all.end());
   EXPECT_EQ(all.size(), mesh.numCells);
   EXPECT_TRUE(isContiguousFromZero(all));
 
   puml.generateMesh();
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
   EXPECT_EQ(counts.euler(), 1);
 }
 

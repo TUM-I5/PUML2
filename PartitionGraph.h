@@ -16,7 +16,9 @@
 #define PUML_PARTITION_GRAPH_H
 
 #include "TypeInference.h"
+#include "Types.h"
 #include <cstddef>
+#include <cstdint>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif // USE_MPI
@@ -45,19 +47,19 @@ class PartitionGraph {
     m_comm = m_puml.comm();
     MPI_Comm_size(m_comm, &commSize);
 #endif
-    m_processCount = commSize;
+    m_processCount = static_cast<Size>(commSize);
 
-    const unsigned long cellfaces = internal::Topology<Topo>::cellfaces();
+    const Size cellfaces = internal::Topology<Topo>::cellfaces();
     const auto& cells = m_puml.cells();
-    unsigned long vertexCount = cells.size();
+    const Size vertexCount = cells.size();
 
-    std::vector<unsigned long> adjRawCount(vertexCount);
-    std::vector<unsigned long> adjRaw(vertexCount * cellfaces);
+    std::vector<Size> adjRawCount(vertexCount);
+    std::vector<GlobalId> adjRaw(vertexCount * cellfaces);
 
     FaceIterator<Topo> iterator(m_puml);
-    iterator.template forEach<unsigned long>(
+    iterator.template forEach<GlobalId>(
         [&cells](int /*fid*/, int cid) { return cells[cid].gid(); },
-        [&adjRawCount, &adjRaw](int /*id*/, int lid, const unsigned long& gid) {
+        [&adjRawCount, &adjRaw](int /*id*/, int lid, const GlobalId& gid) {
           const auto idx = (cellfaces * lid) + adjRawCount[lid]++;
           adjRaw[idx] = gid;
         });
@@ -78,13 +80,13 @@ class PartitionGraph {
     // listed. m_edgeOrder maps the position of an edge in iterator order to its sorted position.
     m_adj.resize(m_adjDisp[vertexCount]);
     m_edgeOrder.resize(m_adjDisp[vertexCount]);
-    std::vector<unsigned long> row;
-    for (unsigned long i = 0; i < vertexCount; ++i) {
+    std::vector<Size> row;
+    for (Size i = 0; i < vertexCount; ++i) {
       row.resize(adjRawCount[i]);
-      std::iota(row.begin(), row.end(), 0UL);
+      std::iota(row.begin(), row.end(), Size{0});
       const auto* raw = &adjRaw[i * cellfaces];
       std::stable_sort(row.begin(), row.end(), [raw](auto a, auto b) { return raw[a] < raw[b]; });
-      for (unsigned long k = 0; k < row.size(); ++k) {
+      for (Size k = 0; k < row.size(); ++k) {
         m_adj[m_adjDisp[i] + k] = raw[row[k]];
         m_edgeOrder[m_adjDisp[i] + row[k]] = m_adjDisp[i] + k;
       }
@@ -96,22 +98,25 @@ class PartitionGraph {
     m_edgeDistribution[0] = 0;
 
 #ifdef USE_MPI
-    MPI_Allgather(&vertexCount,
+    // counted over all ranks, hence as global ids
+    const GlobalId localVertices = vertexCount;
+    const GlobalId localEdges = m_adjDisp[vertexCount];
+    MPI_Allgather(&localVertices,
                   1,
-                  MPI_UNSIGNED_LONG,
-                  static_cast<unsigned long*>(m_vertexDistribution.data()) + 1,
+                  MPITypeInfer<GlobalId>::type(),
+                  m_vertexDistribution.data() + 1,
                   1,
-                  MPI_UNSIGNED_LONG,
+                  MPITypeInfer<GlobalId>::type(),
                   m_comm);
-    MPI_Allgather(&m_adjDisp[vertexCount],
+    MPI_Allgather(&localEdges,
                   1,
-                  MPI_UNSIGNED_LONG,
-                  static_cast<unsigned long*>(m_edgeDistribution.data()) + 1,
+                  MPITypeInfer<GlobalId>::type(),
+                  m_edgeDistribution.data() + 1,
                   1,
-                  MPI_UNSIGNED_LONG,
+                  MPITypeInfer<GlobalId>::type(),
                   m_comm);
 
-    for (unsigned long i = 2; i <= m_processCount; ++i) {
+    for (Size i = 2; i <= m_processCount; ++i) {
       m_vertexDistribution[i] += m_vertexDistribution[i - 1];
       m_edgeDistribution[i] += m_edgeDistribution[i - 1];
     }
@@ -216,7 +221,7 @@ class PartitionGraph {
 #endif // USE_MPI
   ) {
 
-    std::vector<unsigned long> adjRawCount(localVertexCount());
+    std::vector<Size> adjRawCount(localVertexCount());
     const auto& adjDisp = m_adjDisp;
     const auto& edgeOrder = m_edgeOrder;
     auto realFaceHandler =
@@ -238,15 +243,15 @@ class PartitionGraph {
     );
   }
 
-  [[nodiscard]] auto localVertexCount() const -> unsigned long { return m_adjDisp.size() - 1; }
+  [[nodiscard]] auto localVertexCount() const -> Size { return m_adjDisp.size() - 1; }
 
-  [[nodiscard]] auto localEdgeCount() const -> unsigned long { return m_adj.size(); }
+  [[nodiscard]] auto localEdgeCount() const -> Size { return m_adj.size(); }
 
-  [[nodiscard]] auto globalVertexCount() const -> unsigned long {
+  [[nodiscard]] auto globalVertexCount() const -> GlobalId {
     return m_vertexDistribution[m_processCount];
   }
 
-  [[nodiscard]] auto globalEdgeCount() const -> unsigned long {
+  [[nodiscard]] auto globalEdgeCount() const -> GlobalId {
     return m_edgeDistribution[m_processCount];
   }
 
@@ -257,7 +262,7 @@ class PartitionGraph {
     // the order in which the mesh file lists the vertices of the cell
     const auto& vertices = m_puml.vertices();
     coord.resize(3 * localVertexCount());
-    for (unsigned long i = 0; i < m_puml.cells().size(); ++i) {
+    for (std::size_t i = 0; i < m_puml.cells().size(); ++i) {
       const auto& cell = m_puml.cells()[i];
       auto lid = Downward::vertices(m_puml, cell);
       // a cell of a mixed mesh which has fewer vertices than the widest kind leaves the rest
@@ -301,7 +306,7 @@ class PartitionGraph {
   template <typename T>
   void setVertexWeights(const std::vector<T>& vertexWeights, int vertexWeightCount) {
     if (vertexWeightCount > 0 &&
-        vertexWeights.size() < localVertexCount() * static_cast<unsigned long>(vertexWeightCount)) {
+        vertexWeights.size() < localVertexCount() * static_cast<Size>(vertexWeightCount)) {
       throwError("the graph needs",
                  vertexWeightCount,
                  "weights for each of its",
@@ -324,11 +329,11 @@ class PartitionGraph {
     if (vertexWeightCount < 0) {
       throwError("the number of weights per vertex cannot be negative, but got", vertexWeightCount);
     }
-    const auto size = localVertexCount() * static_cast<unsigned long>(vertexWeightCount);
+    const auto size = localVertexCount() * static_cast<Size>(vertexWeightCount);
     if (vertexWeights == nullptr && size > 0) {
       throwError("the graph needs", size, "vertex weights, but got none");
     }
-    m_vertexWeightCount = vertexWeightCount;
+    m_vertexWeightCount = static_cast<Size>(vertexWeightCount);
     m_vertexWeights.resize(size);
     for (size_t i = 0; i < m_vertexWeights.size(); ++i) {
       m_vertexWeights[i] = vertexWeights[i];
@@ -370,23 +375,27 @@ class PartitionGraph {
     }
   }
 
-  [[nodiscard]] auto adj() const -> const std::vector<unsigned long>& { return m_adj; }
+  /// the global ids of the neighbours of the local vertices, vertex by vertex
+  [[nodiscard]] auto adj() const -> const std::vector<GlobalId>& { return m_adj; }
 
-  [[nodiscard]] auto adjDisp() const -> const std::vector<unsigned long>& { return m_adjDisp; }
+  /// where the neighbours of each local vertex start in adj()
+  [[nodiscard]] auto adjDisp() const -> const std::vector<Size>& { return m_adjDisp; }
 
-  [[nodiscard]] auto vertexDistribution() const -> const std::vector<unsigned long>& {
+  /// where the vertices of each rank start in the global numbering, and their total behind
+  [[nodiscard]] auto vertexDistribution() const -> const std::vector<GlobalId>& {
     return m_vertexDistribution;
   }
 
-  [[nodiscard]] auto edgeDistribution() const -> const std::vector<unsigned long>& {
+  /// the same for the edges
+  [[nodiscard]] auto edgeDistribution() const -> const std::vector<GlobalId>& {
     return m_edgeDistribution;
   }
 
-  [[nodiscard]] auto vertexWeights() const -> const std::vector<unsigned long>& {
+  [[nodiscard]] auto vertexWeights() const -> const std::vector<std::uint64_t>& {
     return m_vertexWeights;
   }
 
-  [[nodiscard]] auto edgeWeights() const -> const std::vector<unsigned long>& {
+  [[nodiscard]] auto edgeWeights() const -> const std::vector<std::uint64_t>& {
     return m_edgeWeights;
   }
 
@@ -396,25 +405,25 @@ class PartitionGraph {
 
   [[nodiscard]] auto puml() const -> const PUML<Topo>& { return m_puml; }
 
-  [[nodiscard]] auto vertexWeightCount() const -> unsigned long { return m_vertexWeightCount; }
+  [[nodiscard]] auto vertexWeightCount() const -> Size { return m_vertexWeightCount; }
 
   /// Whether setEdgeWeights was called; the same on all ranks, those without edges included.
   [[nodiscard]] auto hasEdgeWeights() const -> bool { return m_hasEdgeWeights; }
 
-  [[nodiscard]] auto processCount() const -> unsigned long { return m_processCount; }
+  [[nodiscard]] auto processCount() const -> Size { return m_processCount; }
 
   private:
-  std::vector<unsigned long> m_adj;
-  std::vector<unsigned long> m_adjDisp;
+  std::vector<GlobalId> m_adj;
+  std::vector<Size> m_adjDisp;
   // position of an edge in face iterator order -> its position in m_adj
-  std::vector<unsigned long> m_edgeOrder;
-  std::vector<unsigned long> m_vertexWeights;
-  std::vector<unsigned long> m_edgeWeights;
-  std::vector<unsigned long> m_vertexDistribution;
-  std::vector<unsigned long> m_edgeDistribution;
-  unsigned long m_vertexWeightCount = 0;
+  std::vector<Size> m_edgeOrder;
+  std::vector<std::uint64_t> m_vertexWeights;
+  std::vector<std::uint64_t> m_edgeWeights;
+  std::vector<GlobalId> m_vertexDistribution;
+  std::vector<GlobalId> m_edgeDistribution;
+  Size m_vertexWeightCount = 0;
   bool m_hasEdgeWeights = false;
-  unsigned long m_processCount = 0;
+  Size m_processCount = 0;
 #ifdef USE_MPI
   MPI_Comm m_comm;
 #endif
