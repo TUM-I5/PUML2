@@ -64,6 +64,14 @@ class PartitionPtscotch : public PartitionBase<Topo> {
 
     auto comm = graph.comm();
 
+    if (!internal::fitsIndexType<SCOTCH_Num>(
+            graph,
+            true,
+            "PT-Scotch",
+            "build it with 64-bit integers (INTSIZE64, int64 in Spack)")) {
+      return PartitioningResult::ERROR;
+    }
+
     std::vector<SCOTCH_Num> adjDisp(graph.adjDisp().begin(), graph.adjDisp().end());
     std::vector<SCOTCH_Num> adj(graph.adj().begin(), graph.adj().end());
     // with several weights per vertex (stored vertex by vertex), use their sum: a single weight
@@ -77,7 +85,7 @@ class PartitionPtscotch : public PartitionBase<Topo> {
         sum += graph.vertexWeights()[(i * weightCount) + j];
       }
       // SCOTCH_Num is a 32-bit int in many builds of PT-Scotch (Debian's and Ubuntu's among
-      // them); the weights are narrowed to it like the adjacency above
+      // them, and Spack's by default); the sum fits it, as the sum over all vertices does
       vertexWeights[i] = static_cast<SCOTCH_Num>(sum);
     }
     std::vector<SCOTCH_Num> edgeWeights(graph.edgeWeights().begin(), graph.edgeWeights().end());

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -125,6 +126,35 @@ TEST(Partitioner, ProducesAUsableDistributionWithWeights) {
     checkPartitioner(name, type, true);
   }
 }
+
+#ifdef USE_MPI
+/// A partitioner refuses a graph that its integers cannot count before the
+/// graph is handed over, rather than after a count wrapped around. The narrow
+/// types here stand for 32-bit builds on graphs of billions of cells.
+TEST(Partitioner, ChecksTheGraphAgainstTheIntegersOfThePartitioner) {
+  const auto mesh = makeCubeMesh(2);
+  const auto cells = evenSplit(mesh.numCells, commRank(), commSize());
+
+  PUML::TETPUML puml;
+  feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.generateMesh();
+  PUML::TETPartitionGraph graph(puml);
+
+  // 48 cells with 144 sides between two of them: more than 127
+  EXPECT_TRUE(PUML::internal::fitsIndexType<std::int16_t>(graph, false, "test", "none"));
+  EXPECT_FALSE(PUML::internal::fitsIndexType<std::int8_t>(graph, false, "test", "none"));
+
+  // two weights of 400 per cell sum up to 19200 each, and to 38400 together
+  graph.setVertexWeights(std::vector<int>(graph.localVertexCount() * 2, 400), 2);
+  EXPECT_TRUE(PUML::internal::fitsIndexType<std::int16_t>(graph, false, "test", "none"));
+  EXPECT_FALSE(PUML::internal::fitsIndexType<std::int16_t>(graph, true, "test", "none"));
+
+  // 144 sides of 300 each
+  graph.setEdgeWeights(std::vector<int>(graph.localEdgeCount(), 300));
+  EXPECT_FALSE(PUML::internal::fitsIndexType<std::int16_t>(graph, false, "test", "none"));
+  EXPECT_TRUE(PUML::internal::fitsIndexType<std::int32_t>(graph, true, "test", "none"));
+}
+#endif // USE_MPI
 
 /// The graph the partitioners are handed has to describe the mesh: one vertex
 /// per cell, and an edge for every pair of cells that share a face.

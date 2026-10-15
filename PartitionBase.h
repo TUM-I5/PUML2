@@ -17,12 +17,15 @@
 #define PUML_PARTITION_BASE_H
 
 #ifdef USE_MPI
+#include <mpi.h>
 #endif // USE_MPI
 #include "PartitionGraph.h"
 #include "PartitionTarget.h"
 #include "Topology.h"
 #include "utils/logger.h"
 #include <algorithm>
+#include <cstddef>
+#include <limits>
 #include <vector>
 
 namespace PUML {
@@ -50,6 +53,69 @@ auto weightArray(std::vector<T>& weights, bool present) -> T* {
   }
   return weights.data();
 }
+
+#ifdef USE_MPI
+/**
+ * Whether a partitioner that counts in Index can take the graph: it keeps the number of vertices
+ * and of edges in it, and sums the weights in it as well -- the vertex weights each on their own,
+ * or, where the partitioner adds up the weights of a vertex, all of them together. Without the
+ * check, a value too large for Index wraps around when the graph is handed over, and the
+ * partitioner works on another graph than the one it was given, or fails without saying why.
+ *
+ * Collective; all ranks come to the same answer, and the first one says what does not fit, with
+ * `remedy` for how to build the partitioner so that it does.
+ */
+template <typename Index, TopoType Topo>
+auto fitsIndexType(const PartitionGraph<Topo>& graph,
+                   bool addsUpVertexWeights,
+                   const char* partitioner,
+                   const char* remedy) -> bool {
+  constexpr auto Largest = std::numeric_limits<unsigned long>::max();
+  constexpr auto Max = static_cast<unsigned long>(std::numeric_limits<Index>::max());
+
+  // the weight sums, one per constraint the partitioner keeps, and the one of the edges behind
+  // them; added up so that they stop at the largest value rather than wrap around
+  const auto weightCount = graph.vertexWeightCount();
+  const auto columns = addsUpVertexWeights ? std::min<unsigned long>(weightCount, 1) : weightCount;
+  std::vector<unsigned long> sums(columns + 1);
+  const auto add = [](unsigned long& sum, unsigned long value) {
+    sum = (sum > Largest - value) ? Largest : sum + value;
+  };
+  for (std::size_t i = 0; i < graph.vertexWeights().size(); ++i) {
+    add(sums[addsUpVertexWeights ? 0 : i % weightCount], graph.vertexWeights()[i]);
+  }
+  for (const auto weight : graph.edgeWeights()) {
+    add(sums.back(), weight);
+  }
+  // past what an unsigned long holds, a sum may wrap around here after all; a graph of that weight
+  // is out of reach anyway
+  MPI_Allreduce(MPI_IN_PLACE,
+                sums.data(),
+                static_cast<int>(sums.size()),
+                MPI_UNSIGNED_LONG,
+                MPI_SUM,
+                graph.comm());
+
+  int rank = 0;
+  MPI_Comm_rank(graph.comm(), &rank);
+  const auto fits = [&](unsigned long value, const char* what) {
+    if (value > Max) {
+      logWarning(rank) << partitioner << "counts in integers of" << 8 * sizeof(Index)
+                       << "bits, which cannot hold the" << what << "of the graph:" << value
+                       << "is more than" << Max << "--" << remedy;
+      return false;
+    }
+    return true;
+  };
+
+  bool all = fits(graph.globalVertexCount(), "number of vertices");
+  all = fits(graph.globalEdgeCount(), "number of edges") && all;
+  for (std::size_t i = 0; i < columns; ++i) {
+    all = fits(sums[i], "sum of the vertex weights") && all;
+  }
+  return fits(sums.back(), "sum of the edge weights") && all;
+}
+#endif // USE_MPI
 
 } // namespace internal
 

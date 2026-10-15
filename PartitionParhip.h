@@ -58,6 +58,11 @@ class PartitionParhip : public PartitionBase<Topo> {
       return PartitioningResult::SUCCESS;
     }
 
+    if (!internal::fitsIndexType<idxtype>(
+            graph, true, "ParHIP", "build KaHIP with a wider idxtype")) {
+      return PartitioningResult::ERROR;
+    }
+
     std::vector<idxtype> vtxdist(graph.vertexDistribution().begin(),
                                  graph.vertexDistribution().end());
     std::vector<idxtype> xadj(graph.adjDisp().begin(), graph.adjDisp().end());
