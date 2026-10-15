@@ -19,6 +19,8 @@
 #include <cstring>
 #include <functional>
 
+#include "Types.h"
+
 namespace PUML::internal {
 
 /**
@@ -46,12 +48,12 @@ constexpr void selectionSort(T* data) {
  * @tparam N The number of down elements
  */
 template <unsigned int N>
-using DownElement = std::array<unsigned long, N>;
+using DownElement = std::array<GlobalId, N>;
 
 template <unsigned int N>
 struct DownElementHash {
   auto operator()(const DownElement<N>& element) const -> std::size_t {
-    std::size_t h = std::hash<unsigned long>{}(element[0]);
+    std::size_t h = std::hash<GlobalId>{}(element[0]);
     for (unsigned int i = 1; i < N; i++) {
       hashCombine(h, element[i]);
     }

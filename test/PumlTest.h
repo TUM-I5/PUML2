@@ -160,8 +160,8 @@ inline auto lopsidedSplit(std::size_t total, int rank, int procs) -> Split {
 }
 
 struct CubeMesh {
-  std::vector<unsigned long> connect; // numCells * 4
-  std::vector<double> geometry;       // numVertices * 3
+  std::vector<PUML::GlobalId> connect; // numCells * 4
+  std::vector<double> geometry;        // numVertices * 3
   std::size_t numCells{0};
   std::size_t numVertices{0};
   int n{0};
@@ -216,8 +216,8 @@ inline auto makeCubeMesh(int n) -> CubeMesh {
 }
 
 struct HexCubeMesh {
-  std::vector<unsigned long> connect; // numCells * 8
-  std::vector<double> geometry;       // numVertices * 3
+  std::vector<PUML::GlobalId> connect; // numCells * 8
+  std::vector<double> geometry;        // numVertices * 3
   std::size_t numCells{0};
   std::size_t numVertices{0};
   int n{0};
@@ -274,15 +274,15 @@ inline void feed(PUML::HEXPUML& puml, const HexCubeMesh& mesh, Split cells, Spli
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8}));
   puml.setGeometry(puml.addDataArray<double>(
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
 }
 
 struct SquareMesh {
-  std::vector<unsigned long> connect; // numCells * 3
-  std::vector<double> geometry;       // numVertices * 3
+  std::vector<PUML::GlobalId> connect; // numCells * 3
+  std::vector<double> geometry;        // numVertices * 3
   std::size_t numCells{0};
   std::size_t numVertices{0};
   int n{0};
@@ -336,7 +336,7 @@ inline void
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 3 * cells.offset, PUML::CELL, {3}));
   puml.setGeometry(puml.addDataArray<double>(
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
@@ -346,7 +346,7 @@ inline void
 /// a hexahedral grid and a Kuhn-subdivided one, set apart along x. A shared
 /// face between the two would need a pyramid or a wedge, which comes later.
 struct MixedMesh {
-  std::vector<unsigned long> connect; // padded to eight vertices per cell
+  std::vector<PUML::GlobalId> connect; // padded to eight vertices per cell
   std::vector<std::uint8_t> types;
   std::vector<double> geometry;
   std::size_t numCells{0};
@@ -377,7 +377,7 @@ inline auto makeMixedMesh(int n) -> MixedMesh {
     mesh.geometry.push_back(tet.geometry[3 * v + 2]);
   }
 
-  const auto pad = [&mesh](const unsigned long* first, std::size_t count) {
+  const auto pad = [&mesh](const PUML::GlobalId* first, std::size_t count) {
     for (std::size_t i = 0; i < 8; ++i) {
       mesh.connect.push_back(i < count ? first[i] : first[0]);
     }
@@ -389,7 +389,7 @@ inline auto makeMixedMesh(int n) -> MixedMesh {
   }
   for (std::size_t c = 0; c < tet.numCells; ++c) {
     const auto* first = tet.connect.data() + 4 * c;
-    std::array<unsigned long, 4> shifted{};
+    std::array<PUML::GlobalId, 4> shifted{};
     for (std::size_t i = 0; i < 4; ++i) {
       shifted[i] = first[i] + hex.numVertices;
     }
@@ -532,7 +532,7 @@ inline void feed(PUML::MIXEDPUML& puml, const MixedMesh& mesh, Split cells, Spli
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8}));
   puml.setCellTypes(reinterpret_cast<const PUML::CellType*>(mesh.types.data() + cells.offset));
   puml.setGeometry(puml.addDataArray<double>(
@@ -547,7 +547,7 @@ inline void feed(PUML::TETPUML& puml, const CubeMesh& mesh, Split cells, Split v
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4}));
   puml.setGeometry(puml.addDataArray<double>(
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));

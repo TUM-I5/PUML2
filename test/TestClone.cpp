@@ -125,7 +125,7 @@ TEST(Clone, CarriesASecondTopology) {
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
 
   auto topology = puml.clone();
-  topology.addDataArray<unsigned long>(
+  topology.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4});
 
   puml.generateMesh();

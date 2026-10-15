@@ -50,7 +50,7 @@ TEST(Localize, HandlesASecondIndexArray) {
 
   PUML::TETPUML puml;
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
-  puml.addDataArray<unsigned long>(
+  puml.addDataArray<PUML::GlobalId>(
       "topology", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4});
 
   puml.distributeVertices({puml.connectivity(), puml.find<PUML::GlobalId>("topology", PUML::CELL)});
