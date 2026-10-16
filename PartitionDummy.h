@@ -24,6 +24,7 @@
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
 #include "Topology.h"
+#include "Types.h"
 
 namespace PUML {
 
@@ -43,7 +44,7 @@ class PartitionDummy : public PartitionBase<Topo> {
 #ifdef USE_MPI
     MPI_Comm_rank(graph.comm(), &rank);
 #endif // USE_MPI
-    for (unsigned long i = 0; i < graph.localVertexCount(); ++i) {
+    for (Size i = 0; i < graph.localVertexCount(); ++i) {
       partition[i] = rank;
     }
     return PartitioningResult::SUCCESS;

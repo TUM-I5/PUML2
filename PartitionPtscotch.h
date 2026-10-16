@@ -34,11 +34,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "PartitionBase.h"
 #include "PartitionGraph.h"
 #include "Topology.h"
+#include "Types.h"
 
 namespace PUML {
 
@@ -64,20 +66,28 @@ class PartitionPtscotch : public PartitionBase<Topo> {
 
     auto comm = graph.comm();
 
+    if (!internal::fitsIndexType<SCOTCH_Num>(
+            graph,
+            true,
+            "PT-Scotch",
+            "build it with 64-bit integers (INTSIZE64, int64 in Spack)")) {
+      return PartitioningResult::ERROR;
+    }
+
     std::vector<SCOTCH_Num> adjDisp(graph.adjDisp().begin(), graph.adjDisp().end());
     std::vector<SCOTCH_Num> adj(graph.adj().begin(), graph.adj().end());
     // with several weights per vertex (stored vertex by vertex), use their sum: a single weight
     // per vertex is all this partitioner takes, and the first one alone may well be zero (as
     // for the encoded balanced weights of SeisSol, which set one entry per vertex)
-    const auto weightCount = std::max(graph.vertexWeightCount(), 1UL);
+    const auto weightCount = std::max<Size>(graph.vertexWeightCount(), 1);
     std::vector<SCOTCH_Num> vertexWeights(graph.vertexWeights().size() / weightCount);
     for (std::size_t i = 0; i < vertexWeights.size(); ++i) {
-      unsigned long sum = 0;
+      std::uint64_t sum = 0;
       for (std::size_t j = 0; j < weightCount; ++j) {
         sum += graph.vertexWeights()[(i * weightCount) + j];
       }
       // SCOTCH_Num is a 32-bit int in many builds of PT-Scotch (Debian's and Ubuntu's among
-      // them); the weights are narrowed to it like the adjacency above
+      // them, and Spack's by default); the sum fits it, as the sum over all vertices does
       vertexWeights[i] = static_cast<SCOTCH_Num>(sum);
     }
     std::vector<SCOTCH_Num> edgeWeights(graph.edgeWeights().begin(), graph.edgeWeights().end());

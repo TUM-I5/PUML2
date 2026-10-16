@@ -22,6 +22,7 @@
 #include "PUML.h"
 #include "PumlTest.h"
 #include "Topology.h"
+#include "Types.h"
 
 namespace {
 
@@ -55,8 +56,8 @@ auto writeMesh(const MixedMesh& mesh, const std::string& path, bool withOffsets)
   writeDataset(file, "Points", H5T_NATIVE_DOUBLE, {mesh.numVertices, 3}, mesh.geometry.data());
 
   if (withOffsets) {
-    std::vector<unsigned long> flat;
-    std::vector<unsigned long> offsets{0};
+    std::vector<PUML::GlobalId> flat;
+    std::vector<PUML::GlobalId> offsets{0};
     for (std::size_t c = 0; c < mesh.numCells; ++c) {
       const auto type = static_cast<PUML::CellType>(mesh.types[c]);
       const auto count = PUML::internal::shapeOf(type).vertexCount;
@@ -65,18 +66,18 @@ auto writeMesh(const MixedMesh& mesh, const std::string& path, bool withOffsets)
       }
       offsets.push_back(flat.size());
     }
-    writeDataset(file, "Connectivity", H5T_NATIVE_ULONG, {flat.size()}, flat.data());
-    writeDataset(file, "Offsets", H5T_NATIVE_ULONG, {offsets.size()}, offsets.data());
+    writeDataset(file, "Connectivity", H5T_NATIVE_UINT64, {flat.size()}, flat.data());
+    writeDataset(file, "Offsets", H5T_NATIVE_UINT64, {offsets.size()}, offsets.data());
     writeDataset(file, "Types", H5T_NATIVE_UINT8, {mesh.types.size()}, mesh.types.data());
   } else {
     const auto count = PUML::internal::shapeOf(PUML::CellType::Tetrahedron).vertexCount;
-    std::vector<unsigned long> rect;
+    std::vector<PUML::GlobalId> rect;
     for (std::size_t c = 0; c < mesh.numCells; ++c) {
       for (unsigned int v = 0; v < count; ++v) {
         rect.push_back(mesh.connect[(8 * c) + v]);
       }
     }
-    writeDataset(file, "Connectivity", H5T_NATIVE_ULONG, {mesh.numCells, count}, rect.data());
+    writeDataset(file, "Connectivity", H5T_NATIVE_UINT64, {mesh.numCells, count}, rect.data());
   }
 
   H5Fclose(file);
@@ -107,16 +108,16 @@ TEST(MixedReader, ReadsAMeshOfSeveralKinds) {
   puml.generateMesh();
 
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+  EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
   EXPECT_EQ(counts.faces, mesh.numFaces);
   EXPECT_EQ(counts.edges, mesh.numEdges);
   EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces);
   EXPECT_EQ(counts.euler(), 1);
 
-  long triangles = 0;
+  std::int64_t triangles = 0;
   for (const auto& face : puml.faces()) {
-    triangles += static_cast<long>(face.vertexCount() == 3);
+    triangles += static_cast<std::int64_t>(face.vertexCount() == 3);
   }
   EXPECT_GT(globalSum(triangles), 0);
 
@@ -154,8 +155,8 @@ TEST(MixedReader, FallsBackToTheGivenKind) {
   puml.generateMesh();
 
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(cube.numCells));
-  EXPECT_EQ(counts.vertices, static_cast<long>(cube.numVertices));
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(cube.numCells));
+  EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(cube.numVertices));
   EXPECT_EQ(counts.boundaryFaces, cube.numBoundaryFaces());
   EXPECT_EQ(counts.euler(), 1);
 
@@ -186,7 +187,7 @@ TEST(MixedReader, ReadsADifferentNodeCountPerCell) {
 
   if (commRank() == 0) {
     std::vector<double> nodes;
-    std::vector<unsigned long> offsets{0};
+    std::vector<PUML::GlobalId> offsets{0};
     for (std::size_t c = 0; c < cube.numCells; ++c) {
       for (std::size_t j = 0; j < countOf(c); ++j) {
         nodes.push_back(static_cast<double>((100 * c) + j));
@@ -197,9 +198,9 @@ TEST(MixedReader, ReadsADifferentNodeCountPerCell) {
     const hid_t file = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     ASSERT_GE(file, 0);
     writeDataset(file, "Points", H5T_NATIVE_DOUBLE, {cube.numVertices, 3}, cube.geometry.data());
-    writeDataset(file, "Connectivity", H5T_NATIVE_ULONG, {cube.numCells, 4}, cube.connect.data());
+    writeDataset(file, "Connectivity", H5T_NATIVE_UINT64, {cube.numCells, 4}, cube.connect.data());
     writeDataset(file, "Nodes", H5T_NATIVE_DOUBLE, {nodes.size()}, nodes.data());
-    writeDataset(file, "NodeOffsets", H5T_NATIVE_ULONG, {offsets.size()}, offsets.data());
+    writeDataset(file, "NodeOffsets", H5T_NATIVE_UINT64, {offsets.size()}, offsets.data());
     H5Fclose(file);
   }
   barrier();
@@ -228,11 +229,11 @@ TEST(MixedReader, ReadsADifferentNodeCountPerCell) {
   }
 
   // And they follow their cells when those move.
-  std::vector<unsigned long> identity(puml.numOriginalCells());
+  std::vector<PUML::GlobalId> identity(puml.numOriginalCells());
   for (std::size_t i = 0; i < identity.size(); ++i) {
     identity[i] = first + i;
   }
-  puml.addDataArray<unsigned long>("identity", identity.data(), PUML::CELL, {});
+  puml.addDataArray<PUML::GlobalId>("identity", identity.data(), PUML::CELL, {});
 
   std::vector<int> target(puml.numOriginalCells());
   for (std::size_t i = 0; i < target.size(); ++i) {
@@ -240,7 +241,7 @@ TEST(MixedReader, ReadsADifferentNodeCountPerCell) {
   }
   puml.partition(target.data());
 
-  const auto moved = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
+  const auto moved = puml.data(puml.find<PUML::GlobalId>("identity", PUML::CELL));
   const auto movedNodes = puml.raggedData(puml.findRagged<double>("nodes"));
   for (std::size_t i = 0; i < moved.size(); ++i) {
     EXPECT_EQ(movedNodes.count(i), countOf(moved[i])) << "cell " << moved[i];
@@ -262,7 +263,7 @@ TEST(MixedReader, RefusesAConnectivityOfAnotherWidth) {
     const hid_t file = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     ASSERT_GE(file, 0);
     writeDataset(file, "Points", H5T_NATIVE_DOUBLE, {hex.numVertices, 3}, hex.geometry.data());
-    writeDataset(file, "Connectivity", H5T_NATIVE_ULONG, {hex.numCells, 8}, hex.connect.data());
+    writeDataset(file, "Connectivity", H5T_NATIVE_UINT64, {hex.numCells, 8}, hex.connect.data());
     H5Fclose(file);
   }
   barrier();
@@ -306,9 +307,9 @@ TEST(MixedReader, ReadsWithRanksWithoutCells) {
     const hid_t file = H5Fopen(path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
     ASSERT_GE(file, 0);
     const std::vector<double> nodes{1.5, 2.5, 3.5};
-    const std::vector<unsigned long> offsets{0, 3};
+    const std::vector<PUML::GlobalId> offsets{0, 3};
     writeDataset(file, "Nodes", H5T_NATIVE_DOUBLE, {nodes.size()}, nodes.data());
-    writeDataset(file, "NodeOffsets", H5T_NATIVE_ULONG, {offsets.size()}, offsets.data());
+    writeDataset(file, "NodeOffsets", H5T_NATIVE_UINT64, {offsets.size()}, offsets.data());
     H5Fclose(file);
   }
   barrier();

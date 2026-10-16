@@ -236,7 +236,7 @@ class Hdf5Reader {
     const hid_t h5file = fileOf(path);
     const auto dataName = datasetOf(path);
 
-    const unsigned long totalSize = cellDistributor.totalSize();
+    const auto totalSize = cellDistributor.totalSize();
 
     // Get cell dataset
     hid_t h5dataset = H5Dopen(h5file, dataName.c_str(), H5P_DEFAULT);

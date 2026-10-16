@@ -34,6 +34,14 @@ if(PUML_USE_MPI)
   find_package(MPI REQUIRED COMPONENTS CXX)
   target_compile_definitions(PUML INTERFACE USE_MPI)
   target_link_libraries(PUML INTERFACE MPI::MPI_CXX)
+
+  # the calls of MPI 4 that count in MPI_Count, where the library has them
+  # without reporting MPI 4 (see cmake/PumlMpiLargeCount.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/PumlMpiLargeCount.cmake)
+  puml_mpi_has_large_count(PUML_MPI_HAS_LARGE_COUNT MPI::MPI_CXX)
+  if(PUML_MPI_HAS_LARGE_COUNT)
+    target_compile_definitions(PUML INTERFACE PUML_MPI_LARGE_COUNT)
+  endif()
 endif()
 
 # The mesh itself needs no HDF5; only the reader does.

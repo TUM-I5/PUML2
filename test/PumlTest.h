@@ -18,6 +18,8 @@
 
 #include "CellType.h"
 #include "PUML.h"
+#include "TypeInference.h"
+#include "Types.h"
 #include "Upward.h"
 
 namespace puml::test {
@@ -38,30 +40,33 @@ inline auto commSize() -> int {
   return procs;
 }
 
-inline auto globalSum(long value) -> long {
+inline auto globalSum(std::int64_t value) -> std::int64_t {
 #ifdef USE_MPI
-  long total = 0;
-  MPI_Allreduce(&value, &total, 1, MPI_LONG, MPI_SUM, MPI_COMM_WORLD);
+  std::int64_t total = 0;
+  MPI_Allreduce(
+      &value, &total, 1, PUML::MPITypeInfer<std::int64_t>::type(), MPI_SUM, MPI_COMM_WORLD);
   return total;
 #else  // USE_MPI
   return value;
 #endif // USE_MPI
 }
 
-inline auto globalMin(long value) -> long {
+inline auto globalMin(std::int64_t value) -> std::int64_t {
 #ifdef USE_MPI
-  long result = 0;
-  MPI_Allreduce(&value, &result, 1, MPI_LONG, MPI_MIN, MPI_COMM_WORLD);
+  std::int64_t result = 0;
+  MPI_Allreduce(
+      &value, &result, 1, PUML::MPITypeInfer<std::int64_t>::type(), MPI_MIN, MPI_COMM_WORLD);
   return result;
 #else  // USE_MPI
   return value;
 #endif // USE_MPI
 }
 
-inline auto globalMax(long value) -> long {
+inline auto globalMax(std::int64_t value) -> std::int64_t {
 #ifdef USE_MPI
-  long result = 0;
-  MPI_Allreduce(&value, &result, 1, MPI_LONG, MPI_MAX, MPI_COMM_WORLD);
+  std::int64_t result = 0;
+  MPI_Allreduce(
+      &value, &result, 1, PUML::MPITypeInfer<std::int64_t>::type(), MPI_MAX, MPI_COMM_WORLD);
   return result;
 #else  // USE_MPI
   return value;
@@ -69,7 +74,7 @@ inline auto globalMax(long value) -> long {
 }
 
 /// Collects the given per-rank values of all ranks into one array.
-inline auto gather(const std::vector<unsigned long>& local) -> std::vector<unsigned long> {
+inline auto gather(const std::vector<PUML::GlobalId>& local) -> std::vector<PUML::GlobalId> {
 #ifdef USE_MPI
   const int procs = commSize();
 
@@ -82,14 +87,14 @@ inline auto gather(const std::vector<unsigned long>& local) -> std::vector<unsig
     displs[i] = displs[i - 1] + counts[i - 1];
   }
 
-  std::vector<unsigned long> all(displs.back() + counts.back());
+  std::vector<PUML::GlobalId> all(displs.back() + counts.back());
   MPI_Allgatherv(local.data(),
                  localCount,
-                 MPI_UNSIGNED_LONG,
+                 PUML::MPITypeInfer<PUML::GlobalId>::type(),
                  all.data(),
                  counts.data(),
                  displs.data(),
-                 MPI_UNSIGNED_LONG,
+                 PUML::MPITypeInfer<PUML::GlobalId>::type(),
                  MPI_COMM_WORLD);
   return all;
 #else  // USE_MPI
@@ -100,10 +105,10 @@ inline auto gather(const std::vector<unsigned long>& local) -> std::vector<unsig
 /// An entity is owned by the lowest rank that holds it, which is the rule PUML
 /// follows when it hands out global ids.
 template <typename T>
-auto ownedGids(const std::vector<T>& elements) -> std::vector<unsigned long> {
+auto ownedGids(const std::vector<T>& elements) -> std::vector<PUML::GlobalId> {
   const int rank = commRank();
 
-  std::vector<unsigned long> gids;
+  std::vector<PUML::GlobalId> gids;
   for (const auto& element : elements) {
     if (element.shared().empty() || element.shared()[0] > rank) {
       gids.push_back(element.gid());
@@ -114,14 +119,14 @@ auto ownedGids(const std::vector<T>& elements) -> std::vector<unsigned long> {
 
 /// Collects the global ids of all entities of one kind, over all ranks.
 template <typename T>
-auto allGids(const std::vector<T>& elements) -> std::vector<unsigned long> {
+auto allGids(const std::vector<T>& elements) -> std::vector<PUML::GlobalId> {
   auto all = gather(ownedGids(elements));
   std::sort(all.begin(), all.end());
   return all;
 }
 
 /// True if the values are exactly 0, 1, ..., n-1.
-inline auto isContiguousFromZero(const std::vector<unsigned long>& sorted) -> bool {
+inline auto isContiguousFromZero(const std::vector<PUML::GlobalId>& sorted) -> bool {
   for (std::size_t i = 0; i < sorted.size(); ++i) {
     if (sorted[i] != i) {
       return false;
@@ -160,14 +165,16 @@ inline auto lopsidedSplit(std::size_t total, int rank, int procs) -> Split {
 }
 
 struct CubeMesh {
-  std::vector<unsigned long> connect; // numCells * 4
-  std::vector<double> geometry;       // numVertices * 3
+  std::vector<PUML::GlobalId> connect; // numCells * 4
+  std::vector<double> geometry;        // numVertices * 3
   std::size_t numCells{0};
   std::size_t numVertices{0};
   int n{0};
 
   /// Faces on the surface of the cube, each hexahedron face split in two.
-  [[nodiscard]] auto numBoundaryFaces() const -> long { return 4L * 3L * n * n; }
+  [[nodiscard]] auto numBoundaryFaces() const -> std::int64_t {
+    return std::int64_t{4} * std::int64_t{3} * n * n;
+  }
 };
 
 /// Kuhn subdivision of every hexahedron of an n x n x n grid into six
@@ -175,7 +182,7 @@ struct CubeMesh {
 /// conforming across hexahedron faces.
 inline auto makeCubeMesh(int n) -> CubeMesh {
   const auto vid = [&](int i, int j, int k) {
-    return static_cast<unsigned long>((k * (n + 1) + j) * (n + 1) + i);
+    return static_cast<PUML::GlobalId>((k * (n + 1) + j) * (n + 1) + i);
   };
 
   CubeMesh mesh;
@@ -199,7 +206,7 @@ inline auto makeCubeMesh(int n) -> CubeMesh {
   for (int k = 0; k < n; ++k) {
     for (int j = 0; j < n; ++j) {
       for (int i = 0; i < n; ++i) {
-        std::array<unsigned long, 8> corner{};
+        std::array<PUML::GlobalId, 8> corner{};
         for (int b = 0; b < 8; ++b) {
           corner[b] = vid(i + (b & 1), j + ((b >> 1) & 1), k + ((b >> 2) & 1));
         }
@@ -216,20 +223,20 @@ inline auto makeCubeMesh(int n) -> CubeMesh {
 }
 
 struct HexCubeMesh {
-  std::vector<unsigned long> connect; // numCells * 8
-  std::vector<double> geometry;       // numVertices * 3
+  std::vector<PUML::GlobalId> connect; // numCells * 8
+  std::vector<double> geometry;        // numVertices * 3
   std::size_t numCells{0};
   std::size_t numVertices{0};
   int n{0};
 
-  [[nodiscard]] auto numBoundaryFaces() const -> long { return 6L * n * n; }
+  [[nodiscard]] auto numBoundaryFaces() const -> std::int64_t { return std::int64_t{6} * n * n; }
 };
 
 /// An n x n x n grid of hexahedra, numbered the way XDMF numbers them: the four
 /// vertices of the lower face counter-clockwise, then the four above them.
 inline auto makeHexCubeMesh(int n) -> HexCubeMesh {
   const auto vid = [&](int i, int j, int k) {
-    return static_cast<unsigned long>((k * (n + 1) + j) * (n + 1) + i);
+    return static_cast<PUML::GlobalId>((k * (n + 1) + j) * (n + 1) + i);
   };
 
   HexCubeMesh mesh;
@@ -274,33 +281,33 @@ inline void feed(PUML::HEXPUML& puml, const HexCubeMesh& mesh, Split cells, Spli
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8}));
   puml.setGeometry(puml.addDataArray<double>(
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
 }
 
 struct SquareMesh {
-  std::vector<unsigned long> connect; // numCells * 3
-  std::vector<double> geometry;       // numVertices * 3
+  std::vector<PUML::GlobalId> connect; // numCells * 3
+  std::vector<double> geometry;        // numVertices * 3
   std::size_t numCells{0};
   std::size_t numVertices{0};
   int n{0};
 
   /// The mesh edges on the border of the square.
-  [[nodiscard]] auto numBoundaryFaces() const -> long { return 4L * n; }
+  [[nodiscard]] auto numBoundaryFaces() const -> std::int64_t { return std::int64_t{4} * n; }
 
   /// Every square contributes two triangles, and the grid lines and diagonals
   /// give the mesh edges.
-  [[nodiscard]] auto numFaces() const -> long {
-    return 2L * n * (n + 1) + static_cast<long>(n) * n;
+  [[nodiscard]] auto numFaces() const -> std::int64_t {
+    return std::int64_t{2} * n * (n + 1) + static_cast<std::int64_t>(n) * n;
   }
 };
 
 /// An n x n grid of squares, each split along one diagonal. The mesh is two
 /// dimensional but sits in space, so its vertices carry three coordinates.
 inline auto makeSquareMesh(int n) -> SquareMesh {
-  const auto vid = [&](int i, int j) { return static_cast<unsigned long>(j * (n + 1) + i); };
+  const auto vid = [&](int i, int j) { return static_cast<PUML::GlobalId>(j * (n + 1) + i); };
 
   SquareMesh mesh;
   mesh.n = n;
@@ -336,7 +343,7 @@ inline void
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 3 * cells.offset, PUML::CELL, {3}));
   puml.setGeometry(puml.addDataArray<double>(
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
@@ -346,7 +353,7 @@ inline void
 /// a hexahedral grid and a Kuhn-subdivided one, set apart along x. A shared
 /// face between the two would need a pyramid or a wedge, which comes later.
 struct MixedMesh {
-  std::vector<unsigned long> connect; // padded to eight vertices per cell
+  std::vector<PUML::GlobalId> connect; // padded to eight vertices per cell
   std::vector<std::uint8_t> types;
   std::vector<double> geometry;
   std::size_t numCells{0};
@@ -355,9 +362,9 @@ struct MixedMesh {
   std::size_t numTetCells{0};
   std::size_t numPyramidCells{0};
   std::size_t numWedgeCells{0};
-  long numFaces{0};
-  long numEdges{0};
-  long numBoundaryFaces{0};
+  std::int64_t numFaces{0};
+  std::int64_t numEdges{0};
+  std::int64_t numBoundaryFaces{0};
 };
 
 inline auto makeMixedMesh(int n) -> MixedMesh {
@@ -377,7 +384,7 @@ inline auto makeMixedMesh(int n) -> MixedMesh {
     mesh.geometry.push_back(tet.geometry[3 * v + 2]);
   }
 
-  const auto pad = [&mesh](const unsigned long* first, std::size_t count) {
+  const auto pad = [&mesh](const PUML::GlobalId* first, std::size_t count) {
     for (std::size_t i = 0; i < 8; ++i) {
       mesh.connect.push_back(i < count ? first[i] : first[0]);
     }
@@ -389,7 +396,7 @@ inline auto makeMixedMesh(int n) -> MixedMesh {
   }
   for (std::size_t c = 0; c < tet.numCells; ++c) {
     const auto* first = tet.connect.data() + 4 * c;
-    std::array<unsigned long, 4> shifted{};
+    std::array<PUML::GlobalId, 4> shifted{};
     for (std::size_t i = 0; i < 4; ++i) {
       shifted[i] = first[i] + hex.numVertices;
     }
@@ -401,13 +408,14 @@ inline auto makeMixedMesh(int n) -> MixedMesh {
 
   // Every hexahedron brings six faces and every tetrahedron four, and an
   // interior face is brought by both of its cells.
-  mesh.numFaces = (6L * static_cast<long>(mesh.numHexCells) +
-                   4L * static_cast<long>(mesh.numTetCells) + mesh.numBoundaryFaces) /
-                  2;
+  mesh.numFaces =
+      (std::int64_t{6} * static_cast<std::int64_t>(mesh.numHexCells) +
+       std::int64_t{4} * static_cast<std::int64_t>(mesh.numTetCells) + mesh.numBoundaryFaces) /
+      2;
 
   // Two blocks that do not touch, so the Euler characteristic counts twice.
-  mesh.numEdges =
-      static_cast<long>(mesh.numVertices) + mesh.numFaces - static_cast<long>(mesh.numCells) - 2;
+  mesh.numEdges = static_cast<std::int64_t>(mesh.numVertices) + mesh.numFaces -
+                  static_cast<std::int64_t>(mesh.numCells) - 2;
   return mesh;
 }
 
@@ -423,20 +431,20 @@ inline auto makeHexPyramidMesh(int n) -> MixedMesh {
   mesh.geometry = hex.geometry;
   mesh.numVertices = hex.numVertices;
 
-  const auto pad = [&mesh](const std::array<unsigned long, 8>& corner, std::size_t count) {
+  const auto pad = [&mesh](const std::array<PUML::GlobalId, 8>& corner, std::size_t count) {
     for (std::size_t i = 0; i < 8; ++i) {
       mesh.connect.push_back(i < count ? corner[i] : corner[0]);
     }
   };
 
-  long splitCells = 0;
+  std::int64_t splitCells = 0;
   for (std::size_t c = 0; c < hex.numCells; ++c) {
     const auto* corner = hex.connect.data() + 8 * c;
     // The cells of the first layer are the ones with the lowest index.
     const bool split = (c % static_cast<std::size_t>(n)) == 0;
 
     if (!split) {
-      std::array<unsigned long, 8> cell{};
+      std::array<PUML::GlobalId, 8> cell{};
       std::copy(corner, corner + 8, cell.begin());
       pad(cell, 8);
       mesh.types.push_back(static_cast<std::uint8_t>(PUML::CellType::Hexahedron));
@@ -445,7 +453,7 @@ inline auto makeHexPyramidMesh(int n) -> MixedMesh {
     }
 
     // One vertex in the middle of the hexahedron, shared by its six pyramids.
-    const auto apex = static_cast<unsigned long>(mesh.numVertices);
+    const auto apex = static_cast<PUML::GlobalId>(mesh.numVertices);
     ++mesh.numVertices;
     for (std::size_t d = 0; d < 3; ++d) {
       double sum = 0.0;
@@ -456,7 +464,7 @@ inline auto makeHexPyramidMesh(int n) -> MixedMesh {
     }
 
     for (std::size_t f = 0; f < 6; ++f) {
-      std::array<unsigned long, 8> cell{};
+      std::array<PUML::GlobalId, 8> cell{};
       for (std::size_t v = 0; v < 4; ++v) {
         cell[v] = corner[faces[f][v]];
       }
@@ -473,12 +481,13 @@ inline auto makeHexPyramidMesh(int n) -> MixedMesh {
 
   // Six faces per hexahedron and five per pyramid, an interior face brought by
   // both of its cells.
-  mesh.numFaces = (6L * static_cast<long>(mesh.numHexCells) +
-                   5L * static_cast<long>(mesh.numPyramidCells) + mesh.numBoundaryFaces) /
-                  2;
+  mesh.numFaces =
+      (std::int64_t{6} * static_cast<std::int64_t>(mesh.numHexCells) +
+       std::int64_t{5} * static_cast<std::int64_t>(mesh.numPyramidCells) + mesh.numBoundaryFaces) /
+      2;
   // One connected body.
-  mesh.numEdges =
-      static_cast<long>(mesh.numVertices) + mesh.numFaces - static_cast<long>(mesh.numCells) - 1;
+  mesh.numEdges = static_cast<std::int64_t>(mesh.numVertices) + mesh.numFaces -
+                  static_cast<std::int64_t>(mesh.numCells) - 1;
   static_cast<void>(splitCells);
   return mesh;
 }
@@ -498,7 +507,7 @@ inline auto makeWedgeMesh(int n) -> MixedMesh {
   }
 
   for (int layer = 0; layer < n; ++layer) {
-    const auto below = static_cast<unsigned long>(layer) * flat.numVertices;
+    const auto below = static_cast<PUML::GlobalId>(layer) * flat.numVertices;
     const auto above = below + flat.numVertices;
     for (std::size_t c = 0; c < flat.numCells; ++c) {
       const auto* tri = flat.connect.data() + 3 * c;
@@ -518,10 +527,12 @@ inline auto makeWedgeMesh(int n) -> MixedMesh {
   mesh.numCells = mesh.types.size();
 
   // The triangles of the top and bottom layer, plus the sides of the column.
-  mesh.numBoundaryFaces = 2L * static_cast<long>(flat.numCells) + flat.numBoundaryFaces() * n;
-  mesh.numFaces = (5L * static_cast<long>(mesh.numCells) + mesh.numBoundaryFaces) / 2;
-  mesh.numEdges =
-      static_cast<long>(mesh.numVertices) + mesh.numFaces - static_cast<long>(mesh.numCells) - 1;
+  mesh.numBoundaryFaces =
+      std::int64_t{2} * static_cast<std::int64_t>(flat.numCells) + flat.numBoundaryFaces() * n;
+  mesh.numFaces =
+      (std::int64_t{5} * static_cast<std::int64_t>(mesh.numCells) + mesh.numBoundaryFaces) / 2;
+  mesh.numEdges = static_cast<std::int64_t>(mesh.numVertices) + mesh.numFaces -
+                  static_cast<std::int64_t>(mesh.numCells) - 1;
   return mesh;
 }
 
@@ -532,7 +543,7 @@ inline void feed(PUML::MIXEDPUML& puml, const MixedMesh& mesh, Split cells, Spli
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 8 * cells.offset, PUML::CELL, {8}));
   puml.setCellTypes(reinterpret_cast<const PUML::CellType*>(mesh.types.data() + cells.offset));
   puml.setGeometry(puml.addDataArray<double>(
@@ -547,33 +558,33 @@ inline void feed(PUML::TETPUML& puml, const CubeMesh& mesh, Split cells, Split v
 
   puml.setSize(PUML::CELL, cells.size);
   puml.setSize(PUML::VERTEX, vertices.size);
-  puml.setConnectivity(puml.addDataArray<unsigned long>(
+  puml.setConnectivity(puml.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4}));
   puml.setGeometry(puml.addDataArray<double>(
       "geometry", mesh.geometry.data() + 3 * vertices.offset, PUML::VERTEX, {3}));
 }
 
 struct MeshCounts {
-  long cells{0};
-  long faces{0};
-  long edges{0};
-  long vertices{0};
-  long boundaryFaces{0};
-  long unusedFaces{0};
+  std::int64_t cells{0};
+  std::int64_t faces{0};
+  std::int64_t edges{0};
+  std::int64_t vertices{0};
+  std::int64_t boundaryFaces{0};
+  std::int64_t unusedFaces{0};
 
-  [[nodiscard]] auto euler() const -> long { return vertices - edges + faces - cells; }
+  [[nodiscard]] auto euler() const -> std::int64_t { return vertices - edges + faces - cells; }
 };
 
 template <PUML::TopoType Topo>
 auto measure(const PUML::PUML<Topo>& puml) -> MeshCounts {
   MeshCounts counts;
-  counts.cells = globalSum(static_cast<long>(puml.cells().size()));
-  counts.faces = globalSum(static_cast<long>(ownedGids(puml.faces()).size()));
-  counts.edges = globalSum(static_cast<long>(ownedGids(puml.edges()).size()));
-  counts.vertices = globalSum(static_cast<long>(ownedGids(puml.vertices()).size()));
+  counts.cells = globalSum(static_cast<std::int64_t>(puml.cells().size()));
+  counts.faces = globalSum(static_cast<std::int64_t>(ownedGids(puml.faces()).size()));
+  counts.edges = globalSum(static_cast<std::int64_t>(ownedGids(puml.edges()).size()));
+  counts.vertices = globalSum(static_cast<std::int64_t>(ownedGids(puml.vertices()).size()));
 
-  long boundary = 0;
-  long unused = 0;
+  std::int64_t boundary = 0;
+  std::int64_t unused = 0;
   for (const auto& face : puml.faces()) {
     std::array<PUML::LocalId, 2> adjacent{};
     PUML::Upward::cells(puml, face, adjacent.data());

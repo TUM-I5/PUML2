@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -11,6 +12,7 @@
 #include "DataHandle.h"
 #include "PUML.h"
 #include "PumlTest.h"
+#include "Types.h"
 
 namespace {
 
@@ -28,31 +30,31 @@ void checkRepartition(int n, const std::vector<int>& (*assign)(std::size_t, int,
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, rank, procs));
 
   // Two arrays whose values are derived from the same cell identity.
-  std::vector<unsigned long> identity(cells.size);
-  std::vector<unsigned long> derived(cells.size);
+  std::vector<PUML::GlobalId> identity(cells.size);
+  std::vector<PUML::GlobalId> derived(cells.size);
   for (std::size_t i = 0; i < cells.size; ++i) {
     identity[i] = cells.offset + i;
     derived[i] = 2 * (cells.offset + i) + 1;
   }
-  puml.addDataArray<unsigned long>("identity", identity.data(), PUML::CELL, {});
-  puml.addDataArray<unsigned long>("derived", derived.data(), PUML::CELL, {});
+  puml.addDataArray<PUML::GlobalId>("identity", identity.data(), PUML::CELL, {});
+  puml.addDataArray<PUML::GlobalId>("derived", derived.data(), PUML::CELL, {});
 
   const auto& target = assign(cells.size, rank, procs);
   puml.partition(target.data());
   puml.generateMesh();
 
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+  EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
   EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
   EXPECT_EQ(counts.euler(), 1);
 
   // Every cell is still there exactly once, and its two arrays still belong
   // together.
-  const auto movedIdentity = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
-  const auto movedDerived = puml.data(puml.find<unsigned long>("derived", PUML::CELL));
+  const auto movedIdentity = puml.data(puml.find<PUML::GlobalId>("identity", PUML::CELL));
+  const auto movedDerived = puml.data(puml.find<PUML::GlobalId>("derived", PUML::CELL));
 
-  const std::vector<unsigned long> local(movedIdentity.begin(), movedIdentity.end());
+  const std::vector<PUML::GlobalId> local(movedIdentity.begin(), movedIdentity.end());
   for (std::size_t i = 0; i < movedIdentity.size(); ++i) {
     EXPECT_EQ(movedDerived[i], 2 * movedIdentity[i] + 1) << "cell " << i;
   }

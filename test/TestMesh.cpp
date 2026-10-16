@@ -38,8 +38,8 @@ void checkCubeMesh(int n, Split (*split)(std::size_t, int, int)) {
 
   const auto counts = measure(puml);
 
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-  EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+  EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
   EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
   EXPECT_EQ(counts.unusedFaces, 0);
 
@@ -108,8 +108,8 @@ TEST(Mesh, InMemorySquare) {
 
     const auto counts = measure(puml);
 
-    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
     EXPECT_EQ(counts.faces, mesh.numFaces());
     EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
     EXPECT_EQ(counts.unusedFaces, 0);
@@ -169,8 +169,8 @@ TEST(Mesh, InMemoryMixed) {
 
     const auto counts = measure(puml);
 
-    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
     EXPECT_EQ(counts.faces, mesh.numFaces);
     EXPECT_EQ(counts.edges, mesh.numEdges);
     EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces);
@@ -181,7 +181,8 @@ TEST(Mesh, InMemoryMixed) {
 
     // Six faces per hexahedron and four per tetrahedron, interior ones twice.
     EXPECT_EQ(2 * counts.faces - counts.boundaryFaces,
-              6 * static_cast<long>(mesh.numHexCells) + 4 * static_cast<long>(mesh.numTetCells));
+              6 * static_cast<std::int64_t>(mesh.numHexCells) +
+                  4 * static_cast<std::int64_t>(mesh.numTetCells));
 
     for (const auto& gids : {allGids(puml.faces()), allGids(puml.edges())}) {
       EXPECT_TRUE(isContiguousFromZero(gids));
@@ -204,8 +205,8 @@ TEST(Mesh, InMemoryConformingHexPyramid) {
 
     const auto counts = measure(puml);
 
-    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
     EXPECT_EQ(counts.faces, mesh.numFaces);
     EXPECT_EQ(counts.edges, mesh.numEdges);
     EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces);
@@ -216,8 +217,8 @@ TEST(Mesh, InMemoryConformingHexPyramid) {
     EXPECT_GT(mesh.numPyramidCells, 0U);
 
     // Faces of three and of four vertices sit in the same mesh.
-    long triangles = 0;
-    long quadrilaterals = 0;
+    std::int64_t triangles = 0;
+    std::int64_t quadrilaterals = 0;
     for (const auto& face : puml.faces()) {
       if (face.vertexCount() == 3) {
         ++triangles;
@@ -244,8 +245,8 @@ TEST(Mesh, InMemoryWedges) {
 
     const auto counts = measure(puml);
 
-    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
     EXPECT_EQ(counts.faces, mesh.numFaces);
     EXPECT_EQ(counts.edges, mesh.numEdges);
     EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces);
@@ -288,16 +289,16 @@ TEST(Mesh, InMemoryHexCube) {
 
     const auto counts = measure(puml);
 
-    EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
-    EXPECT_EQ(counts.vertices, static_cast<long>(mesh.numVertices));
+    EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
+    EXPECT_EQ(counts.vertices, static_cast<std::int64_t>(mesh.numVertices));
     EXPECT_EQ(counts.boundaryFaces, mesh.numBoundaryFaces());
     EXPECT_EQ(counts.unusedFaces, 0);
     EXPECT_EQ(counts.euler(), 1);
 
     // A hexahedron has six faces, an interior one shared by two cells.
     EXPECT_EQ(2 * counts.faces - counts.boundaryFaces, 6 * counts.cells);
-    EXPECT_EQ(counts.faces, 3L * n * n * (n + 1));
-    EXPECT_EQ(counts.edges, 3L * n * (n + 1) * (n + 1));
+    EXPECT_EQ(counts.faces, std::int64_t{3} * n * n * (n + 1));
+    EXPECT_EQ(counts.edges, std::int64_t{3} * n * (n + 1) * (n + 1));
 
     for (const auto& gids : {allGids(puml.faces()), allGids(puml.edges())}) {
       EXPECT_TRUE(isContiguousFromZero(gids));
@@ -363,7 +364,7 @@ TEST(Mesh, DownwardAndUpwardAgree) {
 /// The cells of both meshes, the second one moved away from the first. Only the cells and
 /// vertices are joined, not the counts of faces and edges.
 auto join(MixedMesh first, const MixedMesh& second) -> MixedMesh {
-  const auto offset = static_cast<unsigned long>(first.numVertices);
+  const auto offset = static_cast<PUML::GlobalId>(first.numVertices);
   for (const auto vertex : second.connect) {
     first.connect.push_back(vertex + offset);
   }
@@ -406,7 +407,7 @@ TEST(Mesh, CellsKnowTheirKind) {
 
   PUML::MIXEDPUML puml;
   const auto mesh = feedAllKinds(puml);
-  std::array<long, 4> kinds{};
+  std::array<std::int64_t, 4> kinds{};
   for (const auto& cell : puml.cells()) {
     EXPECT_EQ(static_cast<std::uint8_t>(cell.type()), mesh.types[cell.gid()]);
     switch (cell.type()) {
@@ -478,7 +479,7 @@ TEST(Mesh, GlobalVerticesOfMixedCells) {
   for (const auto& cell : puml.cells()) {
     const auto& shape = PUML::internal::shapeOf(cell.type());
     const auto vertices = PUML::Downward::vertices(puml, cell);
-    std::array<unsigned long, PUML::internal::MaxCellVertices> gids{};
+    std::array<PUML::GlobalId, PUML::internal::MaxCellVertices> gids{};
     PUML::Downward::gvertices(puml, cell, gids.data());
     for (unsigned int k = 0; k < gids.size(); ++k) {
       EXPECT_EQ(gids[k],
@@ -494,7 +495,7 @@ TEST(Mesh, NeighborsOfMixedCells) {
   PUML::MIXEDPUML puml;
   feedAllKinds(puml);
 
-  long links = 0;
+  std::int64_t links = 0;
   for (unsigned int c = 0; c < puml.cells().size(); ++c) {
     const auto& shape = PUML::internal::shapeOf(puml.cells()[c].type());
     const auto neighbors = PUML::Neighbor::face(puml, c);
@@ -509,12 +510,12 @@ TEST(Mesh, NeighborsOfMixedCells) {
     }
   }
 
-  long inner = 0;
+  std::int64_t inner = 0;
   for (const auto& face : puml.faces()) {
     std::array<PUML::LocalId, 2> adjacent{};
     PUML::Upward::cells(puml, face, adjacent.data());
-    inner += static_cast<long>(adjacent[0] != PUML::InvalidLocalId &&
-                               adjacent[1] != PUML::InvalidLocalId);
+    inner += static_cast<std::int64_t>(adjacent[0] != PUML::InvalidLocalId &&
+                                       adjacent[1] != PUML::InvalidLocalId);
   }
   EXPECT_EQ(links, 2 * inner);
 }

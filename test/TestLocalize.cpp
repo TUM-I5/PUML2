@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -50,7 +51,7 @@ TEST(Localize, HandlesASecondIndexArray) {
 
   PUML::TETPUML puml;
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
-  puml.addDataArray<unsigned long>(
+  puml.addDataArray<PUML::GlobalId>(
       "topology", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4});
 
   puml.distributeVertices({puml.connectivity(), puml.find<PUML::GlobalId>("topology", PUML::CELL)});
@@ -71,7 +72,7 @@ TEST(Localize, HandlesASecondIndexArray) {
   }
 
   const auto counts = measure(puml);
-  EXPECT_EQ(counts.cells, static_cast<long>(mesh.numCells));
+  EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
   EXPECT_EQ(counts.euler(), 1);
 }
 

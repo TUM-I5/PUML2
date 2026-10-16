@@ -73,6 +73,12 @@ class PartitionParmetis : public PartitionBase<Topo> {
       }
     }
 
+    // ParMETIS keeps the weights of a vertex apart, as constraints of their own
+    if (!internal::fitsIndexType<idx_t>(
+            graph, false, "ParMETIS", "build METIS and ParMETIS with IDXTYPEWIDTH=64")) {
+      return PartitioningResult::ERROR;
+    }
+
     std::vector<idx_t> vtxdist(graph.vertexDistribution().begin(),
                                graph.vertexDistribution().end());
     std::vector<idx_t> xadj(graph.adjDisp().begin(), graph.adjDisp().end());

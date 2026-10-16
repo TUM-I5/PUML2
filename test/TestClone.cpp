@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,7 @@
 #include "Error.h"
 #include "PUML.h"
 #include "PumlTest.h"
+#include "Types.h"
 
 namespace {
 
@@ -51,22 +53,22 @@ TEST(Clone, OwnsItsData) {
   PUML::TETPUML puml;
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
 
-  std::vector<unsigned long> identity(cells.size);
+  std::vector<PUML::GlobalId> identity(cells.size);
   for (std::size_t i = 0; i < cells.size; ++i) {
     identity[i] = cells.offset + i;
   }
-  puml.addDataArray<unsigned long>("identity", identity.data(), PUML::CELL, {});
+  puml.addDataArray<PUML::GlobalId>("identity", identity.data(), PUML::CELL, {});
 
   auto copy = puml.clone();
 
   // Overwrite the array in the copy only.
-  const auto copiedHandle = copy.allocateData<unsigned long>("identity", PUML::CELL, {});
+  const auto copiedHandle = copy.allocateData<PUML::GlobalId>("identity", PUML::CELL, {});
   auto copied = copy.data(copiedHandle);
   for (std::size_t i = 0; i < cells.size; ++i) {
     copied[i] = 0;
   }
 
-  const auto untouched = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
+  const auto untouched = puml.data(puml.find<PUML::GlobalId>("identity", PUML::CELL));
   for (std::size_t i = 0; i < cells.size; ++i) {
     EXPECT_EQ(untouched[i], cells.offset + i) << "cell " << i;
   }
@@ -82,11 +84,11 @@ TEST(Clone, CanBeRepartitioned) {
   PUML::TETPUML puml;
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
 
-  std::vector<unsigned long> identity(cells.size);
+  std::vector<PUML::GlobalId> identity(cells.size);
   for (std::size_t i = 0; i < cells.size; ++i) {
     identity[i] = cells.offset + i;
   }
-  puml.addDataArray<unsigned long>("identity", identity.data(), PUML::CELL, {});
+  puml.addDataArray<PUML::GlobalId>("identity", identity.data(), PUML::CELL, {});
 
   auto copy = puml.clone();
 
@@ -98,19 +100,19 @@ TEST(Clone, CanBeRepartitioned) {
   copy.generateMesh();
 
   const auto cloned = measure(copy);
-  EXPECT_EQ(cloned.cells, static_cast<long>(mesh.numCells));
-  EXPECT_EQ(cloned.vertices, static_cast<long>(mesh.numVertices));
+  EXPECT_EQ(cloned.cells, static_cast<std::int64_t>(mesh.numCells));
+  EXPECT_EQ(cloned.vertices, static_cast<std::int64_t>(mesh.numVertices));
   EXPECT_EQ(cloned.boundaryFaces, mesh.numBoundaryFaces());
   EXPECT_EQ(cloned.euler(), 1);
 
-  const auto moved = copy.data(copy.find<unsigned long>("identity", PUML::CELL));
-  const std::vector<unsigned long> local(moved.begin(), moved.end());
+  const auto moved = copy.data(copy.find<PUML::GlobalId>("identity", PUML::CELL));
+  const std::vector<PUML::GlobalId> local(moved.begin(), moved.end());
   auto all = gather(local);
   std::sort(all.begin(), all.end());
   EXPECT_TRUE(isContiguousFromZero(all));
 
   // The original still holds its own cells, in their original order.
-  const auto untouched = puml.data(puml.find<unsigned long>("identity", PUML::CELL));
+  const auto untouched = puml.data(puml.find<PUML::GlobalId>("identity", PUML::CELL));
   for (std::size_t i = 0; i < cells.size; ++i) {
     EXPECT_EQ(untouched[i], cells.offset + i) << "cell " << i;
   }
@@ -125,7 +127,7 @@ TEST(Clone, CarriesASecondTopology) {
   feed(puml, mesh, cells, evenSplit(mesh.numVertices, commRank(), commSize()));
 
   auto topology = puml.clone();
-  topology.addDataArray<unsigned long>(
+  topology.addDataArray<PUML::GlobalId>(
       "connectivity", mesh.connect.data() + 4 * cells.offset, PUML::CELL, {4});
 
   puml.generateMesh();

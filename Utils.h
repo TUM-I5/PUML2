@@ -19,6 +19,7 @@
 
 #include "PUML.h"
 #include "Topology.h"
+#include "Types.h"
 
 namespace PUML::internal {
 
@@ -48,7 +49,7 @@ class Utils {
    * Get the global ids for a set of local ids
    */
   template <TopoType Topo, typename E, unsigned int N>
-  static void l2g(const PUML<Topo>& puml, const unsigned int lid[N], unsigned long gid[N]) {
+  static void l2g(const PUML<Topo>& puml, const unsigned int lid[N], GlobalId gid[N]) {
     const std::vector<E>& elements = ElementVector<Topo, E>::elements(puml);
     for (unsigned int i = 0; i < N; i++) {
       gid[i] = elements[lid[i]].m_gid;
