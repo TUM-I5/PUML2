@@ -26,6 +26,7 @@
 #include "UpwardBuilder.h"
 #include <cstddef>
 #include <cstring>
+#include <exception>
 #include <iterator>
 #include <memory>
 #include <numeric>
@@ -1135,7 +1136,12 @@ class PUML {
 #endif // USE_MPI
     cellOffset -= m_originalSize[0];
 
-    {
+    // Every rank builds its part of the mesh on its own. A defect it finds there,
+    // or a failure such as running out of memory, is raised on all ranks together
+    // before the exchanges below, in which the other ranks would wait for this one
+    // forever.
+    internal::Failure failure;
+    try {
       // A mesh of two dimensions builds no edges (its faces are the segments), so
       // it leaves this builder untouched, which clang-tidy takes for a variable
       // that could be const.
@@ -1162,7 +1168,7 @@ class PUML {
           const auto type = static_cast<CellType>(types[i]);
           if (!internal::isSupported(type)) {
             throwError("cell",
-                       i,
+                       m_cells[i].m_gid,
                        "is a",
                        internal::nameOf(type),
                        ", which a mixed mesh cannot be built from yet");
@@ -1261,7 +1267,12 @@ class PUML {
       for (LocalId i = 0; i < m_vertices.size(); i++) {
         m_vertices[i].m_upward.assign(vertexUpward.begin(i), vertexUpward.end(i));
       }
+    } catch (const Error& error) {
+      failure.record(error);
+    } catch (const std::exception& error) {
+      failure.report("the construction of the part of the mesh of a rank failed:", error.what());
     }
+    raiseTogether(failure);
 
     if constexpr (internal::Topology<Topo>::dimension() == 3) {
       // Generate shared information and global ids for edges
@@ -1348,6 +1359,18 @@ class PUML {
 #endif
 
   private:
+  /**
+   * Raises the defect that any rank has found on all ranks of the mesh, and
+   * returns if none has. Collective.
+   */
+  void raiseTogether(const internal::Failure& failure) const {
+#ifdef USE_MPI
+    failure.raise(m_comm);
+#else  // USE_MPI
+    failure.raise();
+#endif // USE_MPI
+  }
+
   /**
    * Add a face but only if it does not exist yet
    *

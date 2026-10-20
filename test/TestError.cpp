@@ -33,26 +33,6 @@ auto messageOf(const std::function<void()>& call) -> std::string {
   return {};
 }
 
-/// A cell listed twice gives its faces a third neighbour.
-TEST(Error, ReportsAFaceWithThreeCells) {
-  if (commSize() != 1) {
-    GTEST_SKIP() << "the defect is local to one rank";
-  }
-
-  auto mesh = makeCubeMesh(2);
-  // Repeat the first cell, so its four faces are claimed by two cells that are
-  // the same and by their real neighbours.
-  mesh.connect.insert(mesh.connect.end(), mesh.connect.begin(), mesh.connect.begin() + 4);
-  mesh.numCells += 1;
-
-  PUML::TETPUML puml;
-  feed(puml, mesh, {0, mesh.numCells}, {0, mesh.numVertices});
-
-  const auto message = messageOf([&puml]() { puml.generateMesh(); });
-  EXPECT_NE(message.find("more than two cells"), std::string::npos) << message;
-  EXPECT_NE(message.find("duplicated cell"), std::string::npos) << message;
-}
-
 TEST(Error, ReportsAnUnknownDataArray) {
   const auto mesh = makeCubeMesh(2);
   PUML::TETPUML puml;

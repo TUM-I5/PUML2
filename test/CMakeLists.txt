@@ -25,6 +25,7 @@ add_executable(puml-tests
   TestReader.cpp
   TestClone.cpp
   TestError.cpp
+  TestDefect.cpp
   TestExchange.cpp
   TestRagged.cpp
   TestMixedReader.cpp
