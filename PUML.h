@@ -909,22 +909,41 @@ class PUML {
 #endif // USE_MPI
 
     const auto& vertexDistributor = distributor(DataType::Vertex);
-    // Generate a list of vertices we need from other processors
-    std::vector<std::unordered_set<GlobalId>> requiredVertexSets(procs);
-    for (const auto& indexArrayHandle : indexArrays) {
-      const auto values = data(indexArrayHandle);
-      const auto elemCount = values.elemCount();
-      const auto* data = values.data();
-      for (std::size_t i = 0; i < m_originalSize[0]; i++) {
-        for (std::size_t j = 0; j < elemCount; j++) {
-          const auto index = data[i * elemCount + j];
-          const auto proc = vertexDistributor.rankOfEntity(index);
-          assert(proc < procs);
+    const auto vertexCount = vertexDistributor.totalSize();
+    const auto firstCell = distributor(DataType::Cell).offsetAndSize(rank).first;
 
-          requiredVertexSets[proc].insert(index);
+    // Generate a list of vertices we need from other processors. An id beyond
+    // the vertices of the mesh names a vertex that no rank holds, so it is
+    // raised on all ranks before any of them asks for a vertex, as is a failure
+    // such as running out of memory.
+    internal::Failure failure;
+    std::vector<std::unordered_set<GlobalId>> requiredVertexSets(procs);
+    try {
+      for (const auto& indexArrayHandle : indexArrays) {
+        const auto values = data(indexArrayHandle);
+        const auto elemCount = values.elemCount();
+        const auto* data = values.data();
+        for (std::size_t i = 0; i < m_originalSize[0] && !failure.failed(); i++) {
+          const auto* cell = data + (i * elemCount);
+          for (std::size_t j = 0; j < elemCount; j++) {
+            const auto index = cell[j];
+            if (index >= vertexCount) {
+              reportVertexBeyond(failure, firstCell + i, cell, elemCount, index, vertexCount);
+              break;
+            }
+            const auto proc = vertexDistributor.rankOfEntity(index);
+            assert(proc < procs);
+
+            requiredVertexSets[proc].insert(index);
+          }
         }
       }
+    } catch (const Error& error) {
+      failure.record(error);
+    } catch (const std::exception& error) {
+      failure.report("collecting the vertices of the cells of a rank failed:", error.what());
     }
+    raiseTogether(failure);
 
     // Generate information for requesting vertices
     std::size_t totalVertices = requiredVertexSets[0].size();
@@ -1369,6 +1388,47 @@ class PUML {
 #else  // USE_MPI
     failure.raise();
 #endif // USE_MPI
+  }
+
+  /**
+   * Reports a cell that names a vertex id beyond the vertices of the mesh, apart
+   * from the check of every id.
+   */
+  static void reportVertexBeyond(internal::Failure& failure,
+                                 GlobalId cell,
+                                 const GlobalId* vertices,
+                                 std::size_t count,
+                                 GlobalId index,
+                                 GlobalId vertexCount) {
+    failure.report("cell",
+                   cell,
+                   "names the vertex",
+                   index,
+                   ", but the mesh has",
+                   vertexCount,
+                   "vertices, numbered from 0; its vertices are",
+                   internal::listOf(vertices, vertices + count),
+                   ".",
+                   hintOnVertexBeyond(index, vertexCount));
+  }
+
+  /**
+   * What a vertex id beyond the vertices of the mesh may tell about the way the
+   * ids were written, or nothing.
+   */
+  static auto hintOnVertexBeyond(GlobalId index, GlobalId vertexCount) -> std::string {
+    if (index == vertexCount && vertexCount > 0) {
+      return "The id is the number of vertices, as it would be if the ids counted from 1.";
+    }
+    // all bits of a value of one, two, ... or eight bytes set
+    unsigned int bits = 0;
+    for (auto rest = index; rest != 0; rest >>= 1U) {
+      ++bits;
+    }
+    if (bits > 0 && bits % 8 == 0 && (index & (index + 1)) == 0) {
+      return "All bits of the id are set, as a writer may set them for a vertex it does not know.";
+    }
+    return {};
   }
 
   /**

@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <algorithm>
+#include <cstddef>
 #include <functional>
 #include <string>
 
@@ -10,6 +12,7 @@
 #include "Error.h"
 #include "PUML.h"
 #include "PumlTest.h"
+#include "Types.h"
 
 namespace {
 
@@ -45,6 +48,64 @@ auto foundOn(int rank) -> std::string {
   static_cast<void>(rank);
   return {};
 #endif // USE_MPI
+}
+
+/// The first cell of the last rank, which no other rank holds.
+auto cellOfTheLastRank(const CubeMesh& mesh) -> std::size_t {
+  return evenSplit(mesh.numCells, commSize() - 1, commSize()).offset;
+}
+
+/// A vertex id beyond the vertices of the mesh names a vertex that no rank
+/// holds; the rank with the cell has to raise it before it asks for vertices.
+TEST(Defect, RaisesAVertexBeyondTheVertices) {
+  auto mesh = makeCubeMesh(2);
+  const auto cell = cellOfTheLastRank(mesh);
+  const auto beyond = mesh.numVertices + 3;
+  mesh.connect[(4 * cell) + 1] = beyond;
+
+  const auto message = generate(mesh);
+  EXPECT_NE(message.find("cell " + std::to_string(cell) + " names the vertex " +
+                         std::to_string(beyond) + ", but the mesh has " +
+                         std::to_string(mesh.numVertices) + " vertices"),
+            std::string::npos)
+      << message;
+  EXPECT_NE(message.find(foundOn(commSize() - 1)), std::string::npos) << message;
+}
+
+/// Ids that count from 1 name one vertex behind the last one, and the message
+/// says what that may mean.
+TEST(Defect, RaisesVertexIdsCountedFromOne) {
+  auto mesh = makeCubeMesh(2);
+  for (auto& vertex : mesh.connect) {
+    ++vertex;
+  }
+
+  // The first cell to name that vertex is the one the message names.
+  const auto namesIt = [&mesh](std::size_t cell) {
+    const auto first = mesh.connect.begin() + static_cast<std::ptrdiff_t>(4 * cell);
+    return std::find(first, first + 4, mesh.numVertices) != first + 4;
+  };
+  std::size_t cell = 0;
+  while (!namesIt(cell)) {
+    ++cell;
+  }
+
+  const auto message = generate(mesh);
+  EXPECT_NE(message.find("cell " + std::to_string(cell) + " names the vertex " +
+                         std::to_string(mesh.numVertices)),
+            std::string::npos)
+      << message;
+  EXPECT_NE(message.find("counted from 1"), std::string::npos) << message;
+}
+
+/// An id with all its bits set is what a writer may put for a vertex it does
+/// not know.
+TEST(Defect, RaisesAVertexIdWithAllBitsSet) {
+  auto mesh = makeCubeMesh(2);
+  mesh.connect[4 * cellOfTheLastRank(mesh)] = ~PUML::GlobalId{0};
+
+  const auto message = generate(mesh);
+  EXPECT_NE(message.find("All bits of the id are set"), std::string::npos) << message;
 }
 
 /// A cell listed twice, right behind itself, so that rank 0 holds both copies:
