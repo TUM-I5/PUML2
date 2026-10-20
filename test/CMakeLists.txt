@@ -25,6 +25,7 @@ add_executable(puml-tests
   TestReader.cpp
   TestClone.cpp
   TestError.cpp
+  TestDefect.cpp
   TestExchange.cpp
   TestRagged.cpp
   TestMixedReader.cpp
@@ -75,7 +76,14 @@ if(PUML_USE_MPI)
     add_test(NAME puml-tests-${ranks}
              COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
                      ${MPIEXEC_PREFLAGS} $<TARGET_FILE:puml-tests> ${MPIEXEC_POSTFLAGS})
+    list(APPEND puml_test_names puml-tests-${ranks})
   endforeach()
 else()
   add_test(NAME puml-tests COMMAND puml-tests)
+  list(APPEND puml_test_names puml-tests)
 endif()
+
+# A suite that is through in seconds and has not finished after this long is
+# waiting for a rank that will not come: it fails rather than hangs.
+set(PUML_TEST_TIMEOUT 300 CACHE STRING "Seconds after which a run of the test suite counts as hung")
+set_tests_properties(${puml_test_names} PROPERTIES TIMEOUT ${PUML_TEST_TIMEOUT})

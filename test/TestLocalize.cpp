@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,30 @@ TEST(Localize, HandlesASecondIndexArray) {
   const auto counts = measure(puml);
   EXPECT_EQ(counts.cells, static_cast<std::int64_t>(mesh.numCells));
   EXPECT_EQ(counts.euler(), 1);
+}
+
+/// Identifying every vertex with itself leaves the cells as they are, in a
+/// mixed mesh with the vertices that a smaller cell is padded with.
+TEST(Identify, LeavesTheCellsOfAMixedMeshUnderTheIdentity) {
+  const auto mesh = makeMixedMesh(1);
+  const auto cells = evenSplit(mesh.numCells, commRank(), commSize());
+  const auto vertices = evenSplit(mesh.numVertices, commRank(), commSize());
+
+  PUML::MIXEDPUML puml;
+  feed(puml, mesh, cells, vertices);
+  std::vector<PUML::GlobalId> identity(vertices.size);
+  std::iota(identity.begin(), identity.end(), vertices.offset);
+  const auto identifiers =
+      puml.addDataArray<PUML::GlobalId>("identity", identity.data(), PUML::VERTEX, {});
+  puml.generateMesh();
+
+  puml.identify(puml.connectivity(), identifiers);
+
+  const auto connectivity = puml.data(puml.connectivity());
+  ASSERT_EQ(connectivity.size(), 8 * cells.size);
+  for (std::size_t i = 0; i < connectivity.size(); ++i) {
+    EXPECT_EQ(connectivity[i], mesh.connect[(8 * cells.offset) + i]) << "entry " << i;
+  }
 }
 
 } // namespace

@@ -26,6 +26,7 @@
 #include "UpwardBuilder.h"
 #include <cstddef>
 #include <cstring>
+#include <exception>
 #include <iterator>
 #include <memory>
 #include <numeric>
@@ -42,6 +43,7 @@
 #include <cstdlib>
 #include <limits>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -908,22 +910,41 @@ class PUML {
 #endif // USE_MPI
 
     const auto& vertexDistributor = distributor(DataType::Vertex);
-    // Generate a list of vertices we need from other processors
-    std::vector<std::unordered_set<GlobalId>> requiredVertexSets(procs);
-    for (const auto& indexArrayHandle : indexArrays) {
-      const auto values = data(indexArrayHandle);
-      const auto elemCount = values.elemCount();
-      const auto* data = values.data();
-      for (std::size_t i = 0; i < m_originalSize[0]; i++) {
-        for (std::size_t j = 0; j < elemCount; j++) {
-          const auto index = data[i * elemCount + j];
-          const auto proc = vertexDistributor.rankOfEntity(index);
-          assert(proc < procs);
+    const auto vertexCount = vertexDistributor.totalSize();
+    const auto firstCell = distributor(DataType::Cell).offsetAndSize(rank).first;
 
-          requiredVertexSets[proc].insert(index);
+    // Generate a list of vertices we need from other processors. An id beyond
+    // the vertices of the mesh names a vertex that no rank holds, so it is
+    // raised on all ranks before any of them asks for a vertex, as is a failure
+    // such as running out of memory.
+    internal::Failure failure;
+    std::vector<std::unordered_set<GlobalId>> requiredVertexSets(procs);
+    try {
+      for (const auto& indexArrayHandle : indexArrays) {
+        const auto values = data(indexArrayHandle);
+        const auto elemCount = values.elemCount();
+        const auto* data = values.data();
+        for (std::size_t i = 0; i < m_originalSize[0] && !failure.failed(); i++) {
+          const auto* cell = data + (i * elemCount);
+          for (std::size_t j = 0; j < elemCount; j++) {
+            const auto index = cell[j];
+            if (index >= vertexCount) {
+              reportVertexBeyond(failure, firstCell + i, cell, elemCount, index, vertexCount);
+              break;
+            }
+            const auto proc = vertexDistributor.rankOfEntity(index);
+            assert(proc < procs);
+
+            requiredVertexSets[proc].insert(index);
+          }
         }
       }
+    } catch (const Error& error) {
+      failure.record(error);
+    } catch (const std::exception& error) {
+      failure.report("collecting the vertices of the cells of a rank failed:", error.what());
     }
+    raiseTogether(failure);
 
     // Generate information for requesting vertices
     std::size_t totalVertices = requiredVertexSets[0].size();
@@ -1135,7 +1156,12 @@ class PUML {
 #endif // USE_MPI
     cellOffset -= m_originalSize[0];
 
-    {
+    // Every rank builds its part of the mesh on its own. A defect it finds there,
+    // or a failure such as running out of memory, is raised on all ranks together
+    // before the exchanges below, in which the other ranks would wait for this one
+    // forever.
+    internal::Failure failure;
+    try {
       // A mesh of two dimensions builds no edges (its faces are the segments), so
       // it leaves this builder untouched, which clang-tidy takes for a variable
       // that could be const.
@@ -1162,7 +1188,7 @@ class PUML {
           const auto type = static_cast<CellType>(types[i]);
           if (!internal::isSupported(type)) {
             throwError("cell",
-                       i,
+                       m_cells[i].m_gid,
                        "is a",
                        internal::nameOf(type),
                        ", which a mixed mesh cannot be built from yet");
@@ -1170,8 +1196,9 @@ class PUML {
           const auto& shape = internal::shapeOf(type);
           m_cells[i].m_type = type;
 
+          requireDistinctVertices(m_cells[i].m_gid, originalCells[i].data(), shape.vertexCount);
           for (std::size_t j = 0; j < shape.vertexCount; j++) {
-            m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
+            m_cells[i].m_vertices[j] = localVertexOf(m_cells[i].m_gid, originalCells[i][j]);
           }
           for (std::size_t j = shape.vertexCount; j < internal::MaxCellVertices; j++) {
             m_cells[i].m_vertices[j] = InvalidLocalId;
@@ -1204,8 +1231,10 @@ class PUML {
           m_cells[i].m_gid = i + cellOffset;
           m_cells[i].m_type = internal::cellTypeOf<Topo>();
 
+          requireDistinctVertices(
+              m_cells[i].m_gid, originalCells[i].data(), internal::Topology<Topo>::cellvertices());
           for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-            m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
+            m_cells[i].m_vertices[j] = localVertexOf(m_cells[i].m_gid, originalCells[i][j]);
           }
 
           // Faces
@@ -1261,7 +1290,12 @@ class PUML {
       for (LocalId i = 0; i < m_vertices.size(); i++) {
         m_vertices[i].m_upward.assign(vertexUpward.begin(i), vertexUpward.end(i));
       }
+    } catch (const Error& error) {
+      failure.record(error);
+    } catch (const std::exception& error) {
+      failure.report("the construction of the part of the mesh of a rank failed:", error.what());
     }
+    raiseTogether(failure);
 
     if constexpr (internal::Topology<Topo>::dimension() == 3) {
       // Generate shared information and global ids for edges
@@ -1274,6 +1308,8 @@ class PUML {
       // skip edges
       generatedSharedAndGID<face_t, vertex_t, 2>(m_faces, m_vertices);
     }
+
+    requireTwoCellsPerFace();
   }
 
   /**
@@ -1349,6 +1385,236 @@ class PUML {
 
   private:
   /**
+   * Raises the defect that any rank has found on all ranks of the mesh, and
+   * returns if none has. Collective.
+   */
+  void raiseTogether(const internal::Failure& failure) const {
+#ifdef USE_MPI
+    failure.raise(m_comm);
+#else  // USE_MPI
+    failure.raise();
+#endif // USE_MPI
+  }
+
+  /**
+   * Reports a cell that names a vertex id beyond the vertices of the mesh, apart
+   * from the check of every id.
+   */
+  static void reportVertexBeyond(internal::Failure& failure,
+                                 GlobalId cell,
+                                 const GlobalId* vertices,
+                                 std::size_t count,
+                                 GlobalId index,
+                                 GlobalId vertexCount) {
+    failure.report("cell",
+                   cell,
+                   "names the vertex",
+                   index,
+                   ", but the mesh has",
+                   vertexCount,
+                   "vertices, numbered from 0; its vertices are",
+                   internal::listOf(vertices, vertices + count),
+                   ".",
+                   hintOnVertexBeyond(index, vertexCount));
+  }
+
+  /**
+   * What a vertex id beyond the vertices of the mesh may tell about the way the
+   * ids were written, or nothing.
+   */
+  static auto hintOnVertexBeyond(GlobalId index, GlobalId vertexCount) -> std::string {
+    if (index == vertexCount && vertexCount > 0) {
+      return "The id is the number of vertices, as it would be if the ids counted from 1.";
+    }
+    // all bits of a value of one, two, ... or eight bytes set
+    unsigned int bits = 0;
+    for (auto rest = index; rest != 0; rest >>= 1U) {
+      ++bits;
+    }
+    if (bits > 0 && bits % 8 == 0 && (index & (index + 1)) == 0) {
+      return "All bits of the id are set, as a writer may set them for a vertex it does not know.";
+    }
+    return {};
+  }
+
+  /**
+   * The local id of a vertex that a cell names. The rank has to hold it, which
+   * it does for the vertices of the arrays it passed to distributeVertices.
+   */
+  auto localVertexOf(GlobalId cell, GlobalId vertex) const -> LocalId {
+    const auto local = m_verticesg2l.find(vertex);
+    if (local == m_verticesg2l.end()) {
+      raiseVertexNotHeld(cell, vertex);
+    }
+    return local->second;
+  }
+
+  /**
+   * Raises that a cell names a vertex this rank does not hold. It is kept apart
+   * from the lookup, which the construction of the cells makes for every vertex.
+   */
+  [[noreturn]] static void raiseVertexNotHeld(GlobalId cell, GlobalId vertex) {
+    throwError("cell",
+               cell,
+               "names the vertex",
+               vertex,
+               ", which this rank does not hold; the array of the cells has to be passed to"
+               " distributeVertices before the mesh is constructed from it");
+  }
+
+  /**
+   * Raises, on all ranks, a face that has more than two cells once the cells of
+   * the other ranks that hold it count as well, which no rank sees on its own.
+   * A rank holds a face for a cell of its own that has it, so each of those
+   * ranks adds a cell at least. Collective.
+   */
+  void requireTwoCellsPerFace() const {
+#ifdef USE_MPI
+    int rank = 0;
+    MPI_Comm_rank(m_comm, &rank);
+
+    internal::Failure failure;
+    for (LocalId i = 0; i < m_faces.size(); ++i) {
+      const auto& face = m_faces[i];
+      // the cells of this rank alone are no more than two
+      if (face.m_sharedRanks.empty()) {
+        continue;
+      }
+      const auto local = std::count_if(face.m_upward.begin(),
+                                       face.m_upward.end(),
+                                       [](LocalId cell) { return cell != InvalidLocalId; });
+      if (static_cast<std::size_t>(local) + face.m_sharedRanks.size() > 2) {
+        std::vector<GlobalId> cells;
+        for (const auto cell : face.m_upward) {
+          if (cell != InvalidLocalId) {
+            cells.push_back(m_cells[cell].gid());
+          }
+        }
+        const auto vertices = faceVertexIds(i);
+        const auto& ranks = face.m_sharedRanks;
+        failure.report("the face with the vertices",
+                       internal::listOf(vertices.begin(), vertices.end()),
+                       "has more than two cells:",
+                       cells.size() == 1 ? "the cell" : "the cells",
+                       internal::wordsOf(cells.begin(), cells.end()),
+                       "on rank",
+                       rank,
+                       ", and",
+                       ranks.size() == 1 ? "a cell on rank" : "cells on the ranks",
+                       internal::wordsOf(ranks.begin(), ranks.end()),
+                       ". A conforming mesh has at most two cells per face, so the input holds a"
+                       " duplicated cell, or cells that overlap.");
+        break;
+      }
+    }
+    raiseTogether(failure);
+#endif // USE_MPI
+  }
+
+  /**
+   * Raises an error if a cell names one of its vertices more than once. Some of
+   * its faces and edges would collapse then, and the faces that are left would
+   * have the cell several times.
+   */
+  static void requireDistinctVertices(GlobalId cell, const GlobalId* vertices, std::size_t count) {
+    for (std::size_t j = 1; j < count; ++j) {
+      for (std::size_t k = 0; k < j; ++k) {
+        if (vertices[j] == vertices[k]) {
+          raiseRepeatedVertex(cell, vertices, count, vertices[j]);
+        }
+      }
+    }
+  }
+
+  /**
+   * Raises that a cell names one of its vertices more than once, apart from the
+   * check of every cell.
+   */
+  [[noreturn]] static void raiseRepeatedVertex(GlobalId cell,
+                                               const GlobalId* vertices,
+                                               std::size_t count,
+                                               GlobalId repeated) {
+    const bool zeros =
+        std::all_of(vertices, vertices + count, [](GlobalId vertex) { return vertex == 0; });
+    throwError("cell",
+               cell,
+               "names the vertex",
+               repeated,
+               "more than once; its vertices are",
+               internal::listOf(vertices, vertices + count),
+               ".",
+               zeros ? "All of them are 0, which is also how a part of a file reads that was"
+                       " never written."
+                     : "");
+  }
+
+  /**
+   * Whether two cells have the same vertices, in whatever order.
+   */
+  [[nodiscard]] auto sameVertices(LocalId first, LocalId second) const -> bool {
+    auto these = m_cells[first].m_vertices;
+    auto those = m_cells[second].m_vertices;
+    std::sort(these.begin(), these.end());
+    std::sort(those.begin(), those.end());
+    return these == those;
+  }
+
+  /**
+   * Why a face has more than the two cells a conforming mesh allows.
+   */
+  [[nodiscard]] auto causeOfThreeCells(const std::array<LocalId, 3>& cells) const -> std::string {
+    for (std::size_t j = 1; j < cells.size(); ++j) {
+      for (std::size_t k = 0; k < j; ++k) {
+        if (sameVertices(cells[k], cells[j])) {
+          std::ostringstream out;
+          out << "The cells " << m_cells[cells[k]].gid() << " and " << m_cells[cells[j]].gid()
+              << " have the same vertices: the input holds a duplicated cell.";
+          return out.str();
+        }
+      }
+    }
+    return "A conforming mesh has at most two cells per face, so the input holds a duplicated"
+           " cell, or cells that overlap.";
+  }
+
+  /**
+   * The global ids of the vertices of a face, in the order the first cell that
+   * has the face lists them on that side.
+   */
+  [[nodiscard]] auto faceVertexIds(LocalId face) const -> std::vector<GlobalId> {
+    const auto& cell = m_cells[m_faces[face].m_upward[0]];
+    const auto shape = shapeOf(cell);
+    for (unsigned int side = 0; side < shape.faceCount; ++side) {
+      std::array<LocalId, internal::Topology<Topo>::facevertices()> key{};
+      key.fill(InvalidLocalId);
+      for (unsigned int d = 0; d < shape.faceVertexCount[side]; ++d) {
+        key[d] = cell.m_vertices[shape.faceVertices[side][d]];
+      }
+      if (m_v2f.find(key) == face) {
+        std::vector<GlobalId> vertices;
+        for (unsigned int d = 0; d < shape.faceVertexCount[side]; ++d) {
+          vertices.push_back(m_vertices[key[d]].m_gid);
+        }
+        return vertices;
+      }
+    }
+    return {};
+  }
+
+  /**
+   * How the cell is built: the shape of its kind in a mixed mesh, otherwise the
+   * one of the mesh.
+   */
+  static auto shapeOf(const cell_t& cell) -> internal::CellShape {
+    if constexpr (Topo == MIXED) {
+      return internal::shapeOf(cell.type());
+    } else {
+      static_cast<void>(cell);
+      return internal::makeShape<Topo>();
+    }
+  }
+
+  /**
    * Add a face but only if it does not exist yet
    *
    * @param lid The local id of the face
@@ -1360,22 +1626,7 @@ class PUML {
       // Update an old face (but make sure that only happens once)
 
       if (m_faces[lid].m_upward[1] != InvalidLocalId) {
-        throwError("face",
-                   lid,
-                   "is adjacent to more than two cells: it already has the local cells",
-                   m_faces[lid].m_upward[0],
-                   "and",
-                   m_faces[lid].m_upward[1],
-                   "(global",
-                   m_cells[m_faces[lid].m_upward[0]].gid(),
-                   "and",
-                   m_cells[m_faces[lid].m_upward[1]].gid(),
-                   "), and local cell",
-                   plid,
-                   "(global",
-                   m_cells[plid].gid(),
-                   ") shares it as well. A conforming mesh has at most two cells per face, so the"
-                   " input holds a duplicated cell or a cell whose vertices are listed twice.");
+        raiseThirdCell(lid, plid);
       }
 
       m_faces[lid].m_upward[1] = plid;
@@ -1394,6 +1645,25 @@ class PUML {
     }
 
     return lid;
+  }
+
+  /**
+   * Raises that a third cell has a face that two cells have already, apart from
+   * the construction of the faces.
+   */
+  [[noreturn]] void raiseThirdCell(LocalId face, LocalId cell) const {
+    const std::array<LocalId, 3> cells{m_faces[face].m_upward[0], m_faces[face].m_upward[1], cell};
+    const auto vertices = faceVertexIds(face);
+    throwError("the face with the vertices",
+               internal::listOf(vertices.begin(), vertices.end()),
+               "has more than two cells: the cells",
+               m_cells[cells[0]].gid(),
+               ",",
+               m_cells[cells[1]].gid(),
+               "and",
+               m_cells[cells[2]].gid(),
+               "have it.",
+               causeOfThreeCells(cells));
   }
 
   /**
@@ -1717,8 +1987,19 @@ class PUML {
     const auto* identifiers = identifierValues.data();
     auto* connectivity = reinterpret_cast<ocell_t*>(data(connectivityToUpdate).data());
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {
+      const auto original = connectivity[i];
+      const auto& vertices = m_cells[i].m_vertices;
       for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
-        connectivity[i][j] = identifiers[m_cells[i].m_vertices[j]];
+        auto local = vertices[j];
+        // A smaller cell of a mixed mesh is padded with vertices it has, for
+        // which it keeps no local id; such a vertex takes the identifier of the
+        // vertex of the cell it repeats, and one that repeats none keeps its id.
+        for (std::size_t k = 0; local == InvalidLocalId && k < vertices.size(); ++k) {
+          if (vertices[k] != InvalidLocalId && original[k] == original[j]) {
+            local = vertices[k];
+          }
+        }
+        connectivity[i][j] = local != InvalidLocalId ? identifiers[local] : original[j];
       }
     }
   }

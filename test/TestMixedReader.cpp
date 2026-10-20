@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -83,7 +84,11 @@ auto writeMesh(const MixedMesh& mesh, const std::string& path, bool withOffsets)
   H5Fclose(file);
 }
 
-auto scratch(const char* name) -> std::string { return std::string("puml-test-") + name + ".h5"; }
+/// A file of the given name for each number of ranks, since the runs of the
+/// suite share a directory.
+auto scratch(const char* name) -> std::string {
+  return std::string("puml-test-") + name + "-" + std::to_string(commSize()) + ".h5";
+}
 
 void barrier() {
 #ifdef USE_MPI
@@ -247,6 +252,121 @@ TEST(MixedReader, ReadsADifferentNodeCountPerCell) {
     EXPECT_EQ(movedNodes.count(i), countOf(moved[i])) << "cell " << moved[i];
     EXPECT_DOUBLE_EQ(movedNodes.begin(i)[0], static_cast<double>(100 * moved[i]));
   }
+
+  barrier();
+  if (commRank() == 0) {
+    std::remove(path.c_str());
+  }
+}
+
+/// Opens a mixed mesh and gives what this rank raised.
+auto messageOfOpening(const std::string& path) -> std::string {
+  PUML::MIXEDPUML puml;
+#ifdef USE_MPI
+  puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+  PUML::Hdf5Reader<PUML::MIXED> reader(puml);
+  try {
+    reader.openMixed(
+        path + ":/Connectivity", path + ":/Offsets", path + ":/Types", path + ":/Points");
+  } catch (const PUML::Error& error) {
+    return error.what();
+  }
+  return {};
+}
+
+/// The last cell is of a kind that no mesh is built from. Only the last rank
+/// reads it, and all ranks have to raise it, or the others would wait for that
+/// rank in the reads that follow.
+TEST(MixedReader, RaisesTheKindOfACellOnEveryRank) {
+  auto mesh = makeHexPyramidMesh(2);
+  mesh.types.back() = 99;
+  const auto path = scratch("kind");
+  writeMesh(mesh, path, true);
+  barrier();
+
+  const auto message = messageOfOpening(path);
+  EXPECT_NE(message.find("cell " + std::to_string(mesh.numCells - 1) + " is of kind 99"),
+            std::string::npos)
+      << message;
+
+  barrier();
+  if (commRank() == 0) {
+    std::remove(path.c_str());
+  }
+}
+
+/// Offsets that run backwards in the cells of the last rank would give a cell
+/// a count of vertices that wraps around.
+TEST(MixedReader, RaisesOffsetsThatRunBackwardsOnEveryRank) {
+  const auto mesh = makeHexPyramidMesh(2);
+  const auto path = scratch("backwards");
+  writeMesh(mesh, path, true);
+  if (commRank() == 0) {
+    const hid_t file = H5Fopen(path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+    EXPECT_GE(file, 0);
+    const hid_t set = H5Dopen(file, "Offsets", H5P_DEFAULT);
+    std::vector<PUML::GlobalId> offsets(mesh.numCells + 1);
+    H5Dread(set, H5T_NATIVE_UINT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, offsets.data());
+    offsets[mesh.numCells - 1] = offsets[mesh.numCells - 2] - 1;
+    H5Dwrite(set, H5T_NATIVE_UINT64, H5S_ALL, H5S_ALL, H5P_DEFAULT, offsets.data());
+    H5Dclose(set);
+    H5Fclose(file);
+  }
+  barrier();
+
+  const auto message = messageOfOpening(path);
+  EXPECT_NE(message.find("the offsets of cell " + std::to_string(mesh.numCells - 2)),
+            std::string::npos)
+      << message;
+  EXPECT_NE(message.find("run backwards"), std::string::npos) << message;
+
+  barrier();
+  if (commRank() == 0) {
+    std::remove(path.c_str());
+  }
+}
+
+/// Offsets of the nodes of the cells that run past the nodes, in the cells of
+/// the last rank, which every rank has to raise before the nodes are read.
+TEST(MixedReader, RaisesNodeOffsetsThatRunPastTheEndOnEveryRank) {
+  const auto cube = makeCubeMesh(2);
+  const auto path = scratch("pastend");
+  if (commRank() == 0) {
+    const std::vector<double> nodes(cube.numCells, 0.0);
+    std::vector<PUML::GlobalId> offsets(cube.numCells + 1);
+    std::iota(offsets.begin(), offsets.end(), 0);
+    offsets.back() = nodes.size() + 5;
+
+    const hid_t file = H5Fcreate(path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    EXPECT_GE(file, 0);
+    writeDataset(file, "Points", H5T_NATIVE_DOUBLE, {cube.numVertices, 3}, cube.geometry.data());
+    writeDataset(file, "Connectivity", H5T_NATIVE_UINT64, {cube.numCells, 4}, cube.connect.data());
+    writeDataset(file, "Nodes", H5T_NATIVE_DOUBLE, {nodes.size()}, nodes.data());
+    writeDataset(file, "NodeOffsets", H5T_NATIVE_UINT64, {offsets.size()}, offsets.data());
+    H5Fclose(file);
+  }
+  barrier();
+
+  std::string message;
+  {
+    PUML::TETPUML puml;
+#ifdef USE_MPI
+    puml.setComm(MPI_COMM_WORLD);
+#endif // USE_MPI
+    PUML::Hdf5Reader<PUML::TETRAHEDRON> reader(puml);
+    reader.open(path + ":/Connectivity", path + ":/Points");
+    try {
+      static_cast<void>(
+          reader.readRaggedData<double>("nodes", path + ":/Nodes", path + ":/NodeOffsets"));
+    } catch (const PUML::Error& error) {
+      message = error.what();
+    }
+  }
+  EXPECT_NE(message.find("the offsets of cell " + std::to_string(cube.numCells - 1) +
+                         " run past the end of"),
+            std::string::npos)
+      << message;
 
   barrier();
   if (commRank() == 0) {
