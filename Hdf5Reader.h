@@ -386,6 +386,10 @@ class Hdf5Reader {
     std::vector<GlobalId> offsets(cellCount + 1);
     readSlab(offsetsPath, firstCell, cellCount + 1, offsets.data());
 
+    internal::Failure failure;
+    checkOffsets(failure, offsets, firstCell, valuesPath);
+    raiseTogether(failure);
+
     std::vector<Size> counts(cellCount);
     for (Size i = 0; i < cellCount; ++i) {
       counts[i] = offsets[i + 1] - offsets[i];
@@ -452,6 +456,45 @@ class Hdf5Reader {
 
   private:
   /**
+   * Reports offsets of the cells of this rank that run backwards, or past the
+   * end of the dataset they point into.
+   */
+  void checkOffsets(internal::Failure& failure,
+                    const std::vector<GlobalId>& offsets,
+                    GlobalId firstCell,
+                    const std::string& valuesPath) {
+    const auto values = datasetLength(valuesPath);
+    for (Size i = 0; i + 1 < offsets.size(); ++i) {
+      if (offsets[i + 1] < offsets[i]) {
+        failure.report("the offsets of cell", firstCell + i, "into", valuesPath, "run backwards");
+        return;
+      }
+      if (offsets[i + 1] > values) {
+        failure.report("the offsets of cell",
+                       firstCell + i,
+                       "run past the end of",
+                       valuesPath,
+                       ", which holds",
+                       values,
+                       "values");
+        return;
+      }
+    }
+  }
+
+  /**
+   * Raises the defect that any rank has found on all ranks, and returns if
+   * none has. Collective.
+   */
+  void raiseTogether(const internal::Failure& failure) const {
+#ifdef USE_MPI
+    failure.raise(m_comm);
+#else  // USE_MPI
+    failure.raise();
+#endif // USE_MPI
+  }
+
+  /**
    * Reads a flat connectivity together with the kind of every cell.
    */
   void readRaggedCells(const std::string& connectivityName,
@@ -478,6 +521,32 @@ class Hdf5Reader {
     std::vector<std::uint8_t> kinds(cellCount);
     readSlabImpl(kindsName, {firstCell, 0}, {cellCount, 0}, 1, H5T_NATIVE_UINT8, kinds.data());
 
+    // The cells of a rank are checked before their vertices are read, which
+    // all ranks do together; so a defect in the cells of one rank is raised on
+    // all of them.
+    internal::Failure failure;
+    checkOffsets(failure, offsets, firstCell, connectivityName);
+    for (Size i = 0; i < cellCount && !failure.failed(); ++i) {
+      const auto type = static_cast<CellType>(kinds[i]);
+      if (!internal::isSupported(type)) {
+        failure.report("cell",
+                       firstCell + i,
+                       "is of kind",
+                       static_cast<unsigned int>(kinds[i]),
+                       ", which a mesh cannot be built from");
+      } else if (offsets[i + 1] - offsets[i] != internal::shapeOf(type).vertexCount) {
+        failure.report("cell",
+                       firstCell + i,
+                       "is a",
+                       internal::nameOf(type),
+                       "and needs",
+                       internal::shapeOf(type).vertexCount,
+                       "vertices, but the file gives it",
+                       offsets[i + 1] - offsets[i]);
+      }
+    }
+    raiseTogether(failure);
+
     const auto base = offsets.front();
     std::vector<GlobalId> flat(offsets.back() - base);
     readSlab(connectivityName, base, flat.size(), flat.data());
@@ -490,30 +559,8 @@ class Hdf5Reader {
 
     for (Size i = 0; i < cellCount; ++i) {
       const auto first = offsets[i] - base;
-      const auto last = offsets[i + 1] - base;
-      if (last < first) {
-        throwError("the offsets of cell", firstCell + i, "run backwards");
-      }
-
       const auto type = static_cast<CellType>(kinds[i]);
-      if (!internal::isSupported(type)) {
-        throwError("cell",
-                   firstCell + i,
-                   "is of kind",
-                   static_cast<unsigned int>(kinds[i]),
-                   "which a mesh cannot be built from");
-      }
       const auto& shape = internal::shapeOf(type);
-      if (last - first != shape.vertexCount) {
-        throwError("cell",
-                   firstCell + i,
-                   "is a",
-                   internal::nameOf(type),
-                   "and needs",
-                   shape.vertexCount,
-                   "vertices, but the file gives it",
-                   last - first);
-      }
 
       types[i] = type;
       auto* cell = view.entity(i);
