@@ -138,22 +138,25 @@ TEST(Exchange, MovesTheBlocksAllToAllAndPointToPoint) {
 }
 
 #ifndef PUML_MPI_LARGE_COUNT
+/// What an exchange of nothing but its counts raises, all-to-all or from rank
+/// to rank.
+auto messageOf(const Exchange& exchange, bool allToAll) -> std::string {
+  try {
+    if (allToAll) {
+      exchange.alltoallv(nullptr, nullptr, MPI_BYTE, MPI_COMM_WORLD);
+    } else {
+      exchange.pointToPoint(nullptr, nullptr, MPI_BYTE, MPI_COMM_WORLD);
+    }
+  } catch (const PUML::Error& error) {
+    return error.what();
+  }
+  return {};
+}
+
 /// Without the calls of MPI 4, an exchange that an int cannot count is refused
-/// before anything is sent, on every rank alike, so that no buffer is touched.
+/// before anything is sent, so that no buffer is touched.
 TEST(Exchange, RefusesWhatAnIntCannotCount) {
   const auto tooMany = static_cast<Size>(std::numeric_limits<int>::max()) + 1;
-  const auto messageOf = [](const Exchange& exchange, bool allToAll) -> std::string {
-    try {
-      if (allToAll) {
-        exchange.alltoallv(nullptr, nullptr, MPI_BYTE, MPI_COMM_WORLD);
-      } else {
-        exchange.pointToPoint(nullptr, nullptr, MPI_BYTE, MPI_COMM_WORLD);
-      }
-    } catch (const PUML::Error& error) {
-      return error.what();
-    }
-    return {};
-  };
 
   // a single block too large
   std::vector<Size> counts(commSize());
@@ -168,6 +171,19 @@ TEST(Exchange, RefusesWhatAnIntCannotCount) {
     const Exchange blocks(halves, halves);
     EXPECT_NE(messageOf(blocks, true).find("more than MPI can count"), std::string::npos);
   }
+}
+
+/// An exchange that an int cannot count on rank 0 alone is refused on all
+/// ranks, which would otherwise wait for rank 0 in the exchange.
+TEST(Exchange, RefusesWhatAnIntCannotCountOnOneRankOnAll) {
+  const auto tooMany = static_cast<Size>(std::numeric_limits<int>::max()) + 1;
+  std::vector<Size> counts(commSize());
+  if (commRank() == 0) {
+    counts[0] = tooMany;
+  }
+  const Exchange exchange(counts, counts);
+  EXPECT_NE(messageOf(exchange, true).find("more than MPI can count"), std::string::npos);
+  EXPECT_NE(messageOf(exchange, false).find("more than MPI can count"), std::string::npos);
 }
 #endif // PUML_MPI_LARGE_COUNT
 

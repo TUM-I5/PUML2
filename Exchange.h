@@ -18,6 +18,7 @@
 #include <mpi.h>
 #endif // USE_MPI
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <limits>
@@ -48,8 +49,8 @@ namespace PUML::internal {
  * All of it is counted in Size. MPI 3 counts in int, which a rank with many
  * entities outgrows -- the offsets of the blocks long before any single count.
  * With PUML_MPI_LARGE_COUNT, the exchange counts in MPI_Count instead; without
- * it, an exchange that an int cannot count raises an Error rather than letting
- * a count wrap around.
+ * it, an exchange that an int cannot count on any rank raises an Error on all
+ * ranks rather than letting a count wrap around.
  */
 class Exchange {
   public:
@@ -90,6 +91,10 @@ class Exchange {
     reverse.m_recvCounts = m_sendCounts;
     reverse.m_sendOffsets = m_recvOffsets;
     reverse.m_recvOffsets = m_sendOffsets;
+#if defined(USE_MPI) && !defined(PUML_MPI_LARGE_COUNT)
+    // the same values, the other way
+    reverse.m_intChecked = m_intChecked;
+#endif
     return reverse;
   }
 
@@ -134,10 +139,11 @@ class Exchange {
                     type,
                     comm);
 #else  // PUML_MPI_LARGE_COUNT
-    const auto sendCounts = intsOf(m_sendCounts, m_sendCounts.size(), sendTotal());
-    const auto recvCounts = intsOf(m_recvCounts, m_recvCounts.size(), recvTotal());
-    const auto sendOffsets = intsOf(m_sendOffsets, m_sendCounts.size(), sendTotal());
-    const auto recvOffsets = intsOf(m_recvOffsets, m_recvCounts.size(), recvTotal());
+    requireIntCounts(true, comm);
+    const auto sendCounts = intsOf(m_sendCounts, m_sendCounts.size());
+    const auto recvCounts = intsOf(m_recvCounts, m_recvCounts.size());
+    const auto sendOffsets = intsOf(m_sendOffsets, m_sendCounts.size());
+    const auto recvOffsets = intsOf(m_recvOffsets, m_recvCounts.size());
     MPI_Alltoallv(send,
                   sendCounts.data(),
                   sendOffsets.data(),
@@ -156,6 +162,10 @@ class Exchange {
    * rank deals with a few others only. Every rank has to take part.
    */
   void pointToPoint(const void* send, void* recv, MPI_Datatype type, MPI_Comm comm) const {
+#ifndef PUML_MPI_LARGE_COUNT
+    requireIntCounts(false, comm);
+#endif // PUML_MPI_LARGE_COUNT
+
     MPI_Aint lowerBound = 0;
     MPI_Aint extent = 0;
     MPI_Type_get_extent(type, &lowerBound, &extent);
@@ -214,23 +224,50 @@ class Exchange {
     MPI_Irecv_c(buffer, static_cast<MPI_Count>(count), type, rank, Tag, comm, request);
   }
 #else  // PUML_MPI_LARGE_COUNT
-  /// The first `count` values as the int that MPI 3 counts in, or an Error if one is too large.
-  static auto intsOf(const std::vector<Size>& values, Size count, Size total) -> std::vector<int> {
+  /**
+   * Raises an Error on all ranks if the exchange of any rank has a count, or
+   * for an all-to-all call an offset, that the int MPI 3 counts in cannot
+   * hold. A rank that refused on its own would leave the others waiting for it
+   * in the exchange. The counts of an exchange stay as they are, so the ranks
+   * agree on them once. Collective, the first time.
+   */
+  void requireIntCounts(bool withOffsets, MPI_Comm comm) const {
+    const int needed = withOffsets ? 2 : 1;
+    if (m_intChecked >= needed) {
+      return;
+    }
+
+    Size largest = 0;
+    for (std::size_t i = 0; i < m_sendCounts.size(); ++i) {
+      largest = std::max({largest, m_sendCounts[i], m_recvCounts[i]});
+      if (withOffsets) {
+        largest = std::max({largest, m_sendOffsets[i], m_recvOffsets[i]});
+      }
+    }
+
+    Failure failure;
+    if (largest > static_cast<Size>(std::numeric_limits<int>::max())) {
+      failure.report("an exchange of",
+                     std::max(sendTotal(), recvTotal()),
+                     "entities on a rank is more than MPI can count in an int; an MPI library"
+                     " with the calls of MPI 4 can take it (with PUML_MPI_LARGE_COUNT defined"
+                     " where it reports an older version)");
+    }
+    failure.raise(comm);
+    m_intChecked = needed;
+  }
+
+  /// The first `count` values as the int that MPI 3 counts in, which they fit.
+  static auto intsOf(const std::vector<Size>& values, Size count) -> std::vector<int> {
     std::vector<int> ints(count);
     for (std::size_t i = 0; i < count; ++i) {
-      ints[i] = intOf(values[i], total);
+      ints[i] = intOf(values[i]);
     }
     return ints;
   }
 
-  static auto intOf(Size value, Size total) -> int {
-    if (value > static_cast<Size>(std::numeric_limits<int>::max())) {
-      throwError("an exchange of",
-                 total,
-                 "entities on a rank is more than MPI can count in an int; an MPI library with"
-                 " the calls of MPI 4 can take it (with PUML_MPI_LARGE_COUNT defined where it"
-                 " reports an older version)");
-    }
+  static auto intOf(Size value) -> int {
+    assert(value <= static_cast<Size>(std::numeric_limits<int>::max()));
     return static_cast<int>(value);
   }
 
@@ -240,12 +277,12 @@ class Exchange {
                    int rank,
                    MPI_Comm comm,
                    MPI_Request* request) {
-    MPI_Isend(buffer, intOf(count, count), type, rank, Tag, comm, request);
+    MPI_Isend(buffer, intOf(count), type, rank, Tag, comm, request);
   }
 
   static void receive(
       void* buffer, Size count, MPI_Datatype type, int rank, MPI_Comm comm, MPI_Request* request) {
-    MPI_Irecv(buffer, intOf(count, count), type, rank, Tag, comm, request);
+    MPI_Irecv(buffer, intOf(count), type, rank, Tag, comm, request);
   }
 #endif // PUML_MPI_LARGE_COUNT
 
@@ -257,6 +294,14 @@ class Exchange {
   std::vector<Size> m_recvCounts;
   std::vector<Size> m_sendOffsets{0};
   std::vector<Size> m_recvOffsets{0};
+
+#if defined(USE_MPI) && !defined(PUML_MPI_LARGE_COUNT)
+  /**
+   * How far all ranks know that an int holds what this exchange passes to MPI:
+   * 0 not yet, 1 the counts, 2 the counts and the offsets.
+   */
+  mutable int m_intChecked{0};
+#endif
 };
 
 } // namespace PUML::internal
