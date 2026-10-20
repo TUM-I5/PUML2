@@ -142,6 +142,26 @@ TEST(Defect, RaisesAFaceWithThreeCellsOnEveryRank) {
   EXPECT_NE(message.find(foundOn(0)), std::string::npos) << message;
 }
 
+/// The copy of the first cell at the end, where the last rank holds it. On more
+/// than one rank, rank 0 sees the first cell and its neighbours, the last rank
+/// the copy, and no rank has the three cells of a face on its own.
+TEST(Defect, RaisesADuplicatedCellOnAnotherRank) {
+  auto mesh = makeCubeMesh(2);
+  mesh.connect.insert(mesh.connect.end(), mesh.connect.begin(), mesh.connect.begin() + 4);
+  mesh.numCells += 1;
+
+  const auto message = generate(mesh);
+  EXPECT_NE(message.find("more than two cells"), std::string::npos) << message;
+  EXPECT_NE(message.find("duplicated cell"), std::string::npos) << message;
+  EXPECT_NE(message.find(foundOn(0)), std::string::npos) << message;
+  if (commSize() > 1) {
+    EXPECT_NE(message.find("the cells 0 and 1 on rank 0, and a cell on rank " +
+                           std::to_string(commSize() - 1)),
+              std::string::npos)
+        << message;
+  }
+}
+
 /// A third cell on a face of two others, which is not a copy of either: the
 /// first two tetrahedra of the first hexahedron share the face of its corners
 /// 0, 1 and 7, and one more cell is put on it.

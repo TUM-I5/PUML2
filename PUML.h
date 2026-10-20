@@ -1308,6 +1308,8 @@ class PUML {
       // skip edges
       generatedSharedAndGID<face_t, vertex_t, 2>(m_faces, m_vertices);
     }
+
+    requireTwoCellsPerFace();
   }
 
   /**
@@ -1458,6 +1460,55 @@ class PUML {
                vertex,
                ", which this rank does not hold; the array of the cells has to be passed to"
                " distributeVertices before the mesh is constructed from it");
+  }
+
+  /**
+   * Raises, on all ranks, a face that has more than two cells once the cells of
+   * the other ranks that hold it count as well, which no rank sees on its own.
+   * A rank holds a face for a cell of its own that has it, so each of those
+   * ranks adds a cell at least. Collective.
+   */
+  void requireTwoCellsPerFace() const {
+#ifdef USE_MPI
+    int rank = 0;
+    MPI_Comm_rank(m_comm, &rank);
+
+    internal::Failure failure;
+    for (LocalId i = 0; i < m_faces.size(); ++i) {
+      const auto& face = m_faces[i];
+      // the cells of this rank alone are no more than two
+      if (face.m_sharedRanks.empty()) {
+        continue;
+      }
+      const auto local = std::count_if(face.m_upward.begin(),
+                                       face.m_upward.end(),
+                                       [](LocalId cell) { return cell != InvalidLocalId; });
+      if (static_cast<std::size_t>(local) + face.m_sharedRanks.size() > 2) {
+        std::vector<GlobalId> cells;
+        for (const auto cell : face.m_upward) {
+          if (cell != InvalidLocalId) {
+            cells.push_back(m_cells[cell].gid());
+          }
+        }
+        const auto vertices = faceVertexIds(i);
+        const auto& ranks = face.m_sharedRanks;
+        failure.report("the face with the vertices",
+                       internal::listOf(vertices.begin(), vertices.end()),
+                       "has more than two cells:",
+                       cells.size() == 1 ? "the cell" : "the cells",
+                       internal::wordsOf(cells.begin(), cells.end()),
+                       "on rank",
+                       rank,
+                       ", and",
+                       ranks.size() == 1 ? "a cell on rank" : "cells on the ranks",
+                       internal::wordsOf(ranks.begin(), ranks.end()),
+                       ". A conforming mesh has at most two cells per face, so the input holds a"
+                       " duplicated cell, or cells that overlap.");
+        break;
+      }
+    }
+    raiseTogether(failure);
+#endif // USE_MPI
   }
 
   /**

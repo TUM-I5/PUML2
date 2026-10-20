@@ -19,6 +19,7 @@
 #endif // USE_MPI
 
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -95,6 +96,21 @@ auto listOf(It first, It last) -> std::string {
     out << +*it;
   }
   out << ')';
+  return out.str();
+}
+
+/**
+ * The values of a range as words for a message: "1", "1 and 2", "1, 2 and 3".
+ */
+template <typename It>
+auto wordsOf(It first, It last) -> std::string {
+  std::ostringstream out;
+  for (auto it = first; it != last; ++it) {
+    if (it != first) {
+      out << (std::next(it) == last ? " and " : ", ");
+    }
+    out << +*it;
+  }
   return out.str();
 }
 
