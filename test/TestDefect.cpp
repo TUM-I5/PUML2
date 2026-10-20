@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -136,8 +137,78 @@ TEST(Defect, RaisesAFaceWithThreeCellsOnEveryRank) {
 
   const auto message = generate(mesh);
   EXPECT_NE(message.find("more than two cells"), std::string::npos) << message;
+  EXPECT_NE(message.find("The cells 0 and 1 have the same vertices"), std::string::npos) << message;
   EXPECT_NE(message.find("duplicated cell"), std::string::npos) << message;
   EXPECT_NE(message.find(foundOn(0)), std::string::npos) << message;
+}
+
+/// A third cell on a face of two others, which is not a copy of either: the
+/// first two tetrahedra of the first hexahedron share the face of its corners
+/// 0, 1 and 7, and one more cell is put on it.
+TEST(Defect, RaisesCellsThatOverlap) {
+  auto mesh = makeCubeMesh(2);
+  const std::vector<PUML::GlobalId> extra{
+      mesh.connect[0], mesh.connect[1], mesh.connect[3], mesh.connect[2] + 1};
+  mesh.connect.insert(mesh.connect.begin() + 8, extra.begin(), extra.end());
+  mesh.numCells += 1;
+
+  const auto message = generate(mesh);
+  EXPECT_NE(message.find("more than two cells: the cells 0, 1 and 2 have it"), std::string::npos)
+      << message;
+  EXPECT_NE(message.find("cells that overlap"), std::string::npos) << message;
+  EXPECT_EQ(message.find("same vertices"), std::string::npos) << message;
+}
+
+/// A row of zeros, which is how a part of a file reads that was never written,
+/// in the first cell of the last rank.
+TEST(Defect, RaisesACellOfZerosOnly) {
+  auto mesh = makeCubeMesh(2);
+  const auto cell = cellOfTheLastRank(mesh);
+  std::fill_n(mesh.connect.begin() + static_cast<std::ptrdiff_t>(4 * cell), 4, 0);
+
+  const auto message = generate(mesh);
+  EXPECT_NE(message.find("cell " + std::to_string(cell) +
+                         " names the vertex 0 more than once; its vertices are (0, 0, 0, 0)."),
+            std::string::npos)
+      << message;
+  EXPECT_NE(message.find("never written"), std::string::npos) << message;
+  EXPECT_NE(message.find(foundOn(commSize() - 1)), std::string::npos) << message;
+}
+
+/// A cell that names one of its vertices twice, in place of another one.
+TEST(Defect, RaisesACellThatNamesAVertexTwice) {
+  auto mesh = makeCubeMesh(2);
+  const auto cell = cellOfTheLastRank(mesh);
+  auto* vertices = mesh.connect.data() + (4 * cell);
+  vertices[2] = vertices[0];
+
+  const auto message = generate(mesh);
+  EXPECT_NE(message.find("cell " + std::to_string(cell) + " names the vertex " +
+                         std::to_string(vertices[0]) + " more than once"),
+            std::string::npos)
+      << message;
+  EXPECT_EQ(message.find("never written"), std::string::npos) << message;
+}
+
+/// A mixed mesh pads the vertices of its smaller cells with ones they have
+/// already, which is no defect; a vertex named twice among the ones a cell has
+/// is one.
+TEST(Defect, RaisesACellOfAMixedMeshThatNamesAVertexTwice) {
+  auto mesh = makeMixedMesh(1);
+  const auto cell = mesh.numHexCells + 2;
+  auto* vertices = mesh.connect.data() + (8 * cell);
+  vertices[3] = vertices[1];
+
+  PUML::MIXEDPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  const auto message = messageOf([&puml]() { puml.generateMesh(); });
+  EXPECT_NE(message.find("cell " + std::to_string(cell) + " names the vertex " +
+                         std::to_string(vertices[1]) + " more than once"),
+            std::string::npos)
+      << message;
 }
 
 } // namespace

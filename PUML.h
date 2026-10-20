@@ -43,6 +43,7 @@
 #include <cstdlib>
 #include <limits>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -1195,6 +1196,7 @@ class PUML {
           const auto& shape = internal::shapeOf(type);
           m_cells[i].m_type = type;
 
+          requireDistinctVertices(m_cells[i].m_gid, originalCells[i].data(), shape.vertexCount);
           for (std::size_t j = 0; j < shape.vertexCount; j++) {
             m_cells[i].m_vertices[j] = localVertexOf(m_cells[i].m_gid, originalCells[i][j]);
           }
@@ -1229,6 +1231,8 @@ class PUML {
           m_cells[i].m_gid = i + cellOffset;
           m_cells[i].m_type = internal::cellTypeOf<Topo>();
 
+          requireDistinctVertices(
+              m_cells[i].m_gid, originalCells[i].data(), internal::Topology<Topo>::cellvertices());
           for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
             m_cells[i].m_vertices[j] = localVertexOf(m_cells[i].m_gid, originalCells[i][j]);
           }
@@ -1457,6 +1461,109 @@ class PUML {
   }
 
   /**
+   * Raises an error if a cell names one of its vertices more than once. Some of
+   * its faces and edges would collapse then, and the faces that are left would
+   * have the cell several times.
+   */
+  static void requireDistinctVertices(GlobalId cell, const GlobalId* vertices, std::size_t count) {
+    for (std::size_t j = 1; j < count; ++j) {
+      for (std::size_t k = 0; k < j; ++k) {
+        if (vertices[j] == vertices[k]) {
+          raiseRepeatedVertex(cell, vertices, count, vertices[j]);
+        }
+      }
+    }
+  }
+
+  /**
+   * Raises that a cell names one of its vertices more than once, apart from the
+   * check of every cell.
+   */
+  [[noreturn]] static void raiseRepeatedVertex(GlobalId cell,
+                                               const GlobalId* vertices,
+                                               std::size_t count,
+                                               GlobalId repeated) {
+    const bool zeros =
+        std::all_of(vertices, vertices + count, [](GlobalId vertex) { return vertex == 0; });
+    throwError("cell",
+               cell,
+               "names the vertex",
+               repeated,
+               "more than once; its vertices are",
+               internal::listOf(vertices, vertices + count),
+               ".",
+               zeros ? "All of them are 0, which is also how a part of a file reads that was"
+                       " never written."
+                     : "");
+  }
+
+  /**
+   * Whether two cells have the same vertices, in whatever order.
+   */
+  [[nodiscard]] auto sameVertices(LocalId first, LocalId second) const -> bool {
+    auto these = m_cells[first].m_vertices;
+    auto those = m_cells[second].m_vertices;
+    std::sort(these.begin(), these.end());
+    std::sort(those.begin(), those.end());
+    return these == those;
+  }
+
+  /**
+   * Why a face has more than the two cells a conforming mesh allows.
+   */
+  [[nodiscard]] auto causeOfThreeCells(const std::array<LocalId, 3>& cells) const -> std::string {
+    for (std::size_t j = 1; j < cells.size(); ++j) {
+      for (std::size_t k = 0; k < j; ++k) {
+        if (sameVertices(cells[k], cells[j])) {
+          std::ostringstream out;
+          out << "The cells " << m_cells[cells[k]].gid() << " and " << m_cells[cells[j]].gid()
+              << " have the same vertices: the input holds a duplicated cell.";
+          return out.str();
+        }
+      }
+    }
+    return "A conforming mesh has at most two cells per face, so the input holds a duplicated"
+           " cell, or cells that overlap.";
+  }
+
+  /**
+   * The global ids of the vertices of a face, in the order the first cell that
+   * has the face lists them on that side.
+   */
+  [[nodiscard]] auto faceVertexIds(LocalId face) const -> std::vector<GlobalId> {
+    const auto& cell = m_cells[m_faces[face].m_upward[0]];
+    const auto shape = shapeOf(cell);
+    for (unsigned int side = 0; side < shape.faceCount; ++side) {
+      std::array<LocalId, internal::Topology<Topo>::facevertices()> key{};
+      key.fill(InvalidLocalId);
+      for (unsigned int d = 0; d < shape.faceVertexCount[side]; ++d) {
+        key[d] = cell.m_vertices[shape.faceVertices[side][d]];
+      }
+      if (m_v2f.find(key) == face) {
+        std::vector<GlobalId> vertices;
+        for (unsigned int d = 0; d < shape.faceVertexCount[side]; ++d) {
+          vertices.push_back(m_vertices[key[d]].m_gid);
+        }
+        return vertices;
+      }
+    }
+    return {};
+  }
+
+  /**
+   * How the cell is built: the shape of its kind in a mixed mesh, otherwise the
+   * one of the mesh.
+   */
+  static auto shapeOf(const cell_t& cell) -> internal::CellShape {
+    if constexpr (Topo == MIXED) {
+      return internal::shapeOf(cell.type());
+    } else {
+      static_cast<void>(cell);
+      return internal::makeShape<Topo>();
+    }
+  }
+
+  /**
    * Add a face but only if it does not exist yet
    *
    * @param lid The local id of the face
@@ -1468,22 +1575,7 @@ class PUML {
       // Update an old face (but make sure that only happens once)
 
       if (m_faces[lid].m_upward[1] != InvalidLocalId) {
-        throwError("face",
-                   lid,
-                   "is adjacent to more than two cells: it already has the local cells",
-                   m_faces[lid].m_upward[0],
-                   "and",
-                   m_faces[lid].m_upward[1],
-                   "(global",
-                   m_cells[m_faces[lid].m_upward[0]].gid(),
-                   "and",
-                   m_cells[m_faces[lid].m_upward[1]].gid(),
-                   "), and local cell",
-                   plid,
-                   "(global",
-                   m_cells[plid].gid(),
-                   ") shares it as well. A conforming mesh has at most two cells per face, so the"
-                   " input holds a duplicated cell or a cell whose vertices are listed twice.");
+        raiseThirdCell(lid, plid);
       }
 
       m_faces[lid].m_upward[1] = plid;
@@ -1502,6 +1594,25 @@ class PUML {
     }
 
     return lid;
+  }
+
+  /**
+   * Raises that a third cell has a face that two cells have already, apart from
+   * the construction of the faces.
+   */
+  [[noreturn]] void raiseThirdCell(LocalId face, LocalId cell) const {
+    const std::array<LocalId, 3> cells{m_faces[face].m_upward[0], m_faces[face].m_upward[1], cell};
+    const auto vertices = faceVertexIds(face);
+    throwError("the face with the vertices",
+               internal::listOf(vertices.begin(), vertices.end()),
+               "has more than two cells: the cells",
+               m_cells[cells[0]].gid(),
+               ",",
+               m_cells[cells[1]].gid(),
+               "and",
+               m_cells[cells[2]].gid(),
+               "have it.",
+               causeOfThreeCells(cells));
   }
 
   /**
