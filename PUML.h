@@ -1987,8 +1987,19 @@ class PUML {
     const auto* identifiers = identifierValues.data();
     auto* connectivity = reinterpret_cast<ocell_t*>(data(connectivityToUpdate).data());
     for (std::size_t i = 0; i < m_originalSize[0]; ++i) {
+      const auto original = connectivity[i];
+      const auto& vertices = m_cells[i].m_vertices;
       for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); ++j) {
-        connectivity[i][j] = identifiers[m_cells[i].m_vertices[j]];
+        auto local = vertices[j];
+        // A smaller cell of a mixed mesh is padded with vertices it has, for
+        // which it keeps no local id; such a vertex takes the identifier of the
+        // vertex of the cell it repeats, and one that repeats none keeps its id.
+        for (std::size_t k = 0; local == InvalidLocalId && k < vertices.size(); ++k) {
+          if (vertices[k] != InvalidLocalId && original[k] == original[j]) {
+            local = vertices[k];
+          }
+        }
+        connectivity[i][j] = local != InvalidLocalId ? identifiers[local] : original[j];
       }
     }
   }
