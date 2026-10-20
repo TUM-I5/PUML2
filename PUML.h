@@ -1196,7 +1196,7 @@ class PUML {
           m_cells[i].m_type = type;
 
           for (std::size_t j = 0; j < shape.vertexCount; j++) {
-            m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
+            m_cells[i].m_vertices[j] = localVertexOf(m_cells[i].m_gid, originalCells[i][j]);
           }
           for (std::size_t j = shape.vertexCount; j < internal::MaxCellVertices; j++) {
             m_cells[i].m_vertices[j] = InvalidLocalId;
@@ -1230,7 +1230,7 @@ class PUML {
           m_cells[i].m_type = internal::cellTypeOf<Topo>();
 
           for (std::size_t j = 0; j < internal::Topology<Topo>::cellvertices(); j++) {
-            m_cells[i].m_vertices[j] = m_verticesg2l[originalCells[i][j]];
+            m_cells[i].m_vertices[j] = localVertexOf(m_cells[i].m_gid, originalCells[i][j]);
           }
 
           // Faces
@@ -1429,6 +1429,31 @@ class PUML {
       return "All bits of the id are set, as a writer may set them for a vertex it does not know.";
     }
     return {};
+  }
+
+  /**
+   * The local id of a vertex that a cell names. The rank has to hold it, which
+   * it does for the vertices of the arrays it passed to distributeVertices.
+   */
+  auto localVertexOf(GlobalId cell, GlobalId vertex) const -> LocalId {
+    const auto local = m_verticesg2l.find(vertex);
+    if (local == m_verticesg2l.end()) {
+      raiseVertexNotHeld(cell, vertex);
+    }
+    return local->second;
+  }
+
+  /**
+   * Raises that a cell names a vertex this rank does not hold. It is kept apart
+   * from the lookup, which the construction of the cells makes for every vertex.
+   */
+  [[noreturn]] static void raiseVertexNotHeld(GlobalId cell, GlobalId vertex) {
+    throwError("cell",
+               cell,
+               "names the vertex",
+               vertex,
+               ", which this rank does not hold; the array of the cells has to be passed to"
+               " distributeVertices before the mesh is constructed from it");
   }
 
   /**

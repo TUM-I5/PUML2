@@ -108,6 +108,25 @@ TEST(Defect, RaisesAVertexIdWithAllBitsSet) {
   EXPECT_NE(message.find("All bits of the id are set"), std::string::npos) << message;
 }
 
+/// A mesh constructed from cells whose vertices were never distributed names
+/// vertices that the ranks do not hold.
+TEST(Defect, RaisesAVertexThatWasNotDistributed) {
+  const auto mesh = makeCubeMesh(2);
+  PUML::TETPUML puml;
+  feed(puml,
+       mesh,
+       evenSplit(mesh.numCells, commRank(), commSize()),
+       evenSplit(mesh.numVertices, commRank(), commSize()));
+  puml.distributeVertices({});
+
+  const auto message = messageOf([&puml]() { puml.constructMesh(puml.connectivity()); });
+  EXPECT_NE(message.find("cell 0 names the vertex " + std::to_string(mesh.connect[0]) +
+                         ", which this rank does not hold"),
+            std::string::npos)
+      << message;
+  EXPECT_NE(message.find(foundOn(0)), std::string::npos) << message;
+}
+
 /// A cell listed twice, right behind itself, so that rank 0 holds both copies:
 /// its faces have a third cell there, which the other ranks cannot see.
 TEST(Defect, RaisesAFaceWithThreeCellsOnEveryRank) {
